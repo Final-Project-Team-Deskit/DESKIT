@@ -8,7 +8,11 @@ assignees: ''
 
 ## ⌨ 개발 기능
 
+-
+
 ## 😄 개발 담당자
+
+-
 
 ## 💡 기능 설명
 
@@ -19,4 +23,3 @@ assignees: ''
 - [ ] UI 퍼블리싱
 - [ ] Controller 구현
 - [ ] Service 로직 구현
-- [ ] DB 테이블 생성
