@@ -14,14 +14,62 @@ java {
 	}
 }
 
+configurations {
+	compileOnly {
+		extendsFrom annotationProcessor
+	}
+}
+
 repositories {
 	mavenCentral()
 }
 
 dependencies {
+	// Spring Boot
 	implementation 'org.springframework.boot:spring-boot-starter'
 	testImplementation 'org.springframework.boot:spring-boot-starter-test'
 	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+	implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
+	implementation 'org.springframework.boot:spring-boot-starter-data-jdbc'
+	implementation 'org.springframework.boot:spring-boot-starter-web'
+
+	// Lombok
+	compileOnly 'org.projectlombok:lombok'
+	annotationProcessor 'org.projectlombok:lombok'
+
+	// MySQL
+	runtimeOnly 'com.mysql:mysql-connector-j'
+
+	// Redis
+	implementation "org.springframework.ai:spring-ai-starter-vector-store-redis"
+	implementation 'org.springframework.boot:spring-boot-starter-data-redis'
+
+	// Spring Security
+	implementation 'org.springframework.boot:spring-boot-starter-oauth2-client'
+	implementation 'org.springframework.boot:spring-boot-starter-security'
+	testImplementation 'org.springframework.security:spring-security-test'
+
+	// JWT
+	implementation 'io.jsonwebtoken:jjwt-api:0.12.3'
+	implementation 'io.jsonwebtoken:jjwt-impl:0.12.3'
+	implementation 'io.jsonwebtoken:jjwt-jackson:0.12.3'
+
+	// OpenVidu
+	implementation 'io.openvidu:openvidu-java-client:2.30.0' // 미디어 서버 버전과 맞춰야 함
+	// NCP Object Storage (AWS S3 호환) 연동을 위한 라이브러리
+	implementation 'com.amazonaws:aws-java-sdk-s3:1.12.470'
+
+	// Spring AI
+	implementation platform("org.springframework.ai:spring-ai-bom:1.0.3")
+	implementation 'org.springframework.ai:spring-ai-starter-model-openai'
+	implementation 'org.springframework.ai:spring-ai-starter-model-chat-memory-repository-jdbc'
+	implementation 'org.springframework.ai:spring-ai-advisors-vector-store'
+
+	// Document Reader
+	implementation 'org.springframework.ai:spring-ai-markdown-document-reader'
+	implementation 'org.springframework.ai:spring-ai-pdf-document-reader'
+	implementation 'org.springframework.ai:spring-ai-tika-document-reader'
+
 }
 
 tasks.named('test') {
