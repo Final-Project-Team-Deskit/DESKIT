@@ -7,9 +7,14 @@ import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import lombok.AccessLevel;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
 
 @Entity
 @Table(name = "setup")
+@Getter
+@NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class Setup extends BaseEntity {
 
   @Id
@@ -32,9 +37,6 @@ public class Setup extends BaseEntity {
   @Column(name = "setup_image_url", nullable = false, length = 500)
   private String setupImageUrl;
 
-  protected Setup() {
-  }
-
   public Setup(Long sellerId, String setupName, String shortDesc, String tipText,
                String setupImageUrl) {
     this.sellerId = sellerId;
@@ -42,29 +44,5 @@ public class Setup extends BaseEntity {
     this.shortDesc = shortDesc;
     this.tipText = tipText;
     this.setupImageUrl = setupImageUrl;
-  }
-
-  public Long getId() {
-    return id;
-  }
-
-  public Long getSellerId() {
-    return sellerId;
-  }
-
-  public String getSetupName() {
-    return setupName;
-  }
-
-  public String getShortDesc() {
-    return shortDesc;
-  }
-
-  public String getTipText() {
-    return tipText;
-  }
-
-  public String getSetupImageUrl() {
-    return setupImageUrl;
   }
 }

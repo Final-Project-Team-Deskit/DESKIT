@@ -6,9 +6,15 @@ import com.fasterxml.jackson.annotation.JsonPropertyOrder;
 import java.util.Collections;
 import java.util.List;
 
+/**
+ * Product 조회 API 응답 DTO
+ * - 프론트(mock 데이터)와 호환되도록 snake_case(JSON) 키를 사용 (@JsonProperty)
+ * - tags: 카테고리별(space/tone/situation/mood) 태그 리스트
+ * - tagsFlat: tags를 카테고리 순서대로 합친 1차원 리스트 (UI/필터링 편의)
+ */
 public class ProductResponse {
 
-  @JsonProperty("product_id")
+  @JsonProperty("product_id") // JSON 키를 product_id로 고정
   private final Long productId;
 
   @JsonProperty("seller_id")
@@ -44,6 +50,10 @@ public class ProductResponse {
   @JsonProperty("tagsFlat")
   private final List<String> tagsFlat;
 
+  /**
+   * 생성자에서 null-safe 처리:
+   * - tags/tagsFlat이 null로 들어오면 빈 값으로 치환해서 응답 안정성 확보
+   */
   public ProductResponse(Long productId, Long sellerId, String name, String shortDesc,
                          String detailHtml, Integer price, Integer costPrice,
                          Product.Status status, Integer stockQty, Integer safetyStock,
@@ -62,23 +72,30 @@ public class ProductResponse {
     this.tagsFlat = tagsFlat == null ? Collections.emptyList() : tagsFlat;
   }
 
+  /**
+   * 엔티티 -> DTO 변환 팩토리 메서드
+   * - 엔티티 필드명(productName 등)과 응답 필드명(name 등)을 여기서 매핑
+   */
   public static ProductResponse from(Product product, ProductTags tags, List<String> tagsFlat) {
     return new ProductResponse(
-        product.getId(),
-        product.getSellerId(),
-        product.getProductName(),
-        product.getShortDesc(),
-        product.getDetailHtml(),
-        product.getPrice(),
-        product.getCostPrice(),
-        product.getStatus(),
-        product.getStockQty(),
-        product.getSafetyStock(),
-        tags,
-        tagsFlat
+            product.getId(),
+            product.getSellerId(),
+            product.getProductName(), // 엔티티 productName -> 응답 name
+            product.getShortDesc(),
+            product.getDetailHtml(),
+            product.getPrice(),
+            product.getCostPrice(),
+            product.getStatus(),
+            product.getStockQty(),
+            product.getSafetyStock(),
+            tags,
+            tagsFlat
     );
   }
 
+  /**
+   * tags 객체의 JSON 필드 출력 순서를 고정 (보기 좋게 + 프론트 기대 순서)
+   */
   @JsonPropertyOrder({"space", "tone", "situation", "mood"})
   public static class ProductTags {
 
@@ -94,6 +111,10 @@ public class ProductResponse {
     @JsonProperty("mood")
     private final List<String> mood;
 
+    /**
+     * 카테고리별 태그 리스트를 담는 객체
+     * - null로 들어오면 빈 리스트로 치환 (null-safe)
+     */
     public ProductTags(List<String> space, List<String> tone,
                        List<String> situation, List<String> mood) {
       this.space = space == null ? Collections.emptyList() : space;
@@ -102,11 +123,13 @@ public class ProductResponse {
       this.mood = mood == null ? Collections.emptyList() : mood;
     }
 
+    /** 빈 tags 기본값 제공 */
     public static ProductTags empty() {
       return new ProductTags(Collections.emptyList(), Collections.emptyList(),
-          Collections.emptyList(), Collections.emptyList());
+              Collections.emptyList(), Collections.emptyList());
     }
 
+    // Jackson이 직렬화 시 getter를 통해 값을 읽기 때문에 getter 제공
     public List<String> getSpace() {
       return space;
     }
