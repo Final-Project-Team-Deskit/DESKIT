@@ -1,0 +1,57 @@
+.app-shell {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.section-title {
+  font-size: 1.6rem;
+  font-weight: 800;
+  margin: 0 0 16px;
+  letter-spacing: -0.4px;
+}
+
+.section-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 16px;
+}
+
+.ds-container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 20px;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.ds-stack-lg {
+  display: flex;
+  flex-direction: column;
+  gap: 34px;
+}
+
+.ds-section-head {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.ds-section-sub {
+  margin: 0;
+  color: var(--text-muted);
+}
+
+.ds-surface {
+  border: 1px solid var(--border-color);
+  background: var(--surface);
+  border-radius: 14px;
+  box-shadow: var(--shadow-card);
+}
+
+@media (max-width: 640px) {
+  .ds-container {
+    padding: 0 16px;
+  }
+}
