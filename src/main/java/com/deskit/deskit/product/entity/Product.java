@@ -10,9 +10,14 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Lob;
 import jakarta.persistence.Table;
+import lombok.AccessLevel;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
 
 @Entity
 @Table(name = "product")
+@Getter
+@NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class Product extends BaseEntity {
 
   public enum Status {
@@ -60,9 +65,6 @@ public class Product extends BaseEntity {
   @Column(name = "safety_stock", nullable = false)
   private Integer safetyStock;
 
-  protected Product() {
-  }
-
   public Product(Long sellerId, String productName, String shortDesc, String detailHtml,
                  Integer price, Integer costPrice, Status status, Integer stockQty,
                  Integer safetyStock) {
@@ -75,45 +77,5 @@ public class Product extends BaseEntity {
     this.status = status;
     this.stockQty = stockQty;
     this.safetyStock = safetyStock;
-  }
-
-  public Long getId() {
-    return id;
-  }
-
-  public Long getSellerId() {
-    return sellerId;
-  }
-
-  public String getProductName() {
-    return productName;
-  }
-
-  public String getShortDesc() {
-    return shortDesc;
-  }
-
-  public String getDetailHtml() {
-    return detailHtml;
-  }
-
-  public Integer getPrice() {
-    return price;
-  }
-
-  public Integer getCostPrice() {
-    return costPrice;
-  }
-
-  public Status getStatus() {
-    return status;
-  }
-
-  public Integer getStockQty() {
-    return stockQty;
-  }
-
-  public Integer getSafetyStock() {
-    return safetyStock;
   }
 }

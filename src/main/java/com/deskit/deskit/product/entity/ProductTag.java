@@ -13,12 +13,19 @@ import jakarta.persistence.Table;
 import java.io.Serializable;
 import java.time.LocalDateTime;
 import java.util.Objects;
+import lombok.AccessLevel;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
 
 @Entity
 @Table(name = "product_tag")
+@Getter
+@NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class ProductTag {
 
   @Embeddable
+  @Getter
+  @NoArgsConstructor(access = AccessLevel.PROTECTED)
   public static class ProductTagId implements Serializable {
 
     @Column(name = "product_id", nullable = false)
@@ -27,20 +34,9 @@ public class ProductTag {
     @Column(name = "tag_id", nullable = false)
     private Long tagId;
 
-    protected ProductTagId() {
-    }
-
     public ProductTagId(Long productId, Long tagId) {
       this.productId = productId;
       this.tagId = tagId;
-    }
-
-    public Long getProductId() {
-      return productId;
-    }
-
-    public Long getTagId() {
-      return tagId;
     }
 
     @Override
@@ -81,31 +77,8 @@ public class ProductTag {
   @Column(name = "deleted_at")
   private LocalDateTime deletedAt;
 
-  protected ProductTag() {
-  }
-
   public ProductTag(Product product, Tag tag) {
     this.product = product;
     this.tag = tag;
-  }
-
-  public ProductTagId getId() {
-    return id;
-  }
-
-  public Product getProduct() {
-    return product;
-  }
-
-  public Tag getTag() {
-    return tag;
-  }
-
-  public LocalDateTime getCreatedAt() {
-    return createdAt;
-  }
-
-  public LocalDateTime getDeletedAt() {
-    return deletedAt;
   }
 }
