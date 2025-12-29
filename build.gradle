@@ -70,6 +70,9 @@ dependencies {
 	implementation 'org.springframework.ai:spring-ai-pdf-document-reader'
 	implementation 'org.springframework.ai:spring-ai-tika-document-reader'
 
+	// SendGrid(Email)
+	implementation 'com.sendgrid:sendgrid-java:4.4.1'
+
 }
 
 tasks.named('test') {
