@@ -1,5 +1,5 @@
-import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
-import { isAdmin, isLoggedIn, isSeller } from '../lib/auth'
+﻿import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
+import { hydrateSessionUser, isAdmin, isLoggedIn, isSeller } from '../lib/auth'
 
 const routes: RouteRecordRaw[] = [
   {
@@ -56,6 +56,11 @@ const routes: RouteRecordRaw[] = [
     path: '/login',
     name: 'login',
     component: () => import('../pages/Login.vue'),
+  },
+  {
+    path: '/signup',
+    name: 'signup',
+    component: () => import('../pages/Signup.vue'),
   },
   {
     path: '/my',
@@ -201,11 +206,15 @@ export const router = createRouter({
   },
 })
 
-router.beforeEach((to) => {
-  const loggedIn = isLoggedIn()
+router.beforeEach(async (to) => {
+  let loggedIn = isLoggedIn()
   const isSellerPath = to.path.startsWith('/seller')
   if (!loggedIn && to.path.startsWith('/my')) {
-    return { path: '/login', query: { redirect: to.fullPath } }
+    const sessionOk = await hydrateSessionUser()
+    if (!sessionOk) {
+      return { path: '/login', query: { redirect: to.fullPath } }
+    }
+    loggedIn = isLoggedIn()
   }
   if (isSellerPath && !loggedIn) {
     return { path: '/login', query: { redirect: to.fullPath } }
@@ -223,3 +232,5 @@ router.beforeEach((to) => {
   }
   return true
 })
+
+

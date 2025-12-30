@@ -20,6 +20,7 @@ public class Member {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @Column(name = "member_id")
     private Long memberId;
 
     @Column(name = "name", nullable = false)
@@ -38,15 +39,18 @@ public class Member {
     private boolean isAgreed;
 
     @Column(name = "status", nullable = false)
+    @Enumerated(EnumType.STRING)
     private MemberStatus status;
 
     @Column(name = "role", nullable = false)
     private String role;
 
     @Column(name = "mbti")
+    @Enumerated(EnumType.STRING)
     private MBTI mbti;
 
     @Column(name = "job_category")
+    @Enumerated(EnumType.STRING)
     private JobCategory jobCategory;
 
     @CreationTimestamp
