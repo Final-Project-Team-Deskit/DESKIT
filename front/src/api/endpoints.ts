@@ -1,6 +1,6 @@
 export const endpoints = {
-  products: '/products',
-  productDetail: (id: string | number) => `/products/${id}`,
+  products: '/api/products',
+  productDetail: (id: string | number) => `/api/products/${id}`,
   setups: '/setups',
   setupDetail: (id: string | number) => `/setups/${id}`,
   cart: '/cart',

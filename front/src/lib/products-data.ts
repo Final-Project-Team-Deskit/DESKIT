@@ -14,6 +14,7 @@ export type ProductTags = Record<TagCategoryKey, string[]>
 export type ProductCategoryKey = 'furniture' | 'computer' | 'accessory' | 'all'
 
 export type DbProduct = {
+  id?: number
   product_id: number
   product_t_id?: number | null
   seller_id: number

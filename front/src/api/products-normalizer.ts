@@ -41,15 +41,15 @@ export const normalizeProduct = (raw: any): DbProduct => {
     ...(raw ?? {}),
     product_id: raw?.product_id ?? raw?.id ?? 0,
     name: raw?.name ?? raw?.product_name ?? '',
-    imageUrl: resolveImageUrl(raw) || thumbnailUrl || '',
+    imageUrl: resolveImageUrl(raw) || thumbnailUrl || '/placeholder-product.jpg',
     created_dt: resolveTimestamp(
       raw?.created_at ?? raw?.created_dt ?? raw?.createdAt,
       raw?.created_dt ?? raw?.createdAt
-    ),
+    ) || new Date().toISOString(),
     updated_dt: resolveTimestamp(
       raw?.updated_at ?? raw?.updated_dt ?? raw?.updatedAt,
       raw?.updated_dt ?? raw?.updatedAt
-    ),
+    ) || new Date().toISOString(),
     ...(thumbnailUrl ? { thumbnailUrl } : {}),
   }
 }
