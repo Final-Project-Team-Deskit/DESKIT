@@ -25,6 +25,45 @@ export const listProducts = async (): Promise<DbProduct[]> => {
   return normalizeProducts(payload)
 }
 
+export const listProductsWithAuthGuard = async (): Promise<{
+  products: DbProduct[]
+  authRequired: boolean
+}> => {
+  if (USE_MOCK_API) {
+    return { products: getAllMockProducts(), authRequired: false }
+  }
+
+  const response = await http.get<string>(endpoints.products, {
+    withCredentials: true,
+    responseType: 'text',
+    transformResponse: (data) => data,
+  })
+
+  const contentType = response.headers?.['content-type'] ?? ''
+  const responseUrl = (response.request as XMLHttpRequest | undefined)?.responseURL ?? ''
+  const isHtml = contentType.includes('text/html')
+  const isLoginRedirect = responseUrl.includes('/login')
+  if (isHtml || isLoginRedirect) {
+    return { products: [], authRequired: true }
+  }
+
+  let parsed: unknown = response.data
+  if (typeof parsed === 'string' && parsed.trim().length > 0) {
+    try {
+      parsed = JSON.parse(parsed)
+    } catch {
+      parsed = []
+    }
+  }
+
+  const payload = Array.isArray(parsed)
+    ? parsed
+    : isPlainObject(parsed) && Array.isArray((parsed as { data?: unknown }).data)
+      ? (parsed as { data: DbProduct[] }).data
+      : []
+  return { products: normalizeProducts(payload), authRequired: false }
+}
+
 export const getProductDetail = async (
   id: string | number
 ): Promise<DbProduct | null> => {

@@ -1,12 +1,13 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import { useRoute } from 'vue-router';
 import SortTabs, { type SortOption } from '../components/SortTabs.vue';
 import TagChipsFilter from '../components/TagChipsFilter.vue';
 import ProductListCard from '../components/ProductListCard.vue';
 import PageContainer from '../components/PageContainer.vue';
 import PageHeader from '../components/PageHeader.vue';
-import { productsData } from '../lib/products-data';
+import { listProductsWithAuthGuard } from '../api/products';
+import { type DbProduct } from '../lib/products-data';
 import { mapProducts } from '../lib/products-mapper';
 
 const route = useRoute();
@@ -46,7 +47,25 @@ const categoryLabel = computed(() => {
   return categoryMap[key] ?? value.toString();
 });
 
-const baseProducts = computed(() => mapProducts(productsData));
+const products = ref<DbProduct[]>([]);
+const authRequired = ref(false);
+
+const baseProducts = computed(() => mapProducts(products.value));
+
+const loadProducts = async () => {
+  try {
+    const { products: fetched, authRequired: requiresAuth } =
+      await listProductsWithAuthGuard();
+    products.value = fetched;
+    authRequired.value = requiresAuth;
+  } catch (error) {
+    console.error('Failed to load products.', error);
+  }
+};
+
+onMounted(() => {
+  loadProducts();
+});
 
 const availableTags = computed<TagSelection>(() => {
   const tagSets: Record<TagKey, Set<string>> = {
@@ -139,7 +158,10 @@ const filteredProducts = computed(() => {
     </section>
 
     <section>
-      <div v-if="filteredProducts.length === 0" class="empty">
+      <div v-if="authRequired" class="empty">
+        <p>로그인이 필요합니다.</p>
+      </div>
+      <div v-else-if="filteredProducts.length === 0" class="empty">
         <p>조건에 맞는 상품이 없습니다.</p>
         <p class="empty-sub">필터를 변경하거나 다른 카테고리를 선택해보세요.</p>
       </div>
