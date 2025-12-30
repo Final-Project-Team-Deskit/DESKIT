@@ -1,6 +1,7 @@
 package com.deskit.deskit.setup.dto;
 
 import com.deskit.deskit.setup.entity.Setup;
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonPropertyOrder;
 import java.util.Collections;
@@ -32,6 +33,10 @@ public class SetupResponse {
   @JsonProperty("setup_image_url")
   private final String setupImageUrl;
 
+  @JsonProperty("product_ids")
+  @JsonInclude(JsonInclude.Include.ALWAYS)
+  private final List<Long> productIds;
+
   @JsonProperty("tags")
   private final SetupTags tags;
 
@@ -45,12 +50,20 @@ public class SetupResponse {
   public SetupResponse(Long setupId, Long sellerId, String name, String shortDesc,
                        String tipText, String setupImageUrl, SetupTags tags,
                        List<String> tagsFlat) {
+    this(setupId, sellerId, name, shortDesc, tipText, setupImageUrl,
+            Collections.emptyList(), tags, tagsFlat);
+  }
+
+  public SetupResponse(Long setupId, Long sellerId, String name, String shortDesc,
+                       String tipText, String setupImageUrl, List<Long> productIds,
+                       SetupTags tags, List<String> tagsFlat) {
     this.setupId = setupId;
     this.sellerId = sellerId;
     this.name = name;
     this.shortDesc = shortDesc;
     this.tipText = tipText;
     this.setupImageUrl = setupImageUrl;
+    this.productIds = productIds == null ? Collections.emptyList() : productIds;
     this.tags = tags == null ? SetupTags.empty() : tags;
     this.tagsFlat = tagsFlat == null ? Collections.emptyList() : tagsFlat;
   }
@@ -67,6 +80,21 @@ public class SetupResponse {
             setup.getShortDesc(),
             setup.getTipText(),
             setup.getSetupImageUrl(),
+            tags,
+            tagsFlat
+    );
+  }
+
+  public static SetupResponse from(Setup setup, SetupTags tags, List<String> tagsFlat,
+                                   List<Long> productIds) {
+    return new SetupResponse(
+            setup.getId(),
+            setup.getSellerId(),
+            setup.getSetupName(),      // 엔티티 setupName -> 응답 name
+            setup.getShortDesc(),
+            setup.getTipText(),
+            setup.getSetupImageUrl(),
+            productIds,
             tags,
             tagsFlat
     );
@@ -124,5 +152,9 @@ public class SetupResponse {
     public List<String> getMood() {
       return mood;
     }
+  }
+
+  public List<Long> getProductIds() {
+    return productIds;
   }
 }

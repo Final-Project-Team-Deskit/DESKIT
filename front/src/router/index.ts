@@ -60,7 +60,7 @@ const routes: RouteRecordRaw[] = [
   {
     path: '/signup',
     name: 'signup',
-    component: () => import('../pages/Signup.vue'),
+    component: () => import('../pages/Login.vue'),
   },
   {
     path: '/my',
@@ -232,5 +232,4 @@ router.beforeEach(async (to) => {
   }
   return true
 })
-
 

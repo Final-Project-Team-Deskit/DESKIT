@@ -1,11 +1,24 @@
 <script setup lang="ts">
-import { computed } from 'vue';
-import { setupsData } from '../lib/setups-data';
+import { onMounted, ref } from 'vue';
+import { listSetups } from '../api/setups';
+import { type SetupWithProducts } from '../lib/setups-data';
 import SetupCard from '../components/SetupCard.vue';
 import PageContainer from '../components/PageContainer.vue';
 import PageHeader from '../components/PageHeader.vue';
 
-const setups = computed(() => setupsData);
+const setups = ref<SetupWithProducts[]>([]);
+
+const loadSetups = async () => {
+  try {
+    setups.value = await listSetups();
+  } catch (error) {
+    console.error('Failed to load setups.', error);
+  }
+};
+
+onMounted(() => {
+  loadSetups();
+});
 </script>
 
 <template>
