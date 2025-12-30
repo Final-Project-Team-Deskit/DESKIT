@@ -9,13 +9,21 @@ import lombok.Setter;
 @Builder
 public class UserDTO {
 
+    // 권한
     private String role;
+
+    // 이름
     private String name;
+
+    // provider + providerId
     private String username;
 
-    // Email from the social provider.
+    // Email
     private String email;
 
-    // Flag to indicate social user needs extra signup data.
+    // 프로필 사진 주소
+    private String profileUrl;
+
+    // 신규 가입인지 확인하는 플래그
     private boolean newUser;
 }

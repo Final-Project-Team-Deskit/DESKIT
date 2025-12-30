@@ -32,6 +32,7 @@ public class CompanyRegistered {
     @Column(name = "created_at")
     private LocalDateTime createdAt;
 
-    @Column(name = "company_status", nullable = false)
+    @Column(name = "status", nullable = false)
+    @Enumerated(EnumType.STRING)
     private CompanyStatus companyStatus;
 }

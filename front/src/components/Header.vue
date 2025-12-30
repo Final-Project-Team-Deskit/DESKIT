@@ -1,10 +1,11 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 import {computed, onBeforeUnmount, onMounted, ref, watch} from 'vue'
 import {RouterLink, useRoute, useRouter} from 'vue-router'
-import {getAuthUser, isAdmin, isLoggedIn as checkLoggedIn, logout} from '../lib/auth'
+import {getAuthUser, hydrateSessionUser, isAdmin, isLoggedIn as checkLoggedIn, logout} from '../lib/auth'
 
 const route = useRoute()
 const router = useRouter()
+const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080'
 const isScrolled = ref(false)
 const isMenuOpen = ref(false)
 const panelRef = ref<HTMLElement | null>(null)
@@ -62,9 +63,16 @@ const handleDocumentClick = (event: MouseEvent) => {
   closeMenu()
 }
 
+const hydrateAuth = async () => {
+  if (!checkLoggedIn()) {
+    await hydrateSessionUser()
+  }
+  refreshAuth()
+}
+
 onMounted(() => {
   handleScroll()
-  refreshAuth()
+  hydrateAuth()
   window.addEventListener('scroll', handleScroll, {passive: true})
   window.addEventListener('keydown', onKeydown)
   document.addEventListener('click', handleDocumentClick)
@@ -132,11 +140,26 @@ const submitSearch = () => {
   closeMenu()
 }
 
-const handleLogout = () => {
-  logout()
-  refreshAuth()
-  router.push('/').catch(() => {
-  })
+const handleLogout = async () => {
+  const access = localStorage.getItem('access') || sessionStorage.getItem('access')
+  const headers: Record<string, string> = {}
+  if (access) {
+    headers.access = access
+  }
+
+  try {
+    await fetch(`${apiBase}/logout`, {
+      method: 'POST',
+      credentials: 'include',
+      headers,
+    })
+  } catch (error) {
+    console.error('logout failed', error)
+  } finally {
+    logout()
+    refreshAuth()
+    router.push('/').catch(() => {})
+  }
 }
 </script>
 
@@ -822,3 +845,4 @@ const handleLogout = () => {
   }
 }
 </style>
+

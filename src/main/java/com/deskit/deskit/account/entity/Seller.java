@@ -23,8 +23,9 @@ public class Seller {
     @Column(name = "seller_id")
     private Long sellerId;
 
-    @Column(name = "seller_status")
-    private SellerStatus sellerStatus;
+    @Column(name = "status")
+    @Enumerated(EnumType.STRING)
+    private SellerStatus status;
 
     @CreationTimestamp
     @Column(name = "created_at")
@@ -47,5 +48,9 @@ public class Seller {
     private String phone;
 
     @Column(name = "role", nullable = false)
+    @Enumerated(EnumType.STRING)
     private SellerRole role;
+
+    @Column(name = "is_agreed", nullable = false)
+    private boolean isAgreed;
 }

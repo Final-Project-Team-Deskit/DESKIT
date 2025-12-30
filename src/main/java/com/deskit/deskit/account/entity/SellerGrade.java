@@ -24,9 +24,11 @@ public class SellerGrade {
     private Long gradeId;
 
     @Column(name = "grade")
+    @Enumerated(EnumType.STRING)
     private SellerGradeEnum grade;
 
-    @Column(name = "grade_status")
+    @Column(name = "status")
+    @Enumerated(EnumType.STRING)
     private SellerGradeStatus gradeStatus;
 
     @CreationTimestamp
