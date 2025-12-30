@@ -1,20 +1,15 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
-import { useRoute } from 'vue-router';
+import { computed, onMounted, ref } from 'vue';
 import SortTabs, { type SortOption } from '../components/SortTabs.vue';
 import TagChipsFilter from '../components/TagChipsFilter.vue';
 import ProductListCard from '../components/ProductListCard.vue';
 import PageContainer from '../components/PageContainer.vue';
 import PageHeader from '../components/PageHeader.vue';
-import { productsData } from '../lib/products-data';
+import { listProducts } from '../api/products';
+import { type DbProduct } from '../lib/products-data';
 import { mapProducts } from '../lib/products-mapper';
 
-const route = useRoute();
-
 const sortBy = ref<SortOption>('ranking');
-const productCategory = ref<'all' | 'furniture' | 'computer' | 'accessory'>(
-  'all'
-);
 const tagKeys = ['space', 'tone', 'situation', 'mood'] as const;
 type TagKey = (typeof tagKeys)[number];
 type TagSelection = Record<TagKey, string[]>;
@@ -26,27 +21,45 @@ const emptySelection: TagSelection = {
   mood: [],
 };
 
-const selectedTags = ref<TagSelection>({ ...emptySelection });
+const selectedTags = ref<Partial<TagSelection>>({ ...emptySelection });
 
-const categoryMap: Record<string, string> = {
-  furniture: '가구',
-  computer: '전자기기',
-  accessory: '악세서리',
-  전자기기: '전자기기',
-  가구: '가구',
-  악세서리: '악세서리',
-};
+const normalizeSelection = (input: Partial<TagSelection>) =>
+  tagKeys.reduce(
+    (acc, key) => {
+      const raw = input?.[key]
+      return {
+        ...acc,
+        [key]: Array.isArray(raw) ? raw : [],
+      }
+    },
+    { ...emptySelection }
+  )
 
-const categoryLabel = computed(() => {
-  const raw = route.query.category;
-  if (!raw) return undefined;
-  const value = Array.isArray(raw) ? raw[0] : raw;
-  if (!value) return undefined;
-  const key = value.toString().toLowerCase();
-  return categoryMap[key] ?? value.toString();
+const tagsModel = computed({
+  get: () => normalizeSelection(selectedTags.value),
+  set: (value: Partial<TagSelection>) => {
+    selectedTags.value = normalizeSelection(value)
+  },
+})
+
+const products = ref<DbProduct[]>([]);
+
+const baseProducts = computed(() => {
+  const mapped = mapProducts(products.value)
+  return mapped
 });
 
-const baseProducts = computed(() => mapProducts(productsData));
+const loadProducts = async () => {
+  try {
+    products.value = await listProducts();
+  } catch (error) {
+    console.error('Failed to load products.', error);
+  }
+};
+
+onMounted(() => {
+  loadProducts();
+});
 
 const availableTags = computed<TagSelection>(() => {
   const tagSets: Record<TagKey, Set<string>> = {
@@ -57,7 +70,8 @@ const availableTags = computed<TagSelection>(() => {
   };
   baseProducts.value.forEach((product) => {
     tagKeys.forEach((key) => {
-      product.tags[key].forEach((tag) => tagSets[key].add(tag));
+      const tags = product.tags?.[key] ?? [];
+      tags.forEach((tag) => tagSets[key].add(tag));
     });
   });
   return tagKeys.reduce(
@@ -73,22 +87,13 @@ const availableTags = computed<TagSelection>(() => {
 
 const filteredProducts = computed(() => {
   let result = baseProducts.value;
-
-  if (categoryLabel.value) {
-    result = result.filter(
-      (product) => product.category === categoryLabel.value
-    );
-  } else if (productCategory.value !== 'all') {
-    result = result.filter(
-      (product) => product.productCategory === productCategory.value
-    );
-  }
-
+  const normalizedSelection = tagsModel.value
   result = result.filter((product) =>
     tagKeys.every((key) => {
-      const selections = selectedTags.value[key];
+      const selections = normalizedSelection[key];
       if (!selections.length) return true;
-      return selections.some((tag) => product.tags[key].includes(tag));
+      const productTags = product.tags?.[key] ?? [];
+      return selections.some((tag) => productTags.includes(tag));
     })
   );
 
@@ -118,7 +123,7 @@ const filteredProducts = computed(() => {
   <PageContainer>
     <PageHeader
       eyebrow="DESKIT PRODUCT"
-      :title="categoryLabel ?? '상품'"
+      title="상품"
       subtitle="당신의 책상을 완성할 아이템을 찾아보세요"
     >
       <template #headerRight>
@@ -128,9 +133,8 @@ const filteredProducts = computed(() => {
 
     <section class="filters">
       <TagChipsFilter
-        v-model="selectedTags"
+        v-model="tagsModel"
         :available-tags="availableTags"
-        @update:productCategory="productCategory = $event"
       />
     </section>
 

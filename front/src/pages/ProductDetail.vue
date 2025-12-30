@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter, RouterLink } from 'vue-router'
-import { productsData, flattenTags } from '../lib/products-data'
+import { getProductDetail } from '../api/products'
+import { flattenTags, type DbProduct } from '../lib/products-data'
 import PageContainer from '../components/PageContainer.vue'
 import { upsertCartItem } from '../lib/cart/cart-storage'
 import { createCheckoutFromBuyNow, saveCheckout } from '../lib/checkout/checkout-storage'
@@ -10,8 +11,32 @@ const route = useRoute()
 const router = useRouter()
 const productId = computed(() => (Array.isArray(route.params.id) ? route.params.id[0] : route.params.id))
 
+const rawProduct = ref<DbProduct | null>(null)
+const isLoading = ref(false)
+
+const loadProduct = async () => {
+  const id = productId.value ? String(productId.value) : ''
+  if (!id) {
+    rawProduct.value = null
+    return
+  }
+  isLoading.value = true
+  try {
+    rawProduct.value = await getProductDetail(id)
+  } catch (error) {
+    console.error('Failed to load product.', error)
+    rawProduct.value = null
+  } finally {
+    isLoading.value = false
+  }
+}
+
+watch(productId, () => {
+  loadProduct()
+}, { immediate: true })
+
 const product = computed(() => {
-  const raw = productsData.find((item) => item.product_id === Number(productId.value))
+  const raw = rawProduct.value as any
   if (!raw) return undefined
   return {
     ...raw,
@@ -205,7 +230,8 @@ onBeforeUnmount(() => {
   <PageContainer>
     <RouterLink to="/products" class="back">← 상품 목록으로</RouterLink>
 
-    <div v-if="product" class="card">
+    <div v-if="isLoading" class="empty">상품 정보를 불러오는 중...</div>
+    <div v-else-if="product" class="card">
       <div class="media">
         <div class="thumbs" v-if="imageList.length">
           <button
