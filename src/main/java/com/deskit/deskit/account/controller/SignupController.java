@@ -30,13 +30,13 @@ import java.util.concurrent.ThreadLocalRandom;
 @RequestMapping("/api/signup/social")
 public class SignupController {
 
-    // Session key for phone number awaiting verification.
+    // 세션 키 값 : 인증받을 폰 번호
     private static final String SESSION_PHONE_NUMBER = "pendingPhoneNumber";
 
-    // Session key for verification code.
+    // 세션 키 값 : 인증코드
     private static final String SESSION_PHONE_CODE = "pendingPhoneCode";
 
-    // Session key for verification completion flag.
+    // 세션 키 값 : 인증 확인 여부
     private static final String SESSION_PHONE_VERIFIED = "pendingPhoneVerified";
 
     private final MemberRepository memberRepository;
@@ -48,22 +48,19 @@ public class SignupController {
     private final SellerGradeRepository sellerGradeRepository;
     private final InvitationRepository invitationRepository;
 
-    // Provide pending signup info to the frontend after social login.
+    // 소셜 로그인 후 추가 정보 입력 후 회원 가입 진행 - 대기중인 상태
     @GetMapping("/pending")
     public ResponseEntity<?> pending(
             @AuthenticationPrincipal CustomOAuth2User user
     ) {
-        // Reject if unauthenticated.
         if (user == null) {
             return new ResponseEntity<>("unauthorized", HttpStatus.UNAUTHORIZED);
         }
 
-        // Reject if signup is already completed.
         if (!user.isNewUser()) {
             return new ResponseEntity<>("already signed up", HttpStatus.CONFLICT);
         }
 
-        // Response payload to prefill signup form.
         PendingSignupResponse response = PendingSignupResponse.builder()
                 .username(user.getUsername())
                 .name(user.getName())
@@ -73,38 +70,36 @@ public class SignupController {
         return new ResponseEntity<>(response, HttpStatus.OK);
     }
 
-    // Send a verification code for phone validation.
+    // 전화번호 인증을 위한 인증코드 발송
     @PostMapping("/phone/send")
     public ResponseEntity<?> sendPhoneCode(
             @AuthenticationPrincipal CustomOAuth2User user,
             @RequestBody PhoneSendRequest request,
             HttpSession session
     ) {
-        // Reject if unauthenticated.
         if (user == null) {
             return new ResponseEntity<>("unauthorized", HttpStatus.UNAUTHORIZED);
         }
 
-        // Reject if signup is already completed.
         if (!user.isNewUser()) {
             return new ResponseEntity<>("already signed up", HttpStatus.CONFLICT);
         }
 
-        // Phone number from the request payload.
+        // request payload에서 번호 꺼내기
         String phoneNumber = request.getPhoneNumber();
         if (phoneNumber == null || phoneNumber.isBlank()) {
             return new ResponseEntity<>("phone number required", HttpStatus.BAD_REQUEST);
         }
 
-        // Generate a 6-digit verification code for development.
+        // 개발용 인증 코드 6자리 생성
         String code = String.format("%06d", ThreadLocalRandom.current().nextInt(100000, 1000000));
 
-        // Persist phone verification state in session.
+        // 세션에 인증 관련 정보 담기
         session.setAttribute(SESSION_PHONE_NUMBER, phoneNumber);
         session.setAttribute(SESSION_PHONE_CODE, code);
         session.setAttribute(SESSION_PHONE_VERIFIED, false);
 
-        // Response payload containing dev-only code.
+        // 개발용 인증 코드 담은 Response payload
         PhoneSendResponse response = PhoneSendResponse.builder()
                 .message("verification code generated")
                 .code(code)
@@ -113,28 +108,26 @@ public class SignupController {
         return new ResponseEntity<>(response, HttpStatus.OK);
     }
 
-    // Verify phone code submitted by the user.
+    // 인증 번호 확인
     @PostMapping("/phone/verify")
     public ResponseEntity<?> verifyPhoneCode(
             @AuthenticationPrincipal CustomOAuth2User user,
             @RequestBody PhoneVerifyRequest request,
             HttpSession session
     ) {
-        // Reject if unauthenticated.
         if (user == null) {
             return new ResponseEntity<>("unauthorized", HttpStatus.UNAUTHORIZED);
         }
 
-        // Reject if signup is already completed.
         if (!user.isNewUser()) {
             return new ResponseEntity<>("already signed up", HttpStatus.CONFLICT);
         }
 
-        // Phone number and code from the request payload.
+        // request payload에서 번호와 코드 꺼내기
         String phoneNumber = request.getPhoneNumber();
         String code = request.getCode();
 
-        // Session-stored verification state.
+        // 세션에 저장된 번호와 코드 꺼내기
         String storedPhone = (String) session.getAttribute(SESSION_PHONE_NUMBER);
         String storedCode = (String) session.getAttribute(SESSION_PHONE_CODE);
 
@@ -147,7 +140,7 @@ public class SignupController {
         return new ResponseEntity<>("verified", HttpStatus.OK);
     }
 
-    // Complete signup for general members after phone verification.
+    // 일반 회원 추가 정보 입력 진행
     @PostMapping("/complete")
     @Transactional
     public ResponseEntity<?> completeSignup(
@@ -156,58 +149,52 @@ public class SignupController {
             HttpServletResponse response,
             HttpSession session
     ) {
-        // Reject if unauthenticated.
         if (user == null) {
             return new ResponseEntity<>("unauthorized", HttpStatus.UNAUTHORIZED);
         }
 
-        // Reject if signup is already completed.
         if (!user.isNewUser()) {
             return new ResponseEntity<>("already signed up", HttpStatus.CONFLICT);
         }
 
-        // Ensure user does not already exist in DB.
-        Member existData = memberRepository.findByLoginId(user.getEmail());
-        if (existData != null) {
+        // Member에 있는 정보인지 조회
+        Member existMember = memberRepository.findByLoginId(user.getEmail());
+        if (existMember != null) {
             return new ResponseEntity<>("already signed up", HttpStatus.CONFLICT);
         }
 
-        // Ensure seller does not already exist in DB.
+        // Seller에 있는 정보인지 조회
         Seller existSeller = sellerRepository.findByLoginId(user.getEmail());
         if (existSeller != null) {
             return new ResponseEntity<>("already signed up", HttpStatus.CONFLICT);
         }
 
-        // Validate terms agreement.
         if (!request.isAgreed()) {
             return new ResponseEntity<>("terms agreement required", HttpStatus.BAD_REQUEST);
         }
 
-        // Ensure phone verification completed.
         Boolean verified = (Boolean) session.getAttribute(SESSION_PHONE_VERIFIED);
         if (verified == null || !verified) {
             return new ResponseEntity<>("phone verification required", HttpStatus.BAD_REQUEST);
         }
 
-        // Validate verified phone number matches request.
         String storedPhone = (String) session.getAttribute(SESSION_PHONE_NUMBER);
         if (!Objects.equals(storedPhone, request.getPhoneNumber())) {
             return new ResponseEntity<>("phone number mismatch", HttpStatus.BAD_REQUEST);
         }
 
-        // Member type selected for signup branching.
-        // Raw member type input from request payload.
+        // memberType null 배제
         String memberTypeRaw = trimToNull(request.getMemberType());
         if (memberTypeRaw == null) {
             return new ResponseEntity<>("member type required", HttpStatus.BAD_REQUEST);
         }
 
-        // Normalized member type for signup branching.
         String memberType = normalizeMemberType(memberTypeRaw);
         if (memberType == null) {
             return new ResponseEntity<>("unsupported member type", HttpStatus.BAD_REQUEST);
         }
 
+        // GENERAL : 일반 회원, SELLER : 판매자 (내부적으로 활용)
         if ("GENERAL".equals(memberType)) {
             return completeGeneralSignup(user, request, response, session, storedPhone);
         }
@@ -219,7 +206,7 @@ public class SignupController {
         return new ResponseEntity<>("unsupported member type", HttpStatus.BAD_REQUEST);
     }
 
-    // Handle general member signup completion.
+    // 일반 회원 가입 완성
     private ResponseEntity<?> completeGeneralSignup(
             CustomOAuth2User user,
             SocialSignupRequest request,
@@ -227,7 +214,7 @@ public class SignupController {
             HttpSession session,
             String storedPhone
     ) {
-        // Build and persist the new user entity.
+        // 객체 조립
         Member member = Member.builder()
                 .loginId(user.getEmail())
                 .name(user.getName())
@@ -242,16 +229,16 @@ public class SignupController {
 
         memberRepository.save(member);
 
-        // Issue tokens after successful signup.
+        // 가입 성공 후 토큰 발행
         issueTokens(member.getLoginId(), member.getRole(), response);
 
-        // Clear phone verification state after completion.
+        // 폰 인증 세션 삭제
         clearPhoneSession(session);
 
         return new ResponseEntity<>("signup completed", HttpStatus.OK);
     }
 
-    // Handle seller signup completion with review data.
+    // 판매자 회원 가입 완성
     private ResponseEntity<?> completeSellerSignup(
             CustomOAuth2User user,
             SocialSignupRequest request,
@@ -259,52 +246,53 @@ public class SignupController {
             HttpSession session,
             String storedPhone
     ) {
-        // Invitation token for invited seller signup.
+        // 초대 토큰 검증
         String inviteToken = trimToNull(request.getInviteToken());
         if (inviteToken != null) {
             return completeInvitedSellerSignup(user, response, session, storedPhone, inviteToken);
         }
 
-        // Business number required for seller registration.
+        // 사업자등록번호 검증 - null 배제
         String businessNumber = trimToNull(request.getBusinessNumber());
         if (businessNumber == null) {
             return new ResponseEntity<>("business number required", HttpStatus.BAD_REQUEST);
         }
 
-        // Company name required for seller registration.
+        // 사업자명 검증 - null 배제
         String companyName = trimToNull(request.getCompanyName());
         if (companyName == null) {
             return new ResponseEntity<>("company name required", HttpStatus.BAD_REQUEST);
         }
 
-        // Plan file payload required for seller registration.
+        // 사업계획서 검증
         String planFileBase64 = trimToNull(request.getPlanFileBase64());
         if (planFileBase64 == null) {
             return new ResponseEntity<>("plan file required", HttpStatus.BAD_REQUEST);
         }
 
-        // Reject when the business number is already registered.
+        // 이미 존재하는 사업자등록번호인지 검증
         CompanyRegistered existingCompany = companyRegisteredRepository.findByBusinessNumber(businessNumber);
         if (existingCompany != null
                 && CompanyStatus.ACTIVE.name().equalsIgnoreCase(existingCompany.getCompanyStatus().toString())) {
             return new ResponseEntity<>("business number already registered", HttpStatus.CONFLICT);
         }
 
-        // Optional seller description for review.
+        // 설명
         String description = trimToNull(request.getDescription());
 
-        // Decode plan file from base64 payload.
+        // 사업계획서 디코딩
         byte[] planFile;
+
         try {
             planFile = decodePlanFile(planFileBase64);
         } catch (IllegalArgumentException ex) {
             return new ResponseEntity<>("invalid plan file payload", HttpStatus.BAD_REQUEST);
         }
 
-        // Timestamp used for seller-related records.
+        // Timestamp 설정
         LocalDateTime now = LocalDateTime.now();
 
-        // Build and persist the new seller user entity.
+        // 객체 조립
         Seller seller = Seller.builder()
                 .loginId(user.getEmail())
                 .name(user.getName())
@@ -319,7 +307,7 @@ public class SignupController {
 
         sellerRepository.save(seller);
 
-        // Store the registered company for duplicate checks.
+        // CompanyRegistered 조립
         CompanyRegistered companyRegistered = CompanyRegistered.builder()
                 .companyName(companyName)
                 .businessNumber(businessNumber)
@@ -330,7 +318,7 @@ public class SignupController {
 
         companyRegisteredRepository.save(companyRegistered);
 
-        // Store seller review submission details.
+        // SellerRegister 조립
         SellerRegister sellerRegister = SellerRegister.builder()
                 .planFile(planFile)
                 .sellerId(seller.getSellerId())
@@ -340,7 +328,7 @@ public class SignupController {
 
         sellerRegisterRepository.save(sellerRegister);
 
-        // Assign initial seller grade in review status.
+        // 최초 가입 판매자 등급 부여 (임시)
         SellerGrade sellerGrade = SellerGrade.builder()
                 .grade(SellerGradeEnum.valueOf(SellerGradeEnum.C.name()))
                 .gradeStatus(SellerGradeStatus.valueOf(SellerGradeStatus.REVIEW.name()))
@@ -352,10 +340,10 @@ public class SignupController {
 
         sellerGradeRepository.save(sellerGrade);
 
-        // Issue tokens after successful signup request.
+        // 가입 완료 후 토큰 발행
         issueTokens(seller.getLoginId(), String.valueOf(seller.getRole()), response);
 
-        // Clear phone verification state after completion.
+        // 폰 인증 세션 삭제
         clearPhoneSession(session);
 
         return new ResponseEntity<>(
@@ -364,7 +352,7 @@ public class SignupController {
         );
     }
 
-    // Handle invited seller signup completion with manager role.
+    // 초대받은 판매자 회원 가입
     private ResponseEntity<?> completeInvitedSellerSignup(
             CustomOAuth2User user,
             HttpServletResponse response,
@@ -372,18 +360,18 @@ public class SignupController {
             String storedPhone,
             String inviteToken
     ) {
-        // Invitation lookup by token.
+        // 토큰으로 초대 생성 여부 확인
         Invitation invitation = invitationRepository.findByToken(inviteToken);
         if (invitation == null) {
             return new ResponseEntity<>("invitation not found", HttpStatus.NOT_FOUND);
         }
 
-        // Validate invitation status.
+        // 초대 상태가 PENDING이 아니면
         if (!InvitationStatus.PENDING.name().equalsIgnoreCase(String.valueOf(invitation.getStatus()))) {
             return new ResponseEntity<>("invitation already used", HttpStatus.CONFLICT);
         }
 
-        // Validate invitation expiration.
+        // 초대 만료 검증
         LocalDateTime now = LocalDateTime.now();
         if (invitation.getExpiredAt() != null && invitation.getExpiredAt().isBefore(now)) {
             invitation.setStatus(InvitationStatus.valueOf(InvitationStatus.EXPIRED.name()));
@@ -392,20 +380,20 @@ public class SignupController {
             return new ResponseEntity<>("invitation expired", HttpStatus.GONE);
         }
 
-        // Ensure the invitation email matches the signup email.
+        // 이메일 검증
         String inviteEmail = trimToNull(invitation.getEmail());
         String signupEmail = trimToNull(user.getEmail());
         if (inviteEmail == null || signupEmail == null || !inviteEmail.equalsIgnoreCase(signupEmail)) {
             return new ResponseEntity<>("invitation email mismatch", HttpStatus.BAD_REQUEST);
         }
 
-        // Ensure the invitation owner seller exists.
+        // 초대한 OWNER가 존재하는지
         Seller ownerSeller = sellerRepository.findById(invitation.getSellerId()).orElse(null);
         if (ownerSeller == null) {
             return new ResponseEntity<>("invitation owner not found", HttpStatus.NOT_FOUND);
         }
 
-        // Build and persist the new manager seller entity.
+        // 객체 조립
         Seller seller = Seller.builder()
                 .loginId(user.getEmail())
                 .name(user.getName())
@@ -420,29 +408,25 @@ public class SignupController {
 
         sellerRepository.save(seller);
 
-        // Mark invitation as accepted after successful signup.
+        // 상태 변경(수락)
         invitation.setStatus(InvitationStatus.valueOf(InvitationStatus.ACCEPTED.name()));
         invitation.setUpdatedAt(now);
         invitationRepository.save(invitation);
 
-        // Issue tokens after successful invited signup.
         issueTokens(seller.getLoginId(), String.valueOf(seller.getRole()), response);
 
-        // Clear phone verification state after completion.
         clearPhoneSession(session);
 
         return new ResponseEntity<>("invited seller signup completed", HttpStatus.OK);
     }
 
-    // Issue access/refresh tokens and persist refresh token.
+    // access/refresh token 발행
     private void issueTokens(String username, String role, HttpServletResponse response) {
-        // Access token expiry in milliseconds.
         long accessExpiryMs = 600000L;
 
-        // Refresh token expiry in milliseconds.
         long refreshExpiryMs = 86400000L;
 
-        // Create tokens for the signed-up user.
+        // 토큰 생성
         String access = jwtUtil.createJwt("access", username, role, accessExpiryMs); // Access token for header.
         String refresh = jwtUtil.createJwt("refresh", username, role, refreshExpiryMs); // Refresh token for cookie.
 
@@ -453,9 +437,9 @@ public class SignupController {
         response.addCookie(createCookie("refresh", refresh, Math.toIntExact(refreshExpiryMs / 1000)));
     }
 
-    // Create a cookie with HttpOnly flag.
+    // HttpOnly로 안전한 쿠키 생성
     private Cookie createCookie(String key, String value, int maxAge) {
-        // Cookie for refresh token storage.
+        // refresh token 쿠키
         Cookie cookie = new Cookie(key, value);
 
         cookie.setMaxAge(maxAge);
@@ -466,26 +450,22 @@ public class SignupController {
         return cookie;
     }
 
-    // Persist refresh token record for reissue workflow.
-    // Clear phone verification attributes after signup completion.
+    // 폰 인증 세션 삭제
     private void clearPhoneSession(HttpSession session) {
-        // Cleanup pending phone state stored in session.
         session.removeAttribute(SESSION_PHONE_NUMBER);
         session.removeAttribute(SESSION_PHONE_CODE);
         session.removeAttribute(SESSION_PHONE_VERIFIED);
     }
 
-    // Decode base64 plan file payload, tolerating data URL prefixes.
+    // 사업계획서 디코딩
     private byte[] decodePlanFile(String encodedPlanFile) {
-        // Remove data URL prefix if present.
         int commaIndex = encodedPlanFile.indexOf(',');
         String payload = commaIndex >= 0 ? encodedPlanFile.substring(commaIndex + 1) : encodedPlanFile;
         return Base64.getDecoder().decode(payload);
     }
 
-    // Normalize optional text input to null when blank.
     private String trimToNull(String value) {
-        // Trimmed value from optional input.
+        // Trim 작업
         String trimmed = value == null ? null : value.trim();
         if (trimmed == null || trimmed.isEmpty()) {
             return null;
@@ -493,9 +473,8 @@ public class SignupController {
         return trimmed;
     }
 
-    // Normalize member type input for routing.
     private String normalizeMemberType(String memberType) {
-        // Upper-cased member type value for validation.
+        // Upper-case
         String normalized = memberType == null ? null : memberType.trim().toUpperCase();
         if (normalized == null || normalized.isEmpty()) {
             return null;
