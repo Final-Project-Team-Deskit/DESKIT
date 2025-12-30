@@ -1,5 +1,9 @@
 package com.deskit.deskit.account.dto;
 
+import com.deskit.deskit.account.enums.JobCategory;
+import com.deskit.deskit.account.enums.MBTI;
+import com.fasterxml.jackson.annotation.JsonAlias;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.Getter;
 import lombok.Setter;
 
@@ -14,10 +18,10 @@ public class SocialSignupRequest {
     private String phoneNumber;
 
     // 일반회원 MBTI
-    private String mbti;
+    private MBTI mbti;
 
     // 일반회원 직업 카테고리
-    private String jobCategory;
+    private JobCategory jobCategory;
 
     // 판매자 사업자등록번호
     private String businessNumber;
@@ -35,5 +39,7 @@ public class SocialSignupRequest {
     private String inviteToken;
 
     // 약관 동의 체크
+    @JsonProperty("isAgreed")
+    @JsonAlias({"is_agreed", "agreed", "agreeToTerms"})
     private boolean isAgreed;
 }

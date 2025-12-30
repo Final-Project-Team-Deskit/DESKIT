@@ -1,50 +1,15 @@
-<script setup lang="ts">
-import { useRouter, useRoute } from 'vue-router'
+﻿<script setup lang="ts">
+import { useRouter } from 'vue-router'
 import PageContainer from '../components/PageContainer.vue'
 import PageHeader from '../components/PageHeader.vue'
-import { loginAdmin, loginSeller } from '../lib/auth'
 
 type Provider = 'kakao' | 'naver' | 'google'
 
 const router = useRouter()
-const route = useRoute()
-
-const mockUserByProvider = (provider: Provider) => {
-  const signupLabel =
-      provider === 'kakao'
-          ? '소셜 회원(Kakao)'
-          : provider === 'naver'
-              ? '소셜 회원(Naver)'
-              : '소셜 회원(Google)'
-
-  return {
-    name: '홍길동',
-    email: `honggildong+${provider}@test.com`,
-    signupType: signupLabel,
-    memberCategory: '일반회원',
-    mbti: 'INFJ',
-    job: '직장인',
-  }
-}
+const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080'
 
 const handleLogin = (provider: Provider) => {
-  const user = mockUserByProvider(provider)
-  localStorage.setItem('deskit-user', JSON.stringify(user))
-  localStorage.setItem('deskit-auth', provider)
-  window.dispatchEvent(new Event('deskit-user-updated'))
-
-  const redirect = (route.query.redirect as string) || '/'
-  router.push(redirect).catch(() => {})
-}
-
-const goToSeller = () => {
-  loginSeller()
-  router.push('/seller').catch(() => {})
-}
-
-const goToAdmin = () => {
-  loginAdmin()
-  router.push('/admin').catch(() => {})
+  window.location.href = `${apiBase}/oauth2/authorization/${provider}`
 }
 </script>
 
@@ -65,8 +30,8 @@ const goToAdmin = () => {
             <span class="brand-ico" aria-hidden="true">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
                 <path
-                    d="M12 4c-4.7 0-8.5 2.9-8.5 6.6 0 2.4 1.6 4.5 4 5.7l-1 3.6c-.1.4.3.7.6.5l4.2-2.8c.2 0 .5.1.7.1 4.7 0 8.5-2.9 8.5-6.6S16.7 4 12 4z"
-                    fill="currentColor"
+                  d="M12 4c-4.7 0-8.5 2.9-8.5 6.6 0 2.4 1.6 4.5 4 5.7l-1 3.6c-.1.4.3.7.6.5l4.2-2.8c.2 0 .5.1.7.1 4.7 0 8.5-2.9 8.5-6.6S16.7 4 12 4z"
+                  fill="currentColor"
                 />
               </svg>
             </span>
@@ -86,37 +51,27 @@ const goToAdmin = () => {
             <span class="brand-ico google" aria-hidden="true">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
                 <path
-                    d="M21.6 12.3c0-.7-.1-1.2-.2-1.8H12v3.4h5.4c-.1.9-.7 2.2-2 3.1v2.2h3.2c1.9-1.7 3-4.3 3-7.9z"
-                    fill="currentColor"
+                  d="M21.6 12.3c0-.7-.1-1.2-.2-1.8H12v3.4h5.4c-.1.9-.7 2.2-2 3.1v2.2h3.2c1.9-1.7 3-4.3 3-7.9z"
+                  fill="currentColor"
                 />
                 <path
-                    d="M12 22c2.7 0 5-.9 6.6-2.5l-3.2-2.2c-.9.6-2 .9-3.4.9-2.6 0-4.8-1.7-5.6-4.1H3v2.3C4.7 19.8 8.1 22 12 22z"
-                    fill="currentColor"
-                    opacity=".6"
+                  d="M12 22c2.7 0 5-.9 6.6-2.5l-3.2-2.2c-.9.6-2 .9-3.4.9-2.6 0-4.8-1.7-5.6-4.1H3v2.3C4.7 19.8 8.1 22 12 22z"
+                  fill="currentColor"
+                  opacity=".6"
                 />
                 <path
-                    d="M6.4 14.1c-.2-.6-.3-1.2-.3-1.8s.1-1.2.3-1.8V8.2H3C2.4 9.4 2 10.7 2 12.3c0 1.6.4 2.9 1 4.1l3.4-2.3z"
-                    fill="currentColor"
-                    opacity=".4"
+                  d="M6.4 14.1c-.2-.6-.3-1.2-.3-1.8s.1-1.2.3-1.8V8.2H3C2.4 9.4 2 10.7 2 12.3c0 1.6.4 2.9 1 4.1l3.4-2.3z"
+                  fill="currentColor"
+                  opacity=".4"
                 />
                 <path
-                    d="M12 6.7c1.9 0 3.2.8 3.9 1.5l2.9-2.8C17 3.8 14.7 2.7 12 2.7 8.1 2.7 4.7 4.9 3 8.2l3.4 2.3c.8-2.4 3-3.8 5.6-3.8z"
-                    fill="currentColor"
-                    opacity=".8"
+                  d="M12 6.7c1.9 0 3.2.8 3.9 1.5l2.9-2.8C17 3.8 14.7 2.7 12 2.7 8.1 2.7 4.7 4.9 3 8.2l3.4 2.3c.8-2.4 3-3.8 5.6-3.8z"
+                  fill="currentColor"
+                  opacity=".8"
                 />
               </svg>
             </span>
             <span class="btn-text">구글로 시작하기</span>
-          </button>
-
-          <button type="button" class="social-btn seller" @click="goToSeller">
-            <span class="brand-ico" aria-hidden="true">S</span>
-            <span class="btn-text">판매자 로그인</span>
-          </button>
-
-          <button type="button" class="social-btn admin" @click="goToAdmin">
-            <span class="brand-ico" aria-hidden="true">A</span>
-            <span class="btn-text">관리자 로그인</span>
           </button>
         </div>
 
@@ -266,28 +221,6 @@ const goToAdmin = () => {
 
 .social-btn.google .brand-ico {
   background: #f3f4f6;
-}
-
-.social-btn.seller {
-  background: var(--surface);
-  color: var(--text-strong);
-  border-color: var(--border-color);
-}
-
-.social-btn.seller .brand-ico {
-  background: var(--surface-weak);
-  color: var(--text-strong);
-}
-
-.social-btn.admin {
-  background: var(--surface-weak);
-  color: var(--text-strong);
-  border-color: var(--border-color);
-}
-
-.social-btn.admin .brand-ico {
-  background: #ffffff;
-  color: var(--text-strong);
 }
 
 .btn-text {
