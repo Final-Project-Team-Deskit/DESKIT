@@ -33,6 +33,7 @@ public class Invitation {
     private LocalDateTime updatedAt;
 
     @Column(name = "status", nullable = false)
+    @Enumerated(EnumType.STRING)
     private InvitationStatus status;
 
     @Column(name = "token", nullable = false)
