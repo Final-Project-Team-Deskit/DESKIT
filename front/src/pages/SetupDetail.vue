@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, RouterLink } from 'vue-router'
-import { setupsData } from '../lib/setups-data'
-import { productsData } from '../lib/products-data'
+import { getSetupDetail } from '../api/setups'
+import { listProducts } from '../api/products'
+import { type DbProduct } from '../lib/products-data'
 import { mapProducts, type UiProduct } from '../lib/products-mapper'
 import ProductCard from '../components/ProductCard.vue'
 import PageContainer from '../components/PageContainer.vue'
@@ -10,9 +11,46 @@ import PageContainer from '../components/PageContainer.vue'
 const route = useRoute()
 const setupId = computed(() => Number(Array.isArray(route.params.id) ? route.params.id[0] : route.params.id))
 
-const setup = computed(() => setupsData.find((item) => item.setup_id === setupId.value))
+const rawSetup = ref<any | null>(null)
+const isLoading = ref(false)
+const products = ref<DbProduct[]>([])
 
-const uiProducts = computed<UiProduct[]>(() => mapProducts(productsData))
+const loadSetup = async () => {
+  const id = setupId.value
+  if (!Number.isFinite(id)) {
+    rawSetup.value = null
+    return
+  }
+  isLoading.value = true
+  try {
+    rawSetup.value = await getSetupDetail(id)
+  } catch (error) {
+    console.error('Failed to load setup.', error)
+    rawSetup.value = null
+  } finally {
+    isLoading.value = false
+  }
+}
+
+const loadProducts = async () => {
+  try {
+    products.value = await listProducts()
+  } catch (error) {
+    console.error('Failed to load products.', error)
+  }
+}
+
+watch(setupId, () => {
+  loadSetup()
+}, { immediate: true })
+
+onMounted(() => {
+  loadProducts()
+})
+
+const setup = computed(() => rawSetup.value)
+
+const uiProducts = computed<UiProduct[]>(() => mapProducts(products.value))
 const productById = computed(() => new Map(uiProducts.value.map((p) => [Number(p.id), p])))
 
 const setupProducts = computed<UiProduct[]>(() => {
@@ -27,7 +65,8 @@ const setupProducts = computed<UiProduct[]>(() => {
   <PageContainer>
     <RouterLink to="/setup" class="back">← 셋업 목록</RouterLink>
 
-    <div v-if="setup" class="layout">
+    <div v-if="isLoading" class="empty">셋업 정보를 불러오는 중...</div>
+    <div v-else-if="setup" class="layout">
       <div class="hero-media">
         <img :src="setup.imageUrl" :alt="setup.title" />
       </div>
