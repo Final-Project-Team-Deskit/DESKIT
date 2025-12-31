@@ -4,25 +4,50 @@ import { USE_MOCK_API } from './config'
 import { type DbProduct } from '../lib/products-data'
 import { deleteMockProduct, getAllMockProducts } from '../lib/mocks/sellerProducts'
 import { normalizeProduct, normalizeProducts } from './products-normalizer'
-
-const isPlainObject = (value: any) => {
-  if (!value || typeof value !== 'object') return false
-  if (Array.isArray(value)) return false
-  return Object.prototype.toString.call(value) === '[object Object]'
-}
+import {
+  fetchDetailTextJson,
+  fetchListTextJsonWithRetry,
+  isPlainObject,
+  parseJsonIfString,
+  pickListPayload,
+} from './api-text-json'
 
 export const listProducts = async (): Promise<DbProduct[]> => {
   if (USE_MOCK_API) {
     return getAllMockProducts()
   }
 
-  const { data } = await http.get<DbProduct[] | { data: DbProduct[] }>(endpoints.products)
-  const payload = Array.isArray(data)
-    ? data
-    : isPlainObject(data) && Array.isArray(data.data)
-      ? data.data
-      : []
-  return normalizeProducts(payload)
+  const payload = await fetchListTextJsonWithRetry(http, endpoints.products, {
+    validateStatus: (status) => (status >= 200 && status < 300) || status === 304,
+  })
+  return normalizeProducts(payload as DbProduct[])
+}
+
+export const listProductsWithAuthGuard = async (): Promise<{
+  products: DbProduct[]
+  authRequired: boolean
+}> => {
+  if (USE_MOCK_API) {
+    return { products: getAllMockProducts(), authRequired: false }
+  }
+
+  const response = await http.get<string>(endpoints.products, {
+    withCredentials: true,
+    responseType: 'text',
+    transformResponse: (data) => data,
+  })
+
+  const contentType = response.headers?.['content-type'] ?? ''
+  const responseUrl = (response.request as XMLHttpRequest | undefined)?.responseURL ?? ''
+  const isHtml = contentType.includes('text/html')
+  const isLoginRedirect = responseUrl.includes('/login')
+  if (isHtml || isLoginRedirect) {
+    return { products: [], authRequired: true }
+  }
+
+  const { parsed } = parseJsonIfString(response.data)
+  const payload = pickListPayload(parsed)
+  return { products: normalizeProducts(payload), authRequired: false }
 }
 
 export const getProductDetail = async (
@@ -37,10 +62,11 @@ export const getProductDetail = async (
   return found
   }
 
-  const { data } = await http.get<DbProduct | { data: DbProduct }>(endpoints.productDetail(id))
-  const payload =
-    isPlainObject(data) && 'data' in data && isPlainObject(data.data) ? data.data : data
-  return payload ? normalizeProduct(payload) : null
+  const item = await fetchDetailTextJson(http, endpoints.productDetail(id), {
+    validateStatus: (status) => (status >= 200 && status < 300) || status === 404,
+  })
+
+  return isPlainObject(item) ? normalizeProduct(item) : null
 }
 
 export const deleteProduct = async (id: string | number): Promise<void> => {

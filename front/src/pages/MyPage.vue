@@ -25,6 +25,7 @@ const EMPTY_USER: UserInfo = {
 }
 
 const router = useRouter()
+const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080'
 const user = ref<UserInfo | null>(null)
 
 const loadUser = () => {
