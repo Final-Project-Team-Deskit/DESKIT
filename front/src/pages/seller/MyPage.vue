@@ -3,7 +3,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import PageContainer from '../../components/PageContainer.vue'
 import PageHeader from '../../components/PageHeader.vue'
-import { getAuthUser, logout } from '../../lib/auth'
+import { getAuthUser, requestLogout } from '../../lib/auth'
 
 const router = useRouter()
 
@@ -18,8 +18,11 @@ const display = computed(() => {
   }
 })
 
-const handleLogout = () => {
-  logout()
+const handleLogout = async () => {
+  const success = await requestLogout()
+  if (success) {
+    window.alert('로그아웃되었습니다.')
+  }
   router.push('/').catch(() => {})
 }
 

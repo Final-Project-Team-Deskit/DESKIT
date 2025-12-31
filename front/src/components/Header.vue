@@ -1,7 +1,7 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 import {computed, onBeforeUnmount, onMounted, ref, watch} from 'vue'
 import {RouterLink, useRoute, useRouter} from 'vue-router'
-import {getAuthUser, isAdmin, isLoggedIn as checkLoggedIn, logout} from '../lib/auth'
+import {getAuthUser, hydrateSessionUser, isAdmin, isLoggedIn as checkLoggedIn, requestLogout} from '../lib/auth'
 
 const route = useRoute()
 const router = useRouter()
@@ -62,9 +62,16 @@ const handleDocumentClick = (event: MouseEvent) => {
   closeMenu()
 }
 
+const hydrateAuth = async () => {
+  if (!checkLoggedIn()) {
+    await hydrateSessionUser()
+  }
+  refreshAuth()
+}
+
 onMounted(() => {
   handleScroll()
-  refreshAuth()
+  hydrateAuth()
   window.addEventListener('scroll', handleScroll, {passive: true})
   window.addEventListener('keydown', onKeydown)
   document.addEventListener('click', handleDocumentClick)
@@ -132,11 +139,13 @@ const submitSearch = () => {
   closeMenu()
 }
 
-const handleLogout = () => {
-  logout()
+const handleLogout = async () => {
+  const success = await requestLogout()
+  if (success) {
+    window.alert('로그아웃되었습니다.')
+  }
   refreshAuth()
-  router.push('/').catch(() => {
-  })
+  router.push('/').catch(() => {})
 }
 </script>
 
@@ -822,3 +831,4 @@ const handleLogout = () => {
   }
 }
 </style>
+

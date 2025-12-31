@@ -1,10 +1,10 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { RouterLink, useRouter } from 'vue-router'
 import PageContainer from '../components/PageContainer.vue'
 import PageHeader from '../components/PageHeader.vue'
 import { productsData } from '../lib/products-data'
-import { getAuthUser, logout } from '../lib/auth'
+import { getAuthUser, requestLogout } from '../lib/auth'
 
 type UserInfo = {
   name: string
@@ -15,40 +15,36 @@ type UserInfo = {
   job: string
 }
 
-const SEED_USER: UserInfo = {
-  name: '홍길동',
-  email: 'honggildong@test.com',
-  signupType: '소셜 회원(Naver)',
-  memberCategory: '일반회원',
-  mbti: 'INFJ',
-  job: '직장인',
+const EMPTY_USER: UserInfo = {
+  name: '',
+  email: '',
+  signupType: '',
+  memberCategory: '',
+  mbti: '',
+  job: '',
 }
 
 const router = useRouter()
 const user = ref<UserInfo | null>(null)
 
-const seedUser = () => {
-  localStorage.setItem('deskit-user', JSON.stringify(SEED_USER))
-  user.value = { ...SEED_USER }
-}
-
 const loadUser = () => {
   const parsed = getAuthUser()
   if (!parsed) {
-    seedUser()
+    user.value = null
     return
   }
   user.value = {
-    name: parsed.name || SEED_USER.name,
-    email: parsed.email || SEED_USER.email,
-    signupType: parsed.signupType || SEED_USER.signupType,
-    memberCategory: parsed.memberCategory || SEED_USER.memberCategory,
-    mbti: parsed.mbti || SEED_USER.mbti,
-    job: parsed.job || SEED_USER.job,
+    name: parsed.name || '',
+    email: parsed.email || '',
+    signupType: parsed.signupType || '',
+    memberCategory: parsed.memberCategory || '',
+    mbti: parsed.mbti || '',
+    job: parsed.job || '',
   }
 }
 
-const display = computed(() => user.value ?? SEED_USER)
+const hasUser = computed(() => !!user.value)
+const display = computed(() => user.value ?? EMPTY_USER)
 
 const initials = computed(() => {
   const name = display.value.name || ''
@@ -59,14 +55,21 @@ const initials = computed(() => {
 })
 
 const handleWithdraw = () => {
+  if (!hasUser.value) {
+    router.push('/login').catch(() => {})
+    return
+  }
   if (!window.confirm('정말 회원 탈퇴를 진행하시겠습니까?')) return
   ;['deskit-user', 'deskit-auth', 'token'].forEach((key) => localStorage.removeItem(key))
   window.dispatchEvent(new Event('deskit-user-updated'))
   router.push('/').catch(() => {})
 }
 
-const handleLogout = () => {
-  logout()
+const handleLogout = async () => {
+  const success = await requestLogout()
+  if (success) {
+    window.alert('로그아웃되었습니다.')
+  }
   router.push('/').catch(() => {})
 }
 
@@ -121,7 +124,12 @@ onMounted(() => {
   <PageContainer>
     <PageHeader eyebrow="DESKIT" title="마이페이지" />
     <div class="mypage-wrap">
-      <section class="profile-banner">
+      <div v-if="!hasUser" class="login-alert">
+        <p>로그인이 필요합니다. 소셜 로그인 후 다시 접속해 주세요.</p>
+        <button type="button" class="btn" @click="router.push('/login')">로그인하기</button>
+      </div>
+
+      <section v-if="hasUser" class="profile-banner">
         <div class="profile-top">
           <div class="avatar">{{ initials }}</div>
           <div class="profile-meta">
@@ -130,7 +138,7 @@ onMounted(() => {
             </div>
             <div class="meta-row">
               <span class="meta">{{ display.email }}</span>
-              <span class="dot">•</span>
+              <span class="dot">?</span>
               <span class="meta">{{ display.signupType }}</span>
             </div>
             <div class="chip-row">
@@ -223,8 +231,9 @@ onMounted(() => {
           <p class="sub">계정 관련 작업을 진행할 수 있습니다.</p>
         </div>
         <div class="account-actions">
-          <button type="button" class="btn ghost" @click="handleLogout">로그아웃</button>
-          <button type="button" class="btn danger" @click="handleWithdraw">회원 탈퇴하기</button>
+          <button v-if="hasUser" type="button" class="btn ghost" @click="handleLogout">로그아웃</button>
+          <button v-if="hasUser" type="button" class="btn danger" @click="handleWithdraw">회원 탈퇴하기</button>
+          <button v-else type="button" class="btn" @click="router.push('/login')">로그인하기</button>
         </div>
       </section>
     </div>
@@ -238,6 +247,19 @@ onMounted(() => {
   gap: 16px;
   max-width: 960px;
   margin: 0 auto;
+}
+
+.login-alert {
+  border: 1px solid var(--border-color);
+  background: var(--surface-weak);
+  border-radius: 12px;
+  padding: 14px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--text-strong);
+  font-weight: 700;
 }
 
 .profile-banner {
@@ -630,6 +652,10 @@ onMounted(() => {
   .chip-row {
     gap: 6px;
   }
+  .login-alert {
+    flex-direction: column;
+    align-items: flex-start;
+  }
 }
 
 @media (max-width: 860px) {
@@ -638,3 +664,5 @@ onMounted(() => {
   }
 }
 </style>
+
+
