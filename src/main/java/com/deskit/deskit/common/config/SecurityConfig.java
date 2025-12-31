@@ -32,8 +32,6 @@ public class SecurityConfig {
                     // 프리플라이트(OPTIONS)는 항상 허용
                     .requestMatchers(HttpMethod.OPTIONS, "/api/**").permitAll()
                     // 상품/셋업 조회 GET은 로그인 없이 허용
-                    .requestMatchers(HttpMethod.GET, "/api/products/**", "/api/setups/**", "/api/home/**")
-                    .permitAll()
                     // 로그인/OAuth/에러 페이지는 허용
                     .requestMatchers("/login**", "/oauth2/**", "/error").permitAll()
                     // 나머지는 인증 필요

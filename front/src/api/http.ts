@@ -1,4 +1,4 @@
-import axios from 'axios'
+import axios, { AxiosHeaders, type InternalAxiosRequestConfig } from 'axios'
 import { API_BASE_URL, REQUEST_TIMEOUT_MS } from './config'
 
 export const http = axios.create({
@@ -7,13 +7,14 @@ export const http = axios.create({
   headers: { 'Content-Type': 'application/json' },
 })
 
-http.interceptors.request.use((config) => {
+http.interceptors.request.use((config: InternalAxiosRequestConfig) => {
   const token = localStorage.getItem('access_token')
+
   if (token) {
-    config.headers = {
-      ...(config.headers ?? {}),
-      Authorization: `Bearer ${token}`,
-    }
+    const headers = AxiosHeaders.from(config.headers)
+    headers.set('Authorization', `Bearer ${token}`)
+    config.headers = headers
   }
+
   return config
 })

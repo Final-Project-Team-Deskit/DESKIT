@@ -4,6 +4,8 @@ import com.deskit.deskit.product.entity.Product;
 import java.util.List;
 import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 /**
  * Product 엔티티에 대한 DB 접근 레이어(Repository)
@@ -29,4 +31,40 @@ public interface ProductRepository extends JpaRepository<Product, Long> {
    * 예: id는 존재하지만 deleted_at이 채워져 있으면(논리삭제) -> Optional.empty()
    */
   Optional<Product> findByIdAndDeletedAtIsNull(Long id);
+
+  @Query(value = """
+      SELECT
+          p.product_id AS productId,
+          p.product_name AS productName,
+          p.price AS price,
+          COALESCE(SUM(CASE WHEN o.order_id IS NOT NULL THEN oi.quantity ELSE 0 END), 0) AS soldQty,
+          pi.product_image_url AS thumbnailUrl,
+          MAX(p.created_at) AS createdAt
+      FROM product p
+      LEFT JOIN order_item oi
+          ON oi.product_id = p.product_id
+          AND oi.deleted_at IS NULL
+      LEFT JOIN `order` o
+          ON o.order_id = oi.order_id
+          AND o.deleted_at IS NULL
+          AND o.status IN ('PAID', 'COMPLETED')
+      LEFT JOIN product_image pi
+          ON pi.product_id = p.product_id
+          AND pi.image_type = 'THUMBNAIL'
+          AND pi.slot_index = 0
+          AND pi.deleted_at IS NULL
+      WHERE p.deleted_at IS NULL
+      GROUP BY p.product_id, p.product_name, p.price, pi.product_image_url
+      ORDER BY soldQty DESC, createdAt DESC
+      LIMIT :limit
+      """, nativeQuery = true)
+  List<PopularProductRow> findPopularProducts(@Param("limit") int limit);
+
+  interface PopularProductRow {
+    Long getProductId();
+    String getProductName();
+    Integer getPrice();
+    Long getSoldQty();
+    String getThumbnailUrl();
+  }
 }
