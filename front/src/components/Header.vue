@@ -1,7 +1,7 @@
 ﻿<script setup lang="ts">
 import {computed, onBeforeUnmount, onMounted, ref, watch} from 'vue'
 import {RouterLink, useRoute, useRouter} from 'vue-router'
-import {getAuthUser, hydrateSessionUser, isAdmin, isLoggedIn as checkLoggedIn, logout} from '../lib/auth'
+import {getAuthUser, hydrateSessionUser, isAdmin, isLoggedIn as checkLoggedIn, requestLogout} from '../lib/auth'
 
 const route = useRoute()
 const router = useRouter()
@@ -141,25 +141,12 @@ const submitSearch = () => {
 }
 
 const handleLogout = async () => {
-  const access = localStorage.getItem('access') || sessionStorage.getItem('access')
-  const headers: Record<string, string> = {}
-  if (access) {
-    headers.access = access
+  const success = await requestLogout()
+  if (success) {
+    window.alert('로그아웃되었습니다.')
   }
-
-  try {
-    await fetch(`${apiBase}/logout`, {
-      method: 'POST',
-      credentials: 'include',
-      headers,
-    })
-  } catch (error) {
-    console.error('logout failed', error)
-  } finally {
-    logout()
-    refreshAuth()
-    router.push('/').catch(() => {})
-  }
+  refreshAuth()
+  router.push('/').catch(() => {})
 }
 </script>
 

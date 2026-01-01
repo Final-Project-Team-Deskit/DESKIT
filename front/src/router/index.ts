@@ -63,6 +63,11 @@ const routes: RouteRecordRaw[] = [
     component: () => import('../pages/Signup.vue'),
   },
   {
+    path: '/chat',
+    name: 'chatbot',
+    component: () => import('../pages/Chatbot.vue'),
+  },
+  {
     path: '/my',
     name: 'my-page',
     component: () => import('../pages/MyPage.vue'),

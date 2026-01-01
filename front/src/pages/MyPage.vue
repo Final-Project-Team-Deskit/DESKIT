@@ -4,7 +4,7 @@ import { RouterLink, useRouter } from 'vue-router'
 import PageContainer from '../components/PageContainer.vue'
 import PageHeader from '../components/PageHeader.vue'
 import { productsData } from '../lib/products-data'
-import { getAuthUser, logout } from '../lib/auth'
+import { getAuthUser, requestLogout } from '../lib/auth'
 
 type UserInfo = {
   name: string
@@ -67,24 +67,11 @@ const handleWithdraw = () => {
 }
 
 const handleLogout = async () => {
-  const access = localStorage.getItem('access') || sessionStorage.getItem('access')
-  const headers: Record<string, string> = {}
-  if (access) {
-    headers.access = access
+  const success = await requestLogout()
+  if (success) {
+    window.alert('로그아웃되었습니다.')
   }
-
-  try {
-    await fetch(`${apiBase}/logout`, {
-      method: 'POST',
-      credentials: 'include',
-      headers,
-    })
-  } catch (error) {
-    console.error('logout failed', error)
-  } finally {
-    logout()
-    router.push('/').catch(() => {})
-  }
+  router.push('/').catch(() => {})
 }
 
 const mbtiKeywordsMap: Record<string, string[]> = {

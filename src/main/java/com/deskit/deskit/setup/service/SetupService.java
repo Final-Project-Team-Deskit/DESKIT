@@ -78,7 +78,11 @@ public class SetupService {
     SetupTags tags = bundle == null ? SetupTags.empty() : bundle.getTags();
     List<String> tagsFlat = bundle == null ? Collections.emptyList() : bundle.getTagsFlat();
 
-    return Optional.of(SetupResponse.from(setup.get(), tags, tagsFlat));
+    List<Long> productIdsRaw = setupRepository.findProductIdsBySetupId(id);
+    List<Long> productIds = productIdsRaw == null
+            ? Collections.emptyList()
+            : new ArrayList<>(new LinkedHashSet<>(productIdsRaw));
+    return Optional.of(SetupResponse.from(setup.get(), tags, tagsFlat, productIds));
   }
 
   // DB에서 가져온 태그 row들을 setupId별로 그룹핑하고 tags/tagsFlat을 만든다

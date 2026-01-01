@@ -110,6 +110,8 @@ public class SecurityConfig {
                 .authorizeHttpRequests((auth) -> auth
                         .requestMatchers(
                                 "/",
+                                "/chat",
+                                "/chat/**",
                                 "/reissue",
                                 "/api/invitations/validate",
                                 "/oauth/**",

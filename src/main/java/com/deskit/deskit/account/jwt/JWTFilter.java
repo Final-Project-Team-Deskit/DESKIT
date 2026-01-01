@@ -44,9 +44,6 @@ public class JWTFilter extends OncePerRequestFilter {
         } catch (ExpiredJwtException e) {
 
             log.info("expired token");
-            //response body
-            PrintWriter writer = response.getWriter();
-            writer.print("access token expired");
 
             //response status code
             response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
@@ -59,9 +56,6 @@ public class JWTFilter extends OncePerRequestFilter {
         if (!category.equals("access")) {
 
             log.info("access token is not access");
-            //response body
-            PrintWriter writer = response.getWriter();
-            writer.print("invalid access token");
 
             //response status code
             response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
@@ -129,7 +123,8 @@ public class JWTFilter extends OncePerRequestFilter {
         String uri = request.getRequestURI();
         return uri.startsWith("/oauth2/")
                 || uri.startsWith("/login/oauth2/")
-                || uri.startsWith("/login");
+                || uri.startsWith("/login")
+                || uri.startsWith("/chat");
     }
 }
 
