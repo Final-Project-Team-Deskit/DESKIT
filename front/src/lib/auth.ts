@@ -81,6 +81,28 @@ export const logout = (): void => {
   window.dispatchEvent(new Event('deskit-user-updated'))
 }
 
+export const requestLogout = async (): Promise<boolean> => {
+  const access = localStorage.getItem('access') || sessionStorage.getItem('access')
+  const headers: Record<string, string> = {}
+  if (access) {
+    headers.access = access
+  }
+  let success = false
+  try {
+    const response = await fetch(`${apiBase}/logout`, {
+      method: 'POST',
+      credentials: 'include',
+      headers,
+    })
+    success = response.ok
+  } catch (error) {
+    console.error('logout failed', error)
+  } finally {
+    logout()
+  }
+  return success
+}
+
 export const hydrateSessionUser = async (): Promise<boolean> => {
   try {
     let response = await fetch(`${apiBase}/my`, {credentials: 'include'})
