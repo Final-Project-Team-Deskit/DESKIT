@@ -103,6 +103,38 @@ export const requestLogout = async (): Promise<boolean> => {
   return success
 }
 
+export const requestWithdraw = async (): Promise<{ ok: boolean; message?: string }> => {
+  const access = localStorage.getItem('access') || sessionStorage.getItem('access')
+  const headers: Record<string, string> = {}
+  if (access) {
+    headers.access = access
+  }
+
+  try {
+    const response = await fetch(`${apiBase}/api/quit`, {
+      method: 'POST',
+      credentials: 'include',
+      headers,
+    })
+    const payload = await response.json().catch(() => null)
+    const message =
+      typeof payload?.message === 'string'
+        ? payload.message
+        : typeof payload === 'string'
+          ? payload
+          : undefined
+
+    if (!response.ok) {
+      return { ok: false, message }
+    }
+
+    return { ok: true, message }
+  } catch (error) {
+    console.error('withdraw failed', error)
+    return { ok: false, message: 'withdraw failed' }
+  }
+}
+
 export const hydrateSessionUser = async (): Promise<boolean> => {
   try {
     let response = await fetch(`${apiBase}/my`, {credentials: 'include'})
