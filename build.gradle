@@ -43,6 +43,8 @@ dependencies {
 	// Redis
 	implementation "org.springframework.ai:spring-ai-starter-vector-store-redis"
 	implementation 'org.springframework.boot:spring-boot-starter-data-redis'
+	// [추가] Redis 분산락/큐 구현체 (Redisson)
+	implementation 'org.redisson:redisson-spring-boot-starter:3.24.3'
 
 	// Spring Security
 	implementation 'org.springframework.boot:spring-boot-starter-oauth2-client'
@@ -76,8 +78,35 @@ dependencies {
 	// SendGrid(Email)
 	implementation 'com.sendgrid:sendgrid-java:4.4.1'
 
+	// Validation (유효성 검사)
+	implementation 'org.springframework.boot:spring-boot-starter-validation'
+
+	// [QueryDSL 추가]
+	implementation 'com.querydsl:querydsl-jpa:5.0.0:jakarta'
+	annotationProcessor "com.querydsl:querydsl-apt:5.0.0:jakarta"
+	annotationProcessor "jakarta.annotation:jakarta.annotation-api"
+	annotationProcessor "jakarta.persistence:jakarta.persistence-api"
+
+	// WebSocket
+	implementation 'org.springframework.boot:spring-boot-starter-websocket'
+
 }
 
 tasks.named('test') {
 	useJUnitPlatform()
+}
+
+// [QueryDSL 빌드 설정]
+def querydslDir = "$buildDir/generated/querydsl"
+
+sourceSets {
+	main.java.srcDirs += [ querydslDir ]
+}
+
+tasks.withType(JavaCompile) {
+	options.annotationProcessorGeneratedSourcesDirectory = file(querydslDir)
+}
+
+clean.doLast {
+	file(querydslDir).deleteDir()
 }
