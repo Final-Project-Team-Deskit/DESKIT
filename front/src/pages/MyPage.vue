@@ -4,7 +4,7 @@ import { RouterLink, useRouter } from 'vue-router'
 import PageContainer from '../components/PageContainer.vue'
 import PageHeader from '../components/PageHeader.vue'
 import { productsData } from '../lib/products-data'
-import { getAuthUser, requestLogout } from '../lib/auth'
+import { getAuthUser, requestLogout, requestWithdraw } from '../lib/auth'
 
 type UserInfo = {
   name: string
@@ -55,12 +55,20 @@ const initials = computed(() => {
   return `${parts[0][0]}${parts[1][0]}`.toUpperCase()
 })
 
-const handleWithdraw = () => {
+const handleWithdraw = async () => {
   if (!hasUser.value) {
     router.push('/login').catch(() => {})
     return
   }
   if (!window.confirm('정말 회원 탈퇴를 진행하시겠습니까?')) return
+
+  const result = await requestWithdraw()
+  if (!result.ok) {
+    window.alert(result.message || '회원 탈퇴를 진행할 수 없습니다.')
+    return
+  }
+
+  window.alert(result.message || '회원 탈퇴가 완료되었습니다.')
   ;['deskit-user', 'deskit-auth', 'token'].forEach((key) => localStorage.removeItem(key))
   window.dispatchEvent(new Event('deskit-user-updated'))
   router.push('/').catch(() => {})

@@ -3,25 +3,41 @@ package com.deskit.deskit.account.service;
 import com.deskit.deskit.account.dto.UserDTO;
 import com.deskit.deskit.account.entity.Member;
 import com.deskit.deskit.account.entity.Seller;
+import com.deskit.deskit.account.enums.MemberStatus;
+import com.deskit.deskit.account.enums.SellerStatus;
 import com.deskit.deskit.account.oauth.*;
 import com.deskit.deskit.account.repository.MemberRepository;
 import com.deskit.deskit.account.repository.SellerRepository;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.env.Environment;
 import org.springframework.security.oauth2.client.userinfo.DefaultOAuth2UserService;
 import org.springframework.security.oauth2.client.userinfo.OAuth2UserRequest;
 import org.springframework.security.oauth2.core.OAuth2AuthenticationException;
+import org.springframework.security.oauth2.core.OAuth2Error;
 import org.springframework.security.oauth2.core.user.OAuth2User;
 import org.springframework.stereotype.Service;
+
+import java.time.LocalDateTime;
 
 @Service
 public class CustomOAuth2UserService extends DefaultOAuth2UserService {
 
     private final MemberRepository memberRepository;
     private final SellerRepository sellerRepository;
+    private final Environment environment;
+    private final long rejoinBlockDays;
 
-    public CustomOAuth2UserService(MemberRepository memberRepository, SellerRepository sellerRepository) {
+    public CustomOAuth2UserService(
+            MemberRepository memberRepository,
+            SellerRepository sellerRepository,
+            Environment environment,
+            @Value("${deskit.rejoin.block-days:30}") long rejoinBlockDays
+    ) {
 
         this.memberRepository = memberRepository;
         this.sellerRepository = sellerRepository;
+        this.environment = environment;
+        this.rejoinBlockDays = rejoinBlockDays;
     }
 
     @Override
@@ -68,6 +84,11 @@ public class CustomOAuth2UserService extends DefaultOAuth2UserService {
         // Member에 존재할 경우 -> Member 로그인
         else if (existMember != null) {
 
+            if (existMember.getStatus() == MemberStatus.INACTIVE) {
+                ensureRejoinAllowed(existMember.getUpdatedAt());
+                existMember.setStatus(MemberStatus.ACTIVE);
+            }
+
             existMember.setLoginId(oAuth2Response.getEmail());
             existMember.setName(oAuth2Response.getName());
 
@@ -87,6 +108,11 @@ public class CustomOAuth2UserService extends DefaultOAuth2UserService {
 
         // Seller에 존재할 경우 -> Seller 로그인
         else {
+            if (existSeller.getStatus() == SellerStatus.INACTIVE) {
+                ensureRejoinAllowed(existSeller.getUpdatedAt());
+                existSeller.setStatus(SellerStatus.ACTIVE);
+            }
+
             existSeller.setLoginId(oAuth2Response.getEmail());
             existSeller.setName(oAuth2Response.getName());
 
@@ -103,5 +129,34 @@ public class CustomOAuth2UserService extends DefaultOAuth2UserService {
 
             return new CustomOAuth2User(userDTO);
         }
+    }
+
+    private void ensureRejoinAllowed(LocalDateTime updatedAt) {
+        if (!isRejoinRestrictionEnabled()) {
+            return;
+        }
+
+        if (updatedAt == null) {
+            return;
+        }
+
+        LocalDateTime cutoff = LocalDateTime.now().minusDays(rejoinBlockDays);
+        if (updatedAt.isAfter(cutoff)) {
+            throw new OAuth2AuthenticationException(
+                    new OAuth2Error("rejoin_blocked", "탈퇴 후 1개월 이내에는 재가입할 수 없습니다.", null)
+            );
+        }
+    }
+
+    private boolean isRejoinRestrictionEnabled() {
+        if (rejoinBlockDays <= 0) {
+            return false;
+        }
+        for (String profile : environment.getActiveProfiles()) {
+            if ("test".equalsIgnoreCase(profile)) {
+                return false;
+            }
+        }
+        return true;
     }
 }
