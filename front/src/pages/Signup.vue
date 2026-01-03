@@ -1,5 +1,5 @@
-﻿<script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+<script setup lang="ts">
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import PageContainer from '../components/PageContainer.vue'
 import PageHeader from '../components/PageHeader.vue'
 
@@ -41,6 +41,16 @@ const form = reactive({
   isVerified: false,
 })
 
+const businessValidation = reactive({
+  status: 'idle',
+  message: '',
+  isChecking: false,
+  lastBusinessNumber: '',
+  lastCompanyName: '',
+})
+
+const biznoApiBase = 'https://bizno.net/api/fapi'
+const biznoApiKey = 'GhSnH0S5G1SoEc5OKTzrlTBoIwdN'
 const mbtiOptions: MbtiOption[] = [
   { value: 'NONE', label: '선택 안함' },
   { value: 'INTJ', label: 'INTJ' },
@@ -76,6 +86,37 @@ const jobLabelMap = jobOptions.reduce<Record<string, string>>((acc, option) => {
 }, {})
 
 const isInviteSignup = computed(() => !!inviteToken.value)
+const isSellerSignup = computed(
+  () => form.memberType === 'SELLER' && !isInviteSignup.value,
+)
+
+const normalizeCompanyName = (value: string) =>
+  value.replace(/\s+/g, '').toLowerCase()
+
+const extractCompanyNames = (payload: Record<string, unknown>) => {
+  const items =
+    (payload as { items?: { item?: unknown } }).items?.item ??
+    (payload as { items?: unknown }).items ??
+    (payload as { item?: unknown }).item ??
+    (payload as { data?: unknown }).data ??
+    []
+  const list = Array.isArray(items) ? items : items ? [items] : []
+  return list
+    .map((entry) => {
+      if (typeof entry !== 'object' || entry === null) {
+        return ''
+      }
+      const record = entry as Record<string, unknown>
+      return (
+        record.company ??
+        record.companyName ??
+        record.corpName ??
+        record.corpNm ??
+        ''
+      ).toString()
+    })
+    .filter(Boolean)
+}
 
 const loadPending = async () => {
   if (!signupToken.value) {
@@ -169,12 +210,94 @@ const storeAuthUser = () => {
   window.dispatchEvent(new Event('deskit-user-updated'))
 }
 
+const verifyBusinessNumber = async () => {
+  if (!isSellerSignup.value) {
+    return true
+  }
+
+  const businessNumber = form.businessNumber.trim()
+  const companyName = form.companyName.trim()
+
+  if (!businessNumber || !companyName) {
+    businessValidation.status = 'invalid'
+    businessValidation.message = '사업자등록번호와 사업자명을 모두 입력해 주세요.'
+    return false
+  }
+
+  if (!/^\d+$/.test(businessNumber)) {
+    businessValidation.status = 'invalid'
+    businessValidation.message = '사업자등록번호는 숫자만 입력해 주세요.'
+    return false
+  }
+
+  if (
+    businessValidation.status === 'valid' &&
+    businessValidation.lastBusinessNumber === businessNumber &&
+    businessValidation.lastCompanyName === companyName
+  ) {
+    return true
+  }
+
+  businessValidation.isChecking = true
+  businessValidation.status = 'checking'
+  businessValidation.message = '사업자등록번호를 확인하고 있습니다.'
+
+  try {
+    const url = `${biznoApiBase}?key=${biznoApiKey}&gb=1&q=${encodeURIComponent(businessNumber)}&type=json`
+    const response = await fetch(url)
+
+    if (!response.ok) {
+      businessValidation.status = 'invalid'
+      businessValidation.message = '사업자등록번호 인증에 실패했습니다. 다시 시도해 주세요.'
+      return false
+    }
+
+    const text = await response.text()
+    const sanitized = text.replace(/^\uFEFF/, '')
+    const data = JSON.parse(sanitized) as Record<string, unknown>
+    const companies = extractCompanyNames(data)
+    const normalizedInput = normalizeCompanyName(companyName)
+    const matched = companies.some(
+      (name) => normalizeCompanyName(name) === normalizedInput,
+    )
+
+    if (!matched) {
+      businessValidation.status = 'invalid'
+      businessValidation.message =
+        companies.length === 0
+          ? '사업자등록번호를 찾을 수 없습니다.'
+          : '상호명이 일치하지 않습니다. 다시 확인해 주세요.'
+      return false
+    }
+
+    businessValidation.status = 'valid'
+    businessValidation.message = '사업자등록번호 인증이 완료되었습니다.'
+    businessValidation.lastBusinessNumber = businessNumber
+    businessValidation.lastCompanyName = companyName
+    return true
+  } catch (error) {
+    businessValidation.status = 'invalid'
+    businessValidation.message = '사업자등록번호 인증에 실패했습니다. 다시 시도해 주세요.'
+    return false
+  } finally {
+    businessValidation.isChecking = false
+  }
+}
+
 const submitSignup = async () => {
   if (!signupToken.value) {
     form.message = '로그인이 필요합니다.'
     return
   }
 
+  if (isSellerSignup.value) {
+    const isValid = await verifyBusinessNumber()
+    if (!isValid) {
+      form.message =
+        businessValidation.message || '사업자등록번호 인증이 필요합니다.'
+      return
+    }
+  }
   const response = await fetch(`${apiBase}/api/signup/social/complete`, {
     method: 'POST',
     headers: {
@@ -283,6 +406,15 @@ const validateInviteToken = async () => {
   }
 }
 
+watch(
+  [() => form.businessNumber, () => form.companyName, isSellerSignup],
+  () => {
+    businessValidation.status = 'idle'
+    businessValidation.message = ''
+    businessValidation.lastBusinessNumber = ''
+    businessValidation.lastCompanyName = ''
+  },
+)
 const startLogin = (provider: 'naver' | 'google' | 'kakao') => {
   window.location.href = `${apiBase}/oauth2/authorization/${provider}`
 }
@@ -367,10 +499,21 @@ onMounted(() => {
               <span>사업자등록번호</span>
               <input v-model="form.businessNumber" type="text" placeholder="사업자등록번호" />
             </label>
+            <p class="hint">사업자등록번호는 '-' 없이 숫자만 입력해 주세요.</p>
             <label class="field">
               <span>사업자명</span>
               <input v-model="form.companyName" type="text" placeholder="사업자명" />
             </label>
+            <p class="hint">사업자명은 등록된 상호명으로 입력해 주세요.</p>
+            <button type="button" class="btn" :disabled="businessValidation.isChecking" @click="verifyBusinessNumber">
+              {{ businessValidation.isChecking ? '확인 중...' : '사업자등록번호 인증하기' }}
+            </button>
+            <p
+              v-if="businessValidation.message"
+              :class="businessValidation.status === 'valid' ? 'success' : 'error'"
+            >
+              {{ businessValidation.message }}
+            </p>
             <label class="field">
               <span>사업 설명</span>
               <textarea v-model="form.description" placeholder="사업 설명 (선택)"></textarea>
@@ -507,6 +650,10 @@ onMounted(() => {
   color: #15803d;
 }
 
+.error {
+  font-weight: 800;
+  color: #b42318;
+}
 .file-name {
   font-size: 0.85rem;
   color: var(--text-muted);
@@ -559,3 +706,5 @@ onMounted(() => {
   }
 }
 </style>
+
+
