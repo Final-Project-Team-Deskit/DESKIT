@@ -118,6 +118,7 @@ public class SecurityConfig {
                                 "/chat",
                                 "/chat/**",
                                 "/reissue",
+                                "/api/admin/auth/**",
                                 "/api/invitations/validate",
                                 "/oauth/**",
 								"/login",

@@ -3,6 +3,9 @@ package com.deskit.deskit.account.oauth;
 
 import com.deskit.deskit.account.jwt.JWTUtil;
 import com.deskit.deskit.account.repository.RefreshRepository;
+import com.deskit.deskit.admin.entity.Admin;
+import com.deskit.deskit.admin.repository.AdminRepository;
+import com.deskit.deskit.admin.service.AdminAuthService;
 import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -23,6 +26,8 @@ public class CustomSuccessHandler extends SimpleUrlAuthenticationSuccessHandler 
 
     private final JWTUtil jwtUtil;
     private final RefreshRepository refreshRepository;
+    private final AdminRepository adminRepository;
+    private final AdminAuthService adminAuthService;
 
     @Override
     public void onAuthenticationSuccess(
@@ -51,6 +56,17 @@ public class CustomSuccessHandler extends SimpleUrlAuthenticationSuccessHandler 
             // Encoded token for safe query parameter transport.
             String encodedToken = URLEncoder.encode(signupToken, StandardCharsets.UTF_8);
             response.sendRedirect("http://localhost:5173/signup?token=" + encodedToken);
+            return;
+        }
+
+        if ("ROLE_ADMIN".equals(role)) {
+            Admin admin = adminRepository.findByLoginId(user.getEmail());
+            if (admin == null) {
+                response.sendRedirect("http://localhost:5173/login");
+                return;
+            }
+            adminAuthService.startSession(admin, request.getSession(true));
+            response.sendRedirect("http://localhost:5173/admin/verify");
             return;
         }
 
