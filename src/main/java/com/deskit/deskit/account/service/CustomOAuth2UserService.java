@@ -8,6 +8,8 @@ import com.deskit.deskit.account.enums.SellerStatus;
 import com.deskit.deskit.account.oauth.*;
 import com.deskit.deskit.account.repository.MemberRepository;
 import com.deskit.deskit.account.repository.SellerRepository;
+import com.deskit.deskit.admin.entity.Admin;
+import com.deskit.deskit.admin.repository.AdminRepository;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.env.Environment;
 import org.springframework.security.oauth2.client.userinfo.DefaultOAuth2UserService;
@@ -24,18 +26,21 @@ public class CustomOAuth2UserService extends DefaultOAuth2UserService {
 
     private final MemberRepository memberRepository;
     private final SellerRepository sellerRepository;
+    private final AdminRepository adminRepository;
     private final Environment environment;
     private final long rejoinBlockDays;
 
     public CustomOAuth2UserService(
             MemberRepository memberRepository,
             SellerRepository sellerRepository,
+            AdminRepository adminRepository,
             Environment environment,
             @Value("${deskit.rejoin.block-days:30}") long rejoinBlockDays
     ) {
 
         this.memberRepository = memberRepository;
         this.sellerRepository = sellerRepository;
+        this.adminRepository = adminRepository;
         this.environment = environment;
         this.rejoinBlockDays = rejoinBlockDays;
     }
@@ -62,8 +67,22 @@ public class CustomOAuth2UserService extends DefaultOAuth2UserService {
         }
 
         String username = oAuth2Response.getProvider()+" "+oAuth2Response.getProviderId();
+        Admin existAdmin = adminRepository.findByLoginId(oAuth2Response.getEmail());
         Member existMember = memberRepository.findByLoginId(oAuth2Response.getEmail());
         Seller existSeller = sellerRepository.findByLoginId(oAuth2Response.getEmail());
+
+        if (existAdmin != null) {
+            UserDTO userDTO = UserDTO.builder()
+                    .username(existAdmin.getLoginId())
+                    .name(existAdmin.getName())
+                    .email(existAdmin.getLoginId())
+                    .role(existAdmin.getRole())
+                    .newUser(false)
+                    .profileUrl(oAuth2Response.getProfileUrl() == null ? "" : oAuth2Response.getProfileUrl())
+                    .build();
+
+            return new CustomOAuth2User(userDTO);
+        }
 
         // Member에도 없고 Seller에도 없는 경우 -> 신규 등록, role 임시 부여(GUEST)
         if (existMember == null && existSeller == null) {
