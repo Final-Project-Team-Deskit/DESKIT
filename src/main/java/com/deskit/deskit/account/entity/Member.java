@@ -42,6 +42,7 @@ public class Member {
     @Enumerated(EnumType.STRING)
     private MemberStatus status;
 
+    // ROLE_MEMBER 고정
     @Column(name = "role", nullable = false)
     private String role;
 

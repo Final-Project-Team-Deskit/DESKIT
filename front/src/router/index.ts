@@ -58,6 +58,11 @@ const routes: RouteRecordRaw[] = [
     component: () => import('../pages/Login.vue'),
   },
   {
+    path: '/admin/verify',
+    name: 'admin-verify',
+    component: () => import('../pages/AdminVerify.vue'),
+  },
+  {
     path: '/signup',
     name: 'signup',
     component: () => import('../pages/Signup.vue'),
@@ -226,6 +231,12 @@ router.beforeEach(async (to) => {
   }
   if (isSellerPath && loggedIn && !isSeller()) {
     return { path: '/login', query: { redirect: to.fullPath } }
+  }
+  if (loggedIn && to.path === '/admin/verify') {
+    return { path: '/admin' }
+  }
+  if (to.path === '/admin/verify') {
+    return true
   }
   if (to.path.startsWith('/admin')) {
     if (!loggedIn || !isAdmin()) {
