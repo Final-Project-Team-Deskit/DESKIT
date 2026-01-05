@@ -76,6 +76,9 @@ dependencies {
 	// SendGrid(Email)
 	implementation 'com.sendgrid:sendgrid-java:4.4.1'
 
+	//websocket
+	implementation 'org.springframework.boot:spring-boot-starter-websocket'
+
 }
 
 tasks.named('test') {

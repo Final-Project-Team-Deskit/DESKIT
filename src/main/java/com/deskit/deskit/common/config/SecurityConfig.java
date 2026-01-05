@@ -123,7 +123,8 @@ public class SecurityConfig {
                                 "/oauth/**",
 								"/login",
 								"/login/**",
-								"/login/oauth2/**"
+								"/login/oauth2/**",
+                                "/ws/**"
 						).permitAll()
 						.requestMatchers("/api/quit").hasAnyAuthority(
 								"ROLE_MEMBER",
