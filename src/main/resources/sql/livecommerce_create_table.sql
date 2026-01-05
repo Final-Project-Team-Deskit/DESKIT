@@ -475,7 +475,7 @@ CREATE TABLE seller_grade (
     `status`       ENUM('ACTIVE', 'TEMP', 'REVIEW') NOT NULL DEFAULT 'ACTIVE',
     created_at     DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at     DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    expired_at     DATETIME        NOT NULL,
+    expired_at     DATETIME        NULL,
     company_id     BIGINT UNSIGNED NOT NULL COMMENT 'FK: company_registered',
     PRIMARY KEY (grade_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='판매자 등급';
@@ -615,7 +615,7 @@ ALTER TABLE broadcast_result ADD CONSTRAINT FK_br_broadcast FOREIGN KEY (broadca
 
 -- [Live Interaction Relations]
 ALTER TABLE view_history ADD CONSTRAINT FK_vh_broadcast FOREIGN KEY (broadcast_id) REFERENCES broadcast (broadcast_id);
--- ALTER TABLE view_history ADD CONSTRAINT FK_vh_member FOREIGN KEY (member_id) REFERENCES member (member_id);
+# ALTER TABLE view_history ADD CONSTRAINT FK_vh_member FOREIGN KEY (member_id) REFERENCES member (member_id);
 
 ALTER TABLE live_chat ADD CONSTRAINT FK_lc_broadcast FOREIGN KEY (broadcast_id) REFERENCES broadcast (broadcast_id);
 ALTER TABLE live_chat ADD CONSTRAINT FK_lc_member FOREIGN KEY (member_id) REFERENCES member (member_id);
