@@ -153,16 +153,23 @@ public class AdminEvaluationService {
 		if (sellerGrade == null) {
 			sellerGrade = new SellerGrade();
 			sellerGrade.setCompanyId(company.getCompanyId());
-			sellerGrade.setExpiredAt(LocalDateTime.now().plusYears(1));
 		}
 
 		sellerGrade.setGrade(grade);
 		sellerGrade.setGradeStatus(resolveGradeStatus(grade));
+		sellerGrade.setExpiredAt(resolveExpiredAt(grade));
 		sellerGradeRepository.save(sellerGrade);
 	}
 
 	private SellerGradeStatus resolveGradeStatus(SellerGradeEnum grade) {
 		return grade == SellerGradeEnum.REJECTED ? SellerGradeStatus.TEMP : SellerGradeStatus.ACTIVE;
+	}
+
+	private LocalDateTime resolveExpiredAt(SellerGradeEnum grade) {
+		if (grade == SellerGradeEnum.REJECTED) {
+			return null;
+		}
+		return LocalDateTime.now().plusMonths(3);
 	}
 
 	private String nullSafe(String value) {
