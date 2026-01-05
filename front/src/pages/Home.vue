@@ -1,9 +1,66 @@
 <script setup lang="ts">
-import { liveItems, popularProducts, popularSetups } from '../lib/home-data'
+import { onMounted, ref } from 'vue'
+import { liveItems, type ProductItem, type SetupItem } from '../lib/home-data'
+import { listPopularProducts, listPopularSetups } from '../api/home'
 import LiveCarousel from '../components/LiveCarousel.vue'
 import SetupCarousel from '../components/SetupCarousel.vue'
 import ProductCarousel from '../components/ProductCarousel.vue'
 import PageContainer from '../components/PageContainer.vue'
+
+const popularProducts = ref<ProductItem[]>([])
+const popularSetups = ref<SetupItem[]>([])
+const popularProductsLoading = ref(true)
+const popularSetupsLoading = ref(true)
+const popularProductsError = ref(false)
+const popularSetupsError = ref(false)
+
+const buildProductItems = (items: Awaited<ReturnType<typeof listPopularProducts>>) =>
+  items.map((item) => ({
+    id: String(item.product_id),
+    name: item.name ?? '',
+    imageUrl: item.thumbnail_url || '/placeholder-product.jpg',
+    price: Number(item.price ?? 0),
+    tags: { space: [], tone: [], situation: [], mood: [] },
+    isSoldOut: false,
+  }))
+
+const buildSetupItems = (items: Awaited<ReturnType<typeof listPopularSetups>>) =>
+  items.map((item) => ({
+    id: String(item.setup_id),
+    title: item.name ?? '',
+    description: item.short_desc ?? '',
+    imageUrl: item.image_url || '/placeholder-setup.jpg',
+  }))
+
+const loadPopulars = async () => {
+  popularProductsLoading.value = true
+  popularSetupsLoading.value = true
+  popularProductsError.value = false
+  popularSetupsError.value = false
+
+  const [productsResult, setupsResult] = await Promise.allSettled([
+    listPopularProducts(),
+    listPopularSetups(),
+  ])
+
+  if (productsResult.status === 'fulfilled') {
+    popularProducts.value = buildProductItems(productsResult.value)
+  } else {
+    popularProductsError.value = true
+  }
+  if (setupsResult.status === 'fulfilled') {
+    popularSetups.value = buildSetupItems(setupsResult.value)
+  } else {
+    popularSetupsError.value = true
+  }
+
+  popularProductsLoading.value = false
+  popularSetupsLoading.value = false
+}
+
+onMounted(() => {
+  loadPopulars()
+})
 </script>
 
 <template>
@@ -34,7 +91,12 @@ import PageContainer from '../components/PageContainer.vue'
             <h2 class="section-title">인기 셋업</h2>
             <p class="ds-section-sub">다양한 스타일의 데스크 셋업을 둘러보세요.</p>
           </div>
-          <SetupCarousel :items="popularSetups" />
+          <p v-if="popularSetupsLoading" class="ds-section-sub">로딩중...</p>
+          <p v-else-if="popularSetupsError" class="ds-section-sub">
+            인기 셋업을 불러오지 못했습니다.
+          </p>
+          <p v-else-if="!popularSetups.length" class="ds-section-sub">준비중입니다.</p>
+          <SetupCarousel v-else :items="popularSetups" />
         </section>
 
         <section>
@@ -42,7 +104,12 @@ import PageContainer from '../components/PageContainer.vue'
             <h2 class="section-title">인기 상품</h2>
             <p class="ds-section-sub">데스크 완성을 위한 추천 아이템.</p>
           </div>
-          <ProductCarousel :items="popularProducts" />
+          <p v-if="popularProductsLoading" class="ds-section-sub">로딩중...</p>
+          <p v-else-if="popularProductsError" class="ds-section-sub">
+            인기 상품을 불러오지 못했습니다.
+          </p>
+          <p v-else-if="!popularProducts.length" class="ds-section-sub">준비중입니다.</p>
+          <ProductCarousel v-else :items="popularProducts" />
         </section>
       </div>
     </PageContainer>
