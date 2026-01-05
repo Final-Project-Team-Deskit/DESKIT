@@ -344,7 +344,7 @@ CREATE TABLE qcard (
 CREATE TABLE view_history (
     history_id     BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     broadcast_id   BIGINT UNSIGNED NOT NULL,
-    member_id      BIGINT UNSIGNED NOT NULL,
+    viewer_id      VARCHAR(100)    NOT NULL,
     created_at     DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at     DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (history_id)
