@@ -348,7 +348,7 @@ CREATE TABLE qcard (
 CREATE TABLE view_history (
     history_id     BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     broadcast_id   BIGINT UNSIGNED NOT NULL,
-    member_id      BIGINT UNSIGNED NOT NULL,
+    viewer_id      VARCHAR(100)    NOT NULL,
     created_at     DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at     DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (history_id)
@@ -363,6 +363,7 @@ CREATE TABLE broadcast_result (
     total_chats    INT             NOT NULL DEFAULT 0,
     total_sales    DECIMAL(30, 0)  NOT NULL DEFAULT 0,
     avg_watch_time INT             NOT NULL DEFAULT 0,
+    total_reports  INT             NOT NULL DEFAULT 0,
     created_at     DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at     DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (broadcast_id)
@@ -614,7 +615,7 @@ ALTER TABLE broadcast_result ADD CONSTRAINT FK_br_broadcast FOREIGN KEY (broadca
 
 -- [Live Interaction Relations]
 ALTER TABLE view_history ADD CONSTRAINT FK_vh_broadcast FOREIGN KEY (broadcast_id) REFERENCES broadcast (broadcast_id);
-ALTER TABLE view_history ADD CONSTRAINT FK_vh_member FOREIGN KEY (member_id) REFERENCES member (member_id);
+-- ALTER TABLE view_history ADD CONSTRAINT FK_vh_member FOREIGN KEY (member_id) REFERENCES member (member_id);
 
 ALTER TABLE live_chat ADD CONSTRAINT FK_lc_broadcast FOREIGN KEY (broadcast_id) REFERENCES broadcast (broadcast_id);
 ALTER TABLE live_chat ADD CONSTRAINT FK_lc_member FOREIGN KEY (member_id) REFERENCES member (member_id);
