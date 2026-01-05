@@ -29,7 +29,8 @@ public class Member {
     @Column(name = "login_id", nullable = false)
     private String loginId;
 
-    @Column(name = "profile")
+    @Lob
+    @Column(name = "profile", columnDefinition = "TEXT")
     private String profile;
 
     @Column(name = "phone", nullable = false)

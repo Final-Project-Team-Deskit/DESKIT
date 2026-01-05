@@ -1,6 +1,6 @@
 package com.deskit.deskit.common.config;
 
-import com.deskit.deskit.chatbot.config.RagVectorProperties;
+import com.deskit.deskit.ai.config.RagVectorProperties;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
