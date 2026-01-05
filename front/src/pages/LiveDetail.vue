@@ -1,16 +1,20 @@
-<script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+﻿<script setup lang="ts">
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { Client, type StompSubscription } from '@stomp/stompjs'
+import SockJS from 'sockjs-client/dist/sockjs'
 import PageContainer from '../components/PageContainer.vue'
 import PageHeader from '../components/PageHeader.vue'
 import { allLiveItems } from '../lib/home-data'
 import { getLiveStatus, parseLiveDate } from '../lib/live/utils'
 import { useNow } from '../lib/live/useNow'
 import { getProductsForLive, type LiveProductItem } from '../lib/live/detail'
+import { getAuthUser } from '../lib/auth'
 
 const route = useRoute()
 const router = useRouter()
 const { now } = useNow(1000)
+const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080'
 
 const liveId = computed(() => {
   const value = route.params.id
@@ -101,41 +105,44 @@ const toggleSettings = () => {
   isSettingsOpen.value = !isSettingsOpen.value
 }
 
+type LiveMessageType = 'TALK' | 'ENTER' | 'EXIT' | 'PURCHASE' | 'NOTICE'
+
+type LiveChatMessageDTO = {
+  broadcastId: number
+  memberId: number
+  type: LiveMessageType
+  sender: string
+  content: string
+  vodPlayTime: number
+}
+
 type ChatMessage = {
   id: string
   user: string
   text: string
   at: Date
-  kind?: 'system' | 'user'
+  kind: 'system' | 'user'
 }
 
-const messages = ref<ChatMessage[]>([
-  {
-    id: 'sys-1',
-    user: 'system',
-    text: '라이브에 오신 것을 환영합니다.',
-    at: new Date(Date.now() - 1000 * 60 * 6),
-    kind: 'system',
-  },
-  {
-    id: 'msg-1',
-    user: 'desklover',
-    text: '오늘 소개하는 제품이 기대돼요!',
-    at: new Date(Date.now() - 1000 * 60 * 4),
-    kind: 'user',
-  },
-  {
-    id: 'msg-2',
-    user: 'setup_master',
-    text: '채팅 참여하실 분 손들기 🙌',
-    at: new Date(Date.now() - 1000 * 60 * 2),
-    kind: 'user',
-  },
-])
+const messages = ref<ChatMessage[]>([])
 
 const input = ref('')
-const isLoggedIn = ref(true)
+const isLoggedIn = ref(false)
 const chatListRef = ref<HTMLDivElement | null>(null)
+const memberId = ref<number>(1)
+const nickname = ref(`guest_${Math.floor(Math.random() * 1000)}`)
+const stompClient = ref<Client | null>(null)
+let stompSubscription: StompSubscription | null = null
+const isChatConnected = ref(false)
+
+const broadcastId = computed(() => {
+  if (!liveId.value) {
+    return undefined
+  }
+  const raw = String(liveId.value)
+  const numeric = Number.parseInt(raw.replace(/[^0-9]/g, ''), 10)
+  return Number.isFinite(numeric) ? numeric : undefined
+})
 
 const formatChatTime = (value: Date) => {
   const hours = String(value.getHours()).padStart(2, '0')
@@ -152,23 +159,114 @@ const scrollToBottom = () => {
   })
 }
 
+const appendMessage = (message: ChatMessage) => {
+  messages.value.push(message)
+  scrollToBottom()
+}
+
+const refreshAuth = () => {
+  const user = getAuthUser()
+  isLoggedIn.value = user !== null
+  if (user?.name) {
+    nickname.value = user.name
+  }
+  const rawId = user?.id ?? user?.userId ?? user?.user_id ?? user?.sellerId ?? user?.seller_id
+  const numeric = Number.parseInt(String(rawId ?? ''), 10)
+  memberId.value = Number.isFinite(numeric) ? numeric : 1
+}
+
+const sendSocketMessage = (type: LiveMessageType, content: string) => {
+  if (!stompClient.value?.connected || !broadcastId.value) {
+    return
+  }
+  const payload: LiveChatMessageDTO = {
+    broadcastId: broadcastId.value,
+    memberId: memberId.value,
+    type,
+    sender: nickname.value,
+    content,
+    vodPlayTime: 0,
+  }
+  stompClient.value.publish({
+    destination: '/pub/chat/message',
+    body: JSON.stringify(payload),
+  })
+}
+
+const handleIncomingMessage = (payload: LiveChatMessageDTO) => {
+  const kind: ChatMessage['kind'] = payload.type === 'TALK' ? 'user' : 'system'
+  const user = kind === 'system' ? 'system' : payload.sender || 'unknown'
+  appendMessage({
+    id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+    user,
+    text: payload.content ?? '',
+    at: new Date(),
+    kind,
+  })
+}
+
+const connectChat = () => {
+  if (!broadcastId.value || stompClient.value?.active) {
+    return
+  }
+  const client = new Client({
+    webSocketFactory: () => new SockJS(`${apiBase}/ws`),
+    reconnectDelay: 5000,
+  })
+
+  client.onConnect = () => {
+    isChatConnected.value = true
+    stompSubscription?.unsubscribe()
+    stompSubscription = client.subscribe(`/sub/chat/${broadcastId.value}`, (frame) => {
+      try {
+        const payload = JSON.parse(frame.body) as LiveChatMessageDTO
+        handleIncomingMessage(payload)
+      } catch (error) {
+        console.error('[livechat] message parse failed', error)
+      }
+    })
+    sendSocketMessage('ENTER', `${nickname.value} entered the room.`)
+  }
+
+  client.onStompError = (frame) => {
+    console.error('[livechat] stomp error', frame.headers, frame.body)
+  }
+
+  client.onWebSocketClose = () => {
+    isChatConnected.value = false
+  }
+
+  client.onDisconnect = () => {
+    isChatConnected.value = false
+  }
+
+  stompClient.value = client
+  client.activate()
+}
+
+const disconnectChat = () => {
+  if (stompClient.value?.connected) {
+    sendSocketMessage('EXIT', `${nickname.value} left the room.`)
+  }
+  stompSubscription?.unsubscribe()
+  stompSubscription = null
+  if (stompClient.value) {
+    stompClient.value.deactivate()
+    stompClient.value = null
+  }
+  isChatConnected.value = false
+}
+
 const sendMessage = () => {
-  if (!isLoggedIn.value) {
+  if (!isLoggedIn.value || !isChatConnected.value) {
     return
   }
   const trimmed = input.value.trim()
   if (!trimmed) {
     return
   }
-  messages.value.push({
-    id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
-    user: '나',
-    text: trimmed,
-    at: new Date(),
-    kind: 'user',
-  })
+  sendSocketMessage('TALK', trimmed)
   input.value = ''
-  scrollToBottom()
 }
 
 onMounted(() => {
@@ -215,6 +313,30 @@ onMounted(() => {
   document.addEventListener('keydown', handleDocumentKeydown)
 })
 
+const handleAuthUpdate = () => {
+  refreshAuth()
+}
+
+onMounted(() => {
+  refreshAuth()
+  window.addEventListener('deskit-user-updated', handleAuthUpdate)
+})
+
+watch(
+  broadcastId,
+  (value, previous) => {
+    if (value === previous) {
+      return
+    }
+    messages.value = []
+    disconnectChat()
+    if (value) {
+      connectChat()
+    }
+  },
+  { immediate: true }
+)
+
 onBeforeUnmount(() => {
   document.removeEventListener('click', handleDocumentClick)
   document.removeEventListener('keydown', handleDocumentKeydown)
@@ -222,6 +344,8 @@ onBeforeUnmount(() => {
     panelResizeObserver.unobserve(playerPanelRef.value)
   }
   panelResizeObserver?.disconnect()
+  window.removeEventListener('deskit-user-updated', handleAuthUpdate)
+  disconnectChat()
 })
 </script>
 
@@ -237,102 +361,102 @@ onBeforeUnmount(() => {
     <section v-else class="live-detail-layout">
       <div class="live-detail-main">
         <section ref="playerPanelRef" class="panel panel--player">
-        <div class="player-meta">
-          <div class="status-row">
-            <span class="status-badge" :class="`status-badge--${status?.toLowerCase()}`">
-              {{ statusLabel }}
-            </span>
-            <span v-if="status === 'LIVE' && liveItem.viewerCount" class="status-viewers">
-              {{ liveItem.viewerCount.toLocaleString() }}명 시청 중
-            </span>
-            <span v-else-if="status === 'UPCOMING'" class="status-schedule">
-              {{ scheduledLabel }}
-            </span>
-            <span v-else-if="status === 'ENDED'" class="status-ended">방송 종료</span>
+          <div class="player-meta">
+            <div class="status-row">
+              <span class="status-badge" :class="`status-badge--${status?.toLowerCase()}`">
+                {{ statusLabel }}
+              </span>
+              <span v-if="status === 'LIVE' && liveItem.viewerCount" class="status-viewers">
+                {{ liveItem.viewerCount.toLocaleString() }}명 시청 중
+              </span>
+              <span v-else-if="status === 'UPCOMING'" class="status-schedule">
+                {{ scheduledLabel }}
+              </span>
+              <span v-else-if="status === 'ENDED'" class="status-ended">방송 종료</span>
+            </div>
+            <h3 class="player-title">{{ liveItem.title }}</h3>
+            <p v-if="liveItem.description" class="player-desc">{{ liveItem.description }}</p>
           </div>
-          <h3 class="player-title">{{ liveItem.title }}</h3>
-          <p v-if="liveItem.description" class="player-desc">{{ liveItem.description }}</p>
-        </div>
 
-        <div class="player-frame">
-          <span class="player-frame__label">LIVE 플레이어</span>
-        </div>
-
-        <div class="player-toolbar">
-          <div class="player-toolbar__group player-toolbar__group--left">
-            <button
-              type="button"
-              class="toolbar-btn"
-              :class="{ 'toolbar-btn--active': isLiked }"
-              :aria-label="isLiked ? '좋아요' : '좋아요'"
-              @click="toggleLike"
-            >
-              <svg class="toolbar-svg" viewBox="0 0 24 24" aria-hidden="true">
-                <path v-if="isLiked" d="M12.1 21.35l-1.1-1.02C5.14 15.24 2 12.39 2 8.99 2 6.42 4.02 4.5 6.58 4.5c1.54 0 3.04.74 3.92 1.91C11.38 5.24 12.88 4.5 14.42 4.5 16.98 4.5 19 6.42 19 8.99c0 3.4-3.14 6.25-8.9 11.34l-1.1 1.02z" fill="currentColor" />
-                <path v-else d="M12.1 21.35l-1.1-1.02C5.14 15.24 2 12.39 2 8.99 2 6.42 4.02 4.5 6.58 4.5c1.54 0 3.04.74 3.92 1.91C11.38 5.24 12.88 4.5 14.42 4.5 16.98 4.5 19 6.42 19 8.99c0 3.4-3.14 6.25-8.9 11.34l-1.1 1.02z" fill="none" stroke="currentColor" stroke-width="1.8" />
-              </svg>
-              <span class="toolbar-label">{{ isLiked ? '좋아요' : '좋아요' }}</span>
-            </button>
+          <div class="player-frame">
+            <span class="player-frame__label">LIVE 플레이어</span>
           </div>
-          <div class="player-toolbar__group player-toolbar__group--right">
-            <div class="toolbar-settings">
+
+          <div class="player-toolbar">
+            <div class="player-toolbar__group player-toolbar__group--left">
               <button
-                ref="settingsButtonRef"
                 type="button"
                 class="toolbar-btn"
-                aria-controls="player-settings"
-                :aria-expanded="isSettingsOpen ? 'true' : 'false'"
-                aria-label="설정"
-                @click="toggleSettings"
+                :class="{ 'toolbar-btn--active': isLiked }"
+                :aria-label="isLiked ? '좋아요 취소' : '좋아요'"
+                @click="toggleLike"
               >
                 <svg class="toolbar-svg" viewBox="0 0 24 24" aria-hidden="true">
-                  <path d="M4 6h16M4 12h16M4 18h16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
-                  <circle cx="9" cy="6" r="2" fill="none" stroke="currentColor" stroke-width="1.8" />
-                  <circle cx="14" cy="12" r="2" fill="none" stroke="currentColor" stroke-width="1.8" />
-                  <circle cx="7" cy="18" r="2" fill="none" stroke="currentColor" stroke-width="1.8" />
+                  <path v-if="isLiked" d="M12.1 21.35l-1.1-1.02C5.14 15.24 2 12.39 2 8.99 2 6.42 4.02 4.5 6.58 4.5c1.54 0 3.04.74 3.92 1.91C11.38 5.24 12.88 4.5 14.42 4.5 16.98 4.5 19 6.42 19 8.99c0 3.4-3.14 6.25-8.9 11.34l-1.1 1.02z" fill="currentColor" />
+                  <path v-else d="M12.1 21.35l-1.1-1.02C5.14 15.24 2 12.39 2 8.99 2 6.42 4.02 4.5 6.58 4.5c1.54 0 3.04.74 3.92 1.91C11.38 5.24 12.88 4.5 14.42 4.5 16.98 4.5 19 6.42 19 8.99c0 3.4-3.14 6.25-8.9 11.34l-1.1 1.02z" fill="none" stroke="currentColor" stroke-width="1.8" />
                 </svg>
-                <span class="toolbar-label">설정</span>
+                <span class="toolbar-label">{{ isLiked ? '좋아요 취소' : '좋아요' }}</span>
               </button>
-              <div
-                v-if="isSettingsOpen"
-                id="player-settings"
-                ref="settingsPanelRef"
-                class="settings-popover"
-              >
-                <label class="settings-row">
-                  <span class="settings-label">볼륨</span>
-                  <input
-                    class="toolbar-slider"
-                    type="range"
-                    min="0"
-                    max="100"
-                    value="60"
-                    aria-label="볼륨 조절"
-                  />
-                </label>
-                <label class="settings-row">
-                  <span class="settings-label">화질</span>
-                  <select class="settings-select" aria-label="화질">
-                    <option>자동</option>
-                    <option>1080p</option>
-                    <option>720p</option>
-                    <option>480p</option>
-                  </select>
-                </label>
-              </div>
             </div>
-            <button type="button" class="toolbar-btn" aria-label="전체화면">
-              <svg class="toolbar-svg" viewBox="0 0 24 24" aria-hidden="true">
-                <path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
-              </svg>
-              <span class="toolbar-label">전체화면</span>
-            </button>
+            <div class="player-toolbar__group player-toolbar__group--right">
+              <div class="toolbar-settings">
+                <button
+                  ref="settingsButtonRef"
+                  type="button"
+                  class="toolbar-btn"
+                  aria-controls="player-settings"
+                  :aria-expanded="isSettingsOpen ? 'true' : 'false'"
+                  aria-label="설정"
+                  @click="toggleSettings"
+                >
+                  <svg class="toolbar-svg" viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M4 6h16M4 12h16M4 18h16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
+                    <circle cx="9" cy="6" r="2" fill="none" stroke="currentColor" stroke-width="1.8" />
+                    <circle cx="14" cy="12" r="2" fill="none" stroke="currentColor" stroke-width="1.8" />
+                    <circle cx="7" cy="18" r="2" fill="none" stroke="currentColor" stroke-width="1.8" />
+                  </svg>
+                  <span class="toolbar-label">설정</span>
+                </button>
+                <div
+                  v-if="isSettingsOpen"
+                  id="player-settings"
+                  ref="settingsPanelRef"
+                  class="settings-popover"
+                >
+                  <label class="settings-row">
+                    <span class="settings-label">볼륨</span>
+                    <input
+                      class="toolbar-slider"
+                      type="range"
+                      min="0"
+                      max="100"
+                      value="60"
+                      aria-label="볼륨 조절"
+                    />
+                  </label>
+                  <label class="settings-row">
+                    <span class="settings-label">화질</span>
+                    <select class="settings-select" aria-label="화질">
+                      <option>자동</option>
+                      <option>1080p</option>
+                      <option>720p</option>
+                      <option>480p</option>
+                    </select>
+                  </label>
+                </div>
+              </div>
+              <button type="button" class="toolbar-btn" aria-label="전체화면">
+                <svg class="toolbar-svg" viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
+                </svg>
+                <span class="toolbar-label">전체화면</span>
+              </button>
+            </div>
           </div>
-        </div>
 
-        <button v-if="status === 'ENDED'" type="button" class="vod-btn" @click="handleVod">
-          VOD 다시보기
-        </button>
+          <button v-if="status === 'ENDED'" type="button" class="vod-btn" @click="handleVod">
+            VOD 다시보기
+          </button>
         </section>
 
         <aside
@@ -359,11 +483,11 @@ onBeforeUnmount(() => {
             <input
               v-model="input"
               type="text"
-              placeholder="메시지를 입력하세요"
-              :disabled="!isLoggedIn"
+              placeholder="메시지를 입력하세요."
+              :disabled="!isLoggedIn || !isChatConnected"
               @keydown.enter="sendMessage"
             />
-            <button type="button" :disabled="!isLoggedIn || !input.trim()" @click="sendMessage">
+            <button type="button" :disabled="!isLoggedIn || !isChatConnected || !input.trim()" @click="sendMessage">
               전송
             </button>
           </div>
