@@ -9,6 +9,7 @@ import com.deskit.deskit.account.repository.*;
 import com.deskit.deskit.common.util.verification.PhoneSendRequest;
 import com.deskit.deskit.common.util.verification.PhoneSendResponse;
 import com.deskit.deskit.common.util.verification.PhoneVerifyRequest;
+import com.deskit.deskit.ai.evaluate.service.SellerPlanEvaluationService;
 import com.deskit.deskit.account.dto.PendingSignupResponse;
 import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletResponse;
@@ -47,6 +48,7 @@ public class SignupController {
     private final SellerRegisterRepository sellerRegisterRepository;
     private final SellerGradeRepository sellerGradeRepository;
     private final InvitationRepository invitationRepository;
+    private final SellerPlanEvaluationService sellerPlanEvaluationService;
 
     // 소셜 로그인 후 추가 정보 입력 후 회원 가입 진행 - 대기중인 상태
     @GetMapping("/pending")
@@ -326,7 +328,9 @@ public class SignupController {
                 .companyName(companyName)
                 .build();
 
-        sellerRegisterRepository.save(sellerRegister);
+        SellerRegister savedRegister = sellerRegisterRepository.save(sellerRegister);
+
+        sellerPlanEvaluationService.evaluateAndSave(savedRegister);
 
         // 최초 가입 판매자 등급 부여 (임시)
         SellerGrade sellerGrade = SellerGrade.builder()

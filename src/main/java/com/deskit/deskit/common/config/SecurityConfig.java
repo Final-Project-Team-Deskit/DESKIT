@@ -115,16 +115,17 @@ public class SecurityConfig {
 				.authorizeHttpRequests((auth) -> auth
 						.requestMatchers(
 								"/",
-                                "/chat",
-                                "/chat/**",
-                                "/reissue",
-                                "/api/admin/auth/**",
-                                "/api/invitations/validate",
-                                "/oauth/**",
+								"/chat",
+								"/chat/**",
+								"/reissue",
+								"/api/admin/auth/**",
+								"/api/invitations/validate",
+								"/oauth/**",
 								"/login",
 								"/login/**",
 								"/login/oauth2/**"
 						).permitAll()
+						.requestMatchers("/api/admin/**").hasAuthority("ROLE_ADMIN")
 						.requestMatchers("/api/quit").hasAnyAuthority(
 								"ROLE_MEMBER",
 								"ROLE_SELLER_OWNER",
@@ -134,10 +135,10 @@ public class SecurityConfig {
 								"ROLE_MEMBER",
 								"ROLE_SELLER",
 								"ROLE_SELLER_OWNER",
-                                "ROLE_SELLER_MANAGER",
-                                "ROLE_ADMIN"
-                        )
-                        .anyRequest().authenticated());
+								"ROLE_SELLER_MANAGER",
+								"ROLE_ADMIN"
+						)
+						.anyRequest().authenticated());
 
         //세션 설정 : STATELESS -> IF_REQUIRED
         http
