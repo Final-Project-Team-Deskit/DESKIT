@@ -3,20 +3,37 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import PageContainer from '../../components/PageContainer.vue'
 import PageHeader from '../../components/PageHeader.vue'
-import { getAuthUser, requestLogout } from '../../lib/auth'
+import { getAuthUser, requestLogout, requestWithdraw } from '../../lib/auth'
 
 const router = useRouter()
+const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080'
+
+type Manager = {
+  id: number
+  name: string
+  email: string
+  role: string
+  status: string
+}
+
+type SellerMyPagePayload = {
+  companyName?: string
+  managers?: Manager[]
+}
 
 const display = computed(() => {
   const user = getAuthUser()
+  const fallbackSignupType = user ? '소셜 회원' : ''
   return {
     name: user?.name || '판매자',
     email: user?.email || '',
-    signupType: user?.signupType || '',
+    signupType: user?.signupType || fallbackSignupType,
     memberCategory: user?.memberCategory || '판매자',
-    sellerRole: user?.sellerRole || '오너',
+    sellerRole: user?.sellerRole || '대표',
   }
 })
+
+const isManager = computed(() => display.value.sellerRole === '매니저')
 
 const handleLogout = async () => {
   const success = await requestLogout()
@@ -26,6 +43,7 @@ const handleLogout = async () => {
   router.push('/').catch(() => {})
 }
 
+/*
 const managers = ref([
   {
     id: 'manager-1',
@@ -40,20 +58,70 @@ const managers = ref([
     role: '부매니저',
   },
 ])
+*/
+const managers = ref<Manager[]>([])
+const companyName = ref('')
 
 const showManagerModal = ref(false)
 const showConfirmModal = ref(false)
 const showSent = ref(false)
+const showWithdrawModal = ref(false)
 const managerEmail = ref('')
 const pendingEmail = ref('')
+const inviteError = ref('')
+const inviteSending = ref(false)
+const withdrawProcessing = ref(false)
 const emailInputRef = ref<HTMLInputElement | null>(null)
 const isEmailValid = computed(() => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(managerEmail.value.trim()))
+
+const buildAuthHeaders = (): Record<string, string> => {
+  const access = localStorage.getItem('access') || sessionStorage.getItem('access')
+  if (!access) return {}
+  return { Authorization: `Bearer ${access}` }
+}
+
+const loadSellerMyPage = async () => {
+  try {
+    const response = await fetch(`${apiBase}/api/seller/mypage`, {
+      credentials: 'include',
+      headers: buildAuthHeaders(),
+    })
+    if (!response.ok) {
+      managers.value = []
+      companyName.value = ''
+      return
+    }
+    const payload = (await response.json().catch(() => null)) as SellerMyPagePayload | null
+    managers.value = Array.isArray(payload?.managers) ? payload?.managers ?? [] : []
+    companyName.value = typeof payload?.companyName === 'string' ? payload?.companyName ?? '' : ''
+  } catch (error) {
+    console.error('failed to load my page', error)
+    managers.value = []
+    companyName.value = ''
+  }
+}
+
+const formatManagerRole = (role: string) => {
+  const normalized = (role || '').trim().toUpperCase()
+  if (normalized === 'ROLE_SELLER_MANAGER') return '매니저'
+  if (normalized === 'ROLE_SELLER_OWNER') return '대표'
+  return role
+}
+
+const formatManagerStatus = (status: string) => {
+  const normalized = (status || '').trim().toUpperCase()
+  if (normalized === 'ACTIVE') return '활성'
+  if (normalized === 'PENDING') return '대기'
+  if (normalized === 'INACTIVE') return '비활성'
+  return status
+}
 
 const openManagerModal = () => {
   showManagerModal.value = true
   managerEmail.value = ''
   pendingEmail.value = ''
   showSent.value = false
+  inviteError.value = ''
   nextTick(() => {
     emailInputRef.value?.focus()
   })
@@ -65,6 +133,34 @@ const closeManagerModal = () => {
   pendingEmail.value = ''
   showConfirmModal.value = false
   showSent.value = false
+  inviteError.value = ''
+  inviteSending.value = false
+}
+
+const openWithdrawModal = () => {
+  showWithdrawModal.value = true
+}
+
+const closeWithdrawModal = () => {
+  showWithdrawModal.value = false
+  withdrawProcessing.value = false
+}
+
+const confirmWithdraw = async () => {
+  withdrawProcessing.value = true
+  const result = await requestWithdraw()
+  withdrawProcessing.value = false
+  if (result.ok) {
+    window.alert('탈퇴가 완료되었습니다.')
+    localStorage.removeItem('access')
+    sessionStorage.removeItem('access')
+    localStorage.removeItem('deskit-user')
+    localStorage.removeItem('deskit-auth')
+    closeWithdrawModal()
+    window.location.href = '/'
+    return
+  }
+  window.alert(result.message || '탈퇴에 실패했습니다.')
 }
 
 const openConfirm = () => {
@@ -77,11 +173,33 @@ const closeConfirm = () => {
   showConfirmModal.value = false
 }
 
-const confirmSend = () => {
+const confirmSend = async () => {
   if (!pendingEmail.value) return
-  console.log('[manager login link]', pendingEmail.value)
-  showConfirmModal.value = false
-  showSent.value = true
+  inviteSending.value = true
+  inviteError.value = ''
+  try {
+    const response = await fetch(`${apiBase}/api/invitations`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...buildAuthHeaders(),
+      },
+      credentials: 'include',
+      body: JSON.stringify({ email: pendingEmail.value }),
+    })
+    if (!response.ok) {
+      const errorText = await response.text()
+      inviteError.value = errorText || '초대 링크 전송에 실패했습니다.'
+      return
+    }
+    showConfirmModal.value = false
+    showSent.value = true
+  } catch (error) {
+    console.error('invite send failed', error)
+    inviteError.value = '초대 링크 전송에 실패했습니다.'
+  } finally {
+    inviteSending.value = false
+  }
 }
 
 const handleModalClose = () => {
@@ -97,7 +215,12 @@ const handleModalClose = () => {
 }
 
 const handleKeydown = (event: KeyboardEvent) => {
-  if (event.key === 'Escape' && showManagerModal.value) {
+  if (event.key !== 'Escape') return
+  if (showWithdrawModal.value) {
+    closeWithdrawModal()
+    return
+  }
+  if (showManagerModal.value) {
     if (showSent.value) {
       closeManagerModal()
       return
@@ -112,6 +235,7 @@ const handleKeydown = (event: KeyboardEvent) => {
 
 onMounted(() => {
   window.addEventListener('keydown', handleKeydown)
+  loadSellerMyPage()
 })
 
 onBeforeUnmount(() => {
@@ -143,10 +267,14 @@ onBeforeUnmount(() => {
           <dt>판매자 역할</dt>
           <dd>{{ display.sellerRole }}</dd>
         </div>
+        <div class="seller-info__row">
+          <dt>사업자명</dt>
+          <dd>{{ companyName || '-' }}</dd>
+        </div>
       </dl>
       <button type="button" class="seller-logout" @click="handleLogout">로그아웃</button>
     </section>
-    <section class="manager-card ds-surface">
+    <section v-if="!isManager" class="manager-card ds-surface">
       <div class="manager-head">
         <button type="button" class="manager-add" @click="openManagerModal">매니저 등록</button>
       </div>
@@ -157,14 +285,24 @@ onBeforeUnmount(() => {
             <li v-for="manager in managers" :key="manager.id" class="manager-item">
               <div class="manager-meta">
                 <span class="manager-name">{{ manager.name }}</span>
-                <span class="manager-role">{{ manager.role }}</span>
+                <span class="manager-role">{{ formatManagerRole(manager.role) }}</span>
               </div>
-              <span class="manager-email">{{ manager.email }}</span>
+              <div class="manager-meta secondary">
+                <span class="manager-email">{{ manager.email }}</span>
+                <span class="manager-status">{{ formatManagerStatus(manager.status) }}</span>
+              </div>
             </li>
           </ul>
           <p v-else class="manager-empty">등록된 매니저가 없습니다.</p>
         </div>
       </div>
+    </section>
+    <section v-else class="withdraw-card ds-surface">
+      <div class="withdraw-head">
+        <h3>회원 탈퇴</h3>
+        <p>매니저 계정 탈퇴는 되돌릴 수 없습니다.</p>
+      </div>
+      <button type="button" class="btn danger" @click="openWithdrawModal">회원 탈퇴</button>
     </section>
 
     <div v-if="showManagerModal" class="manager-modal" role="dialog" aria-modal="true" aria-label="매니저 등록">
@@ -175,7 +313,7 @@ onBeforeUnmount(() => {
             <h3>매니저 등록</h3>
             <p>매니저 이메일로 로그인 링크를 보내드립니다.</p>
           </div>
-          <button type="button" class="modal-close" @click="handleModalClose" aria-label="닫기">✕</button>
+          <button type="button" class="modal-close" @click="handleModalClose" aria-label="닫기">닫기</button>
         </div>
         <form v-if="!showConfirmModal && !showSent" class="manager-form" @submit.prevent="openConfirm">
           <label class="field">
@@ -196,7 +334,9 @@ onBeforeUnmount(() => {
           </p>
           <div class="manager-actions">
             <button type="button" class="btn ghost" @click="closeManagerModal">취소</button>
-            <button type="submit" class="btn primary" :disabled="!isEmailValid">로그인 링크 보내기</button>
+            <button type="submit" class="btn primary" :disabled="!isEmailValid || inviteSending">
+              로그인 링크 보내기
+            </button>
           </div>
         </form>
         <div v-else-if="showConfirmModal" class="confirm-body">
@@ -204,14 +344,49 @@ onBeforeUnmount(() => {
           <p class="confirm-email">{{ pendingEmail }}</p>
           <div class="manager-actions">
             <button type="button" class="btn ghost" @click="closeConfirm">뒤로</button>
-            <button type="button" class="btn primary" @click="confirmSend">보내기</button>
+            <button type="button" class="btn primary" :disabled="inviteSending" @click="confirmSend">
+              보내기
+            </button>
           </div>
+          <p v-if="inviteError" class="manager-error is-visible">{{ inviteError }}</p>
         </div>
         <div v-else class="sent-body">
           <p class="sent-title">로그인 링크를 보냈습니다.</p>
           <p class="sent-email">{{ pendingEmail }}</p>
           <div class="manager-actions">
             <button type="button" class="btn primary" @click="closeManagerModal">확인</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div v-if="showWithdrawModal" class="manager-modal" role="dialog" aria-modal="true" aria-label="회원 탈퇴">
+      <div class="manager-modal__backdrop" @click="closeWithdrawModal"></div>
+      <div class="manager-modal__card ds-surface">
+        <div class="manager-modal__head">
+          <div>
+            <h3>회원 탈퇴</h3>
+            <p>탈퇴 전 아래 내용을 확인해 주세요.</p>
+          </div>
+          <button type="button" class="modal-close" @click="closeWithdrawModal" aria-label="닫기">닫기</button>
+        </div>
+        <div class="withdraw-body">
+          <p>
+            회원 탈퇴 전, 다음 내용을 확인해주세요.
+            <br />
+            대표 판매자에게 탈퇴 사유를 미리 공지해주세요.
+            <br />
+            탈퇴 시 일부 데이터는 복원이 불가할 수 있어요.
+            <br />
+            탈퇴 후 재가입시 대표 판매자로부터 이메일 초대를 다시 받아 가입해야 해요.
+            <br />
+            회원 탈퇴를 진행하시겠습니까?
+          </p>
+          <div class="manager-actions">
+            <button type="button" class="btn ghost" @click="closeWithdrawModal">취소</button>
+            <button type="button" class="btn danger" :disabled="withdrawProcessing" @click="confirmWithdraw">
+              확인
+            </button>
           </div>
         </div>
       </div>
@@ -283,6 +458,14 @@ onBeforeUnmount(() => {
   color: var(--text-strong);
 }
 
+.manager-meta.secondary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--text-muted);
+  font-weight: 700;
+}
+
 .manager-name {
   font-weight: 900;
 }
@@ -299,6 +482,16 @@ onBeforeUnmount(() => {
   font-size: 0.9rem;
 }
 
+.manager-status {
+  border: 1px solid var(--border-color);
+  padding: 4px 8px;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 800;
+  color: var(--text-strong);
+  background: var(--surface-weak);
+}
+
 .manager-empty {
   margin: 0;
   color: var(--text-muted);
@@ -313,17 +506,20 @@ onBeforeUnmount(() => {
   display: grid;
   place-items: center;
   padding: 24px;
+  pointer-events: auto;
 }
 
 .manager-modal__backdrop {
   position: absolute;
   inset: 0;
   background: rgba(15, 23, 42, 0.5);
+  z-index: 0;
 }
 
 .manager-modal__card {
   position: relative;
   z-index: 1;
+  pointer-events: auto;
   width: min(520px, 100%);
   border-radius: 16px;
   padding: 18px;
@@ -331,6 +527,34 @@ onBeforeUnmount(() => {
   flex-direction: column;
   gap: 14px;
   box-shadow: 0 18px 40px rgba(15, 23, 42, 0.12);
+}
+
+.withdraw-card {
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.withdraw-head h3 {
+  margin: 0 0 6px;
+  font-size: 1.1rem;
+  font-weight: 900;
+  color: var(--text-strong);
+}
+
+.withdraw-head p {
+  margin: 0;
+  color: var(--text-muted);
+  font-weight: 700;
+}
+
+.withdraw-body p {
+  margin: 0;
+  color: var(--text-strong);
+  font-weight: 700;
+  line-height: 1.6;
 }
 
 .manager-modal__head {
@@ -602,6 +826,12 @@ onBeforeUnmount(() => {
 
 .btn.primary {
   background: var(--primary-color);
+  color: #fff;
+  border-color: transparent;
+}
+
+.btn.danger {
+  background: #ef4444;
   color: #fff;
   border-color: transparent;
 }

@@ -251,7 +251,7 @@ public class SignupController {
         // 초대 토큰 검증
         String inviteToken = trimToNull(request.getInviteToken());
         if (inviteToken != null) {
-            return completeInvitedSellerSignup(user, response, session, storedPhone, inviteToken);
+            return completeInvitedSellerSignup(user, request, response, session, storedPhone, inviteToken);
         }
 
         // 사업자등록번호 검증 - null 배제
@@ -359,6 +359,7 @@ public class SignupController {
     // 초대받은 판매자 회원 가입
     private ResponseEntity<?> completeInvitedSellerSignup(
             CustomOAuth2User user,
+            SocialSignupRequest request,
             HttpServletResponse response,
             HttpSession session,
             String storedPhone,
@@ -395,6 +396,31 @@ public class SignupController {
         Seller ownerSeller = sellerRepository.findById(invitation.getSellerId()).orElse(null);
         if (ownerSeller == null) {
             return new ResponseEntity<>("invitation owner not found", HttpStatus.NOT_FOUND);
+        }
+
+        String businessNumber = trimToNull(request.getBusinessNumber());
+        if (businessNumber == null) {
+            return new ResponseEntity<>("business number required", HttpStatus.BAD_REQUEST);
+        }
+
+        String companyName = trimToNull(request.getCompanyName());
+        if (companyName == null) {
+            return new ResponseEntity<>("company name required", HttpStatus.BAD_REQUEST);
+        }
+
+        CompanyRegistered ownerCompany = companyRegisteredRepository.findBySellerId(ownerSeller.getSellerId());
+        if (ownerCompany == null) {
+            return new ResponseEntity<>("owner company not found", HttpStatus.NOT_FOUND);
+        }
+
+        String ownerBusinessNumber = trimToNull(ownerCompany.getBusinessNumber());
+        String ownerCompanyName = trimToNull(ownerCompany.getCompanyName());
+        if (!businessNumber.equals(ownerBusinessNumber)) {
+            return new ResponseEntity<>("business number mismatch", HttpStatus.BAD_REQUEST);
+        }
+
+        if (!companyName.equals(ownerCompanyName)) {
+            return new ResponseEntity<>("company name mismatch", HttpStatus.BAD_REQUEST);
         }
 
         // 객체 조립

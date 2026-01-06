@@ -4,6 +4,7 @@ import com.deskit.deskit.account.entity.Invitation;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.util.Collection;
+import java.util.List;
 
 public interface InvitationRepository extends JpaRepository<Invitation, Long> {
 
@@ -15,4 +16,8 @@ public interface InvitationRepository extends JpaRepository<Invitation, Long> {
 
     // Count invitations for a seller to enforce the invite limit.
     long countBySellerIdAndStatusIn(Long sellerId, Collection<String> statuses);
+
+    List<Invitation> findBySellerIdAndStatusIn(Long sellerId, Collection<String> statuses);
+
+    Invitation findFirstByEmailAndStatusIn(String email, Collection<String> statuses);
 }
