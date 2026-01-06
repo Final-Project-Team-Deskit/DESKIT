@@ -3,19 +3,35 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import PageContainer from '../components/PageContainer.vue'
 import PageHeader from '../components/PageHeader.vue'
+import { getProductDetail } from '../api/products'
 import {
-  clearCart as clearCartStorage,
-  loadCart,
-  removeCartItem,
-  setAllSelected,
-  updateQuantity,
-  updateSelection,
-  type StoredCartItem,
-} from '../lib/cart/cart-storage'
+  deleteCartItem,
+  getCart,
+  updateCartItemQuantity,
+  type CartItemPayload,
+} from '../api/cart'
 import { createCheckoutFromCart, saveCheckout } from '../lib/checkout/checkout-storage'
 
 const router = useRouter()
-const cartItems = ref<StoredCartItem[]>(loadCart())
+
+type CartUiItem = {
+  id: string
+  cartItemId: number
+  productId: string
+  name: string
+  imageUrl: string
+  price: number
+  originalPrice: number
+  discountRate: number
+  quantity: number
+  stock: number
+  isSelected: boolean
+}
+
+const cartItems = ref<CartUiItem[]>([])
+const isLoading = ref(false)
+const loadError = ref<string | null>(null)
+const pendingTimers = new Map<number, number>()
 
 const formatPrice = (value: number) => `${value.toLocaleString('ko-KR')}원`
 
@@ -41,28 +57,106 @@ const isAllSelected = computed(
   () => cartItems.value.length > 0 && selectedCount.value === cartItems.value.length,
 )
 
-const refresh = () => {
-  cartItems.value = loadCart()
+const resolveImageUrl = (product: any) =>
+  product?.imageUrl ??
+  product?.image_url ??
+  product?.thumbnailUrl ??
+  product?.images?.[0] ??
+  '/placeholder-product.jpg'
+
+const isAuthError = (error: unknown) => {
+  const status = (error as { response?: { status?: number } })?.response?.status
+  return status === 401 || status === 403
+}
+
+const buildCartItems = async (items: CartItemPayload[]) => {
+  const previousSelection = new Map(cartItems.value.map((item) => [item.cartItemId, item.isSelected]))
+  const enriched = await Promise.all(
+    items.map(async (item) => {
+      let product: any = null
+      try {
+        product = await getProductDetail(item.product_id)
+      } catch {
+        product = null
+      }
+      const price = Number((product as any)?.price ?? item.price_snapshot ?? 0) || 0
+      const originalPrice = Number((product as any)?.cost_price ?? price) || price
+      const discountRate =
+        originalPrice > price ? Math.round((1 - price / originalPrice) * 100) : 0
+      return {
+        id: String(item.cart_item_id),
+        cartItemId: item.cart_item_id,
+        productId: String(item.product_id),
+        name: product?.name ?? '상품 정보 불러오기 실패',
+        imageUrl: resolveImageUrl(product),
+        price,
+        originalPrice,
+        discountRate,
+        quantity: item.quantity,
+        stock: Number((product as any)?.stock ?? 99) || 99,
+        isSelected: previousSelection.get(item.cart_item_id) ?? true,
+      }
+    }),
+  )
+  return enriched
+}
+
+const refresh = async () => {
+  isLoading.value = true
+  loadError.value = null
+  try {
+    const payload = await getCart()
+    cartItems.value = await buildCartItems(payload.items ?? [])
+  } catch (error) {
+    if (isAuthError(error)) {
+      const redirect = router.currentRoute.value.fullPath
+      router.push({ path: '/login', query: { redirect } }).catch(() => {})
+      return
+    }
+    loadError.value = '장바구니 정보를 불러오지 못했습니다.'
+  } finally {
+    isLoading.value = false
+  }
 }
 
 const toggleItemSelection = (id: string) => {
   const target = cartItems.value.find((item) => item.id === id)
   if (!target) return
-  updateSelection(target.productId, !target.isSelected)
-  refresh()
+  target.isSelected = !target.isSelected
 }
 
 const toggleSelectAll = () => {
   const next = !isAllSelected.value
-  setAllSelected(next)
-  refresh()
+  cartItems.value = cartItems.value.map((item) => ({ ...item, isSelected: next }))
+}
+
+const updateLocalQuantity = (cartItemId: number, quantity: number) => {
+  cartItems.value = cartItems.value.map((item) =>
+    item.cartItemId === cartItemId ? { ...item, quantity } : item,
+  )
+}
+
+const scheduleQuantityUpdate = (cartItemId: number, quantity: number) => {
+  const existing = pendingTimers.get(cartItemId)
+  if (existing) window.clearTimeout(existing)
+  const timer = window.setTimeout(async () => {
+    try {
+      await updateCartItemQuantity(cartItemId, { quantity })
+    } catch {
+      window.alert('수량 변경에 실패했습니다. 다시 시도해주세요.')
+      await refresh()
+    }
+  }, 400)
+  pendingTimers.set(cartItemId, timer)
 }
 
 const changeQuantity = (id: string, delta: number) => {
   const target = cartItems.value.find((item) => item.id === id)
   if (!target) return
-  updateQuantity(target.productId, target.quantity + delta)
-  refresh()
+  const maxQty = Math.max(1, target.stock ?? 99)
+  const nextQty = Math.min(maxQty, Math.max(1, target.quantity + delta))
+  updateLocalQuantity(target.cartItemId, nextQty)
+  scheduleQuantityUpdate(target.cartItemId, nextQty)
 }
 
 const removeItem = (id: string) => {
@@ -71,24 +165,41 @@ const removeItem = (id: string) => {
   const name = target.name || '이 상품'
   const confirmed = window.confirm(`"${name}"을(를) 장바구니에서 삭제할까요?`)
   if (!confirmed) return
-  removeCartItem(target.productId || id)
-  refresh()
+  deleteCartItem(target.cartItemId)
+    .then(() => {
+      cartItems.value = cartItems.value.filter((item) => item.cartItemId !== target.cartItemId)
+    })
+    .catch(() => {
+      window.alert('삭제에 실패했습니다. 다시 시도해주세요.')
+    })
 }
 
 const removeSelected = () => {
   if (selectedCount.value === 0) return
   const confirmed = window.confirm(`선택한 상품 ${selectedCount.value}개를 삭제할까요?`)
   if (!confirmed) return
-  selectedItems.value.forEach((item) => removeCartItem(item.productId))
-  refresh()
+  const targets = selectedItems.value.map((item) => item.cartItemId)
+  Promise.all(targets.map((id) => deleteCartItem(id)))
+    .then(() => {
+      cartItems.value = cartItems.value.filter((item) => !targets.includes(item.cartItemId))
+    })
+    .catch(() => {
+      window.alert('선택 삭제에 실패했습니다. 다시 시도해주세요.')
+    })
 }
 
 const clearCart = () => {
   if (cartItems.value.length === 0) return
   const confirmed = window.confirm('장바구니 상품을 전체 삭제할까요?')
   if (!confirmed) return
-  clearCartStorage()
-  refresh()
+  const targets = cartItems.value.map((item) => item.cartItemId)
+  Promise.all(targets.map((id) => deleteCartItem(id)))
+    .then(() => {
+      cartItems.value = []
+    })
+    .catch(() => {
+      window.alert('전체 삭제에 실패했습니다. 다시 시도해주세요.')
+    })
 }
 
 const handleCheckout = () => {
@@ -98,17 +209,13 @@ const handleCheckout = () => {
   router.push({ name: 'checkout' }).catch(() => router.push('/checkout'))
 }
 
-const storageRefreshHandler = () => refresh()
-
 onMounted(() => {
-  window.addEventListener('deskit-cart-updated', storageRefreshHandler)
-  window.addEventListener('storage', storageRefreshHandler)
   refresh()
 })
 
 onBeforeUnmount(() => {
-  window.removeEventListener('deskit-cart-updated', storageRefreshHandler)
-  window.removeEventListener('storage', storageRefreshHandler)
+  pendingTimers.forEach((timer) => window.clearTimeout(timer))
+  pendingTimers.clear()
 })
 </script>
 
@@ -124,7 +231,16 @@ onBeforeUnmount(() => {
       <span class="cart-step">03 주문 완료</span>
     </div>
 
-    <div v-if="cartItems.length === 0" class="cart-empty">
+    <div v-if="isLoading" class="cart-loading">
+      <p>장바구니를 불러오는 중입니다...</p>
+    </div>
+
+    <div v-else-if="loadError" class="cart-error">
+      <p>{{ loadError }}</p>
+      <button type="button" class="btn" @click="refresh">다시 시도</button>
+    </div>
+
+    <div v-else-if="cartItems.length === 0" class="cart-empty">
       <p>장바구니가 비어 있습니다.</p>
       <RouterLink to="/products" class="empty-link">상품 보러가기</RouterLink>
     </div>
@@ -517,6 +633,19 @@ onBeforeUnmount(() => {
 .select-all input:focus-visible + .checkbox__fake {
   outline: 2px solid rgba(0, 0, 0, 0.12);
   outline-offset: 2px;
+}
+
+.cart-loading,
+.cart-error {
+  border: 1px solid var(--border-color);
+  padding: 20px;
+  border-radius: 14px;
+  background: var(--surface);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  color: var(--text-muted);
+  align-items: center;
 }
 
 .cart-empty {

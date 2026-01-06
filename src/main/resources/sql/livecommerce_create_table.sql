@@ -8,6 +8,9 @@
 -- member, seller 테이블 컬럼 추가 및 일부 타입 변경 / seller_register 테이블 컬럼 누락 수정 (25.12.30)
 -- 사용자 커스텀 반영 및 toss_payment 테이블 에러(VARCHAR AUTO_INCREMENT) 수정 (25.12.25)
 -- =========================================================
+DROP DATABASE livecommerce;
+CREATE DATABASE livecommerce;
+USE livecommerce;
 
 SET FOREIGN_KEY_CHECKS = 0;
 
@@ -657,3 +660,13 @@ ALTER TABLE chat_handoff ADD CONSTRAINT FK_handoff_chat FOREIGN KEY (chat_id) RE
 ALTER TABLE chat_handoff ADD CONSTRAINT FK_handoff_admin FOREIGN KEY (assigned_admin_id) REFERENCES admin (admin_id);
 
 SET FOREIGN_KEY_CHECKS = 1;
+
+
+INSERT INTO admin(login_id, phone, name, role)
+VALUES ('dyniiyeyo@naver.com', '010-4255-1027', '김도윤', 'ROLE_ADMIN');
+INSERT INTO admin(login_id, phone, name, role)
+VALUES ('hawon2k2k@naver.com', '010-2775-9804', '고하원', 'ROLE_ADMIN');
+INSERT INTO admin(login_id, phone, name, role)
+VALUES ('00parkyh@naver.com', '010-8318-8176', '박용헌', 'ROLE_ADMIN');
+INSERT INTO admin(login_id, phone, name, role)
+VALUES ('jwscape@naver.com', '010-9258-2658', '주장우', 'ROLE_ADMIN');

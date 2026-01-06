@@ -5,8 +5,8 @@ export const endpoints = {
   setupDetail: (id: string | number) => `/api/setups/${id}`,
   homePopularProducts: '/api/home/popular-products',
   homePopularSetups: '/api/home/popular-setups',
-  cart: '/cart',
-  cartItems: '/cart/items',
+  cart: '/api/cart',
+  cartItems: '/api/cart/items',
   orders: '/orders',
   orderDetail: (id: string | number) => `/orders/${id}`,
 }

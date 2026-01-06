@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter, RouterLink } from 'vue-router'
+import { addCartItem } from '../api/cart'
 import { getProductDetail } from '../api/products'
 import { flattenTags, type DbProduct } from '../lib/products-data'
 import PageContainer from '../components/PageContainer.vue'
-import { upsertCartItem } from '../lib/cart/cart-storage'
 import { createCheckoutFromBuyNow, saveCheckout } from '../lib/checkout/checkout-storage'
 
 const route = useRoute()
@@ -116,33 +116,34 @@ const goToCart = async () => {
   }
 }
 
-const handleAddToCart = () => {
+const isAuthError = (error: unknown) => {
+  const status = (error as { response?: { status?: number } })?.response?.status
+  return status === 401 || status === 403
+}
+
+const handleAddToCart = async () => {
   if (!product.value) return
 
-  const salePrice = product.value.price
-  const orig = originalPrice.value ?? salePrice
-  const discount = orig > salePrice ? Math.round(((orig - salePrice) / orig) * 100) : 0
+  const rawId = (product.value as any).product_id ?? product.value.id
+  const productIdValue = Number(rawId)
+  if (!Number.isFinite(productIdValue)) {
+    window.alert('상품 정보를 불러오지 못했습니다.')
+    return
+  }
 
-  const imageUrl =
-      product.value.imageUrl ||
-      (product.value as any).image_url ||
-      (product.value as any).thumbnailUrl ||
-      (product.value as any).images?.[0] ||
-      ''
-
-  upsertCartItem({
-    productId: String((product.value as any).product_id ?? product.value.id),
-    name: product.value.name,
-    imageUrl,
-    price: salePrice,
-    originalPrice: orig,
-    discountRate: discount,
-    quantity: quantity.value,
-    stock: (product.value as any).stock ?? 99,
-    isSelected: true,
-  })
-
-  openModal()
+  try {
+    await addCartItem({
+      product_id: productIdValue,
+      quantity: quantity.value,
+    })
+    openModal()
+  } catch (error) {
+    if (isAuthError(error)) {
+      router.push({ path: '/login', query: { redirect: route.fullPath } }).catch(() => {})
+      return
+    }
+    window.alert('장바구니에 추가하지 못했습니다. 다시 시도해주세요.')
+  }
 }
 
 const handleBuyNow = () => {
