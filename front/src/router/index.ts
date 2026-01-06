@@ -219,12 +219,21 @@ export const router = createRouter({
 router.beforeEach(async (to) => {
   let loggedIn = isLoggedIn()
   const isSellerPath = to.path.startsWith('/seller')
-  if (!loggedIn && to.path.startsWith('/my')) {
+  const isAdminPath = to.path.startsWith('/admin')
+  const isAdminVerify = to.path === '/admin/verify'
+  const shouldHydrateSession =
+    !loggedIn &&
+    (to.path.startsWith('/my') ||
+      isSellerPath ||
+      (isAdminPath && !isAdminVerify) ||
+      to.path === '/login')
+
+  if (shouldHydrateSession) {
     const sessionOk = await hydrateSessionUser()
-    if (!sessionOk) {
+    loggedIn = isLoggedIn()
+    if (!sessionOk && (to.path.startsWith('/my') || isSellerPath || (isAdminPath && !isAdminVerify))) {
       return { path: '/login', query: { redirect: to.fullPath } }
     }
-    loggedIn = isLoggedIn()
   }
   if (isSellerPath && !loggedIn) {
     return { path: '/login', query: { redirect: to.fullPath } }
@@ -245,6 +254,9 @@ router.beforeEach(async (to) => {
   }
   if (loggedIn && to.path === '/login') {
     return { path: isAdmin() ? '/admin' : isSeller() ? '/seller' : '/my' }
+  }
+  if (loggedIn && isSeller() && to.path === '/') {
+    return { path: '/seller' }
   }
   return true
 })
