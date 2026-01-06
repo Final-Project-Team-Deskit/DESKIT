@@ -2,6 +2,7 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import PageContainer from '../components/PageContainer.vue'
 import PageHeader from '../components/PageHeader.vue'
+import { setAuthUser } from '../lib/auth'
 
 type PendingSignup = {
   username?: string
@@ -164,9 +165,9 @@ const storeAuthUser = () => {
     job: jobValue,
   }
 
-  localStorage.setItem('deskit-user', JSON.stringify(authUser))
-  localStorage.setItem('deskit-auth', memberCategory)
-  window.dispatchEvent(new Event('deskit-user-updated'))
+  setAuthUser(authUser)
+  // localStorage.setItem('deskit-user', JSON.stringify(authUser))
+  // localStorage.setItem('deskit-auth', memberCategory)
 }
 
 const submitSignup = async () => {
@@ -361,7 +362,7 @@ onMounted(() => {
             </label>
           </div>
 
-          <div v-else-if="form.memberType === 'SELLER' && !isInviteSignup" class="section">
+          <div v-else-if="form.memberType === 'SELLER'" class="section">
             <h3>판매자 정보</h3>
             <label class="field">
               <span>사업자등록번호</span>
@@ -371,15 +372,18 @@ onMounted(() => {
               <span>사업자명</span>
               <input v-model="form.companyName" type="text" placeholder="사업자명" />
             </label>
-            <label class="field">
-              <span>사업 설명</span>
-              <textarea v-model="form.description" placeholder="사업 설명 (선택)"></textarea>
-            </label>
-            <label class="field">
-              <span>사업계획서</span>
-              <input type="file" @change="handlePlanFileChange" />
-              <p v-if="form.planFileName" class="file-name">선택된 파일: {{ form.planFileName }}</p>
-            </label>
+            <template v-if="!isInviteSignup">
+              <label class="field">
+                <span>사업 설명</span>
+                <textarea v-model="form.description" placeholder="사업 설명 (선택)"></textarea>
+              </label>
+              <label class="field">
+                <span>사업계획서</span>
+                <input type="file" @change="handlePlanFileChange" />
+                <p v-if="form.planFileName" class="file-name">선택된 파일: {{ form.planFileName }}</p>
+              </label>
+            </template>
+            <p v-else class="hint">초대받은 판매자는 사업 설명과 사업계획서를 제출하지 않습니다.</p>
           </div>
 
           <div class="section">

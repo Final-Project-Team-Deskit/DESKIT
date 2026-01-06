@@ -1,7 +1,7 @@
 ﻿<script setup lang="ts">
 import {computed, onBeforeUnmount, onMounted, ref, watch} from 'vue'
 import {RouterLink, useRoute, useRouter} from 'vue-router'
-import {getAuthUser, hydrateSessionUser, isAdmin, isLoggedIn as checkLoggedIn, requestLogout} from '../lib/auth'
+import {getAuthUser, hydrateSessionUser, isAdmin, isLoggedIn as checkLoggedIn, isSeller, requestLogout} from '../lib/auth'
 
 const route = useRoute()
 const router = useRouter()
@@ -35,7 +35,7 @@ const refreshAuth = () => {
   memberCategory.value = getAuthUser()?.memberCategory ?? null
 }
 
-const sellerMode = computed(() => isLoggedIn.value && memberCategory.value === '판매자')
+const sellerMode = computed(() => isLoggedIn.value && isSeller())
 const adminMode = computed(() => isLoggedIn.value && isAdmin() && route.path.startsWith('/admin'))
 
 const actionLinks = computed(() => {

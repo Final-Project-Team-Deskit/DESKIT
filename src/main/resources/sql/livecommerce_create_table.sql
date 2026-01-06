@@ -1,7 +1,8 @@
 -- =========================================================
 -- DESKIT & LIVE COMMERCE INTEGRATED DB SCHEMA
--- 최근작성일: 2026-01-04
+-- 최근작성일: 2026-01-05
 -- 수정사항:
+-- broadcast_result, view_history 테이블 컬럼 수정 (26.01.05)
 -- seller_grade 테이블 컬럼(grade) 수정 : enum 요소 추가 (26.01.04)
 -- spring_ai_chat_memory 테이블 추가 (25.12.31)
 -- member, seller 테이블 컬럼 추가 및 일부 타입 변경 / seller_register 테이블 컬럼 누락 수정 (25.12.30)

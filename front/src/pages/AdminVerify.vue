@@ -3,6 +3,7 @@ import { onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import PageContainer from '../components/PageContainer.vue'
 import PageHeader from '../components/PageHeader.vue'
+import { setAuthUser } from '../lib/auth'
 
 type PendingAdmin = {
   name: string
@@ -62,9 +63,9 @@ const storeAuthUser = (payload: VerifyResponse) => {
     memberCategory: '관리자',
   }
 
-  localStorage.setItem('deskit-user', JSON.stringify(authUser))
-  localStorage.setItem('deskit-auth', 'admin')
-  window.dispatchEvent(new Event('deskit-user-updated'))
+  setAuthUser(authUser)
+  // localStorage.setItem('deskit-user', JSON.stringify(authUser))
+  // localStorage.setItem('deskit-auth', 'admin')
 }
 
 const verifyCode = async () => {

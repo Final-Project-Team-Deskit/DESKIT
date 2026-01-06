@@ -48,9 +48,12 @@ public class KakaoResponse implements OAuth2Response {
     public String getProfileUrl() {
         Map<String, Object> kakaoAccount =
                 (Map<String, Object>) attribute.get("kakao_account");
-        Map<String, Object> profile =
-                (Map<String, Object>) kakaoAccount.get("profile");
 
-        return (String) profile.get("profile_image_url");
+        return kakaoAccount == null
+                ? ""
+                : (kakaoAccount.get("profile")) == null
+                ? ""
+                : (String) ((Map<String, Object>) kakaoAccount.get("profile"))
+                .get("profile_image_url");
     }
 }
