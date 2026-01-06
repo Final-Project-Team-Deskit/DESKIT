@@ -17,41 +17,33 @@ type AdminUser = {
   marketingAgreed: boolean
 }
 
+type AdminUserPageResponse = {
+  items: AdminUser[]
+  page: number
+  size: number
+  total: number
+  totalPages: number
+}
+
 const keyword = ref('')
 const typeFilter = ref<'전체' | UserType>('전체')
 const statusFilter = ref<'전체' | UserStatus>('전체')
 const fromDate = ref('')
 const toDate = ref('')
-const trigger = ref(0)
 const showUserModal = ref(false)
 const selectedUser = ref<AdminUser | null>(null)
 
 const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080'
 const users = ref<AdminUser[]>([])
+const page = ref(0)
+const size = 10
+const total = ref(0)
+const totalPages = computed(() => Math.max(1, Math.ceil(total.value / size)))
 
-const keywordLower = computed(() => keyword.value.trim().toLowerCase())
-
-const filteredUsers = computed(() => {
-  trigger.value
-  const startMs = fromDate.value ? Date.parse(`${fromDate.value}T00:00:00`) : null
-  const endMs = toDate.value ? Date.parse(`${toDate.value}T23:59:59`) : null
-
-  return users.value.filter((user) => {
-    if (typeFilter.value !== '전체' && user.type !== typeFilter.value) return false
-    if (statusFilter.value !== '전체' && user.status !== statusFilter.value) return false
-    if (startMs || endMs) {
-      const joinedMs = Date.parse(`${user.joinedAt}T00:00:00`)
-      if (startMs && joinedMs < startMs) return false
-      if (endMs && joinedMs > endMs) return false
-    }
-    if (!keywordLower.value) return true
-    const haystack = `${user.email} ${user.name} ${user.phone ?? ''}`.toLowerCase()
-    return haystack.includes(keywordLower.value)
-  })
-})
+const filteredUsers = computed(() => users.value)
 
 const handleSearch = () => {
-  trigger.value += 1
+  loadUsers(0)
 }
 
 const openUserModal = (user: AdminUser) => {
@@ -64,20 +56,48 @@ const closeUserModal = () => {
   selectedUser.value = null
 }
 
-const loadUsers = async () => {
+const loadUsers = async (targetPage = page.value) => {
   try {
-    const response = await fetch(`${apiBase}/api/admin/users`, {
+    const params = new URLSearchParams({
+      page: String(targetPage),
+      size: String(size),
+    })
+    if (keyword.value.trim()) {
+      params.set('keyword', keyword.value.trim())
+    }
+    if (typeFilter.value !== '전체') {
+      params.set('type', typeFilter.value)
+    }
+    if (statusFilter.value !== '전체') {
+      params.set('status', statusFilter.value)
+    }
+    if (fromDate.value) {
+      params.set('fromDate', fromDate.value)
+    }
+    if (toDate.value) {
+      params.set('toDate', toDate.value)
+    }
+    const response = await fetch(`${apiBase}/api/admin/users?${params.toString()}`, {
       credentials: 'include',
     })
     if (!response.ok) {
       const message = await response.text()
       throw new Error(message || '회원 목록을 불러오지 못했습니다.')
     }
-    users.value = (await response.json()) as AdminUser[]
+    const payload = (await response.json()) as AdminUserPageResponse
+    users.value = payload.items
+    page.value = payload.page
+    total.value = payload.total
   } catch (error) {
     console.error(error)
     users.value = []
+    total.value = 0
   }
+}
+
+const goToPage = (nextPage: number) => {
+  if (nextPage < 0 || nextPage >= totalPages.value) return
+  loadUsers(nextPage)
 }
 
 const handleKeydown = (event: KeyboardEvent) => {
@@ -177,6 +197,23 @@ onBeforeUnmount(() => {
             </tr>
           </tbody>
         </table>
+      </div>
+      <div class="table-pagination">
+        <span class="pagination-summary">총 {{ total }}명</span>
+        <div class="pagination-controls">
+          <button type="button" class="btn ghost" :disabled="page === 0" @click="goToPage(page - 1)">
+            이전
+          </button>
+          <span class="pagination-page">{{ page + 1 }} / {{ totalPages }}</span>
+          <button
+            type="button"
+            class="btn ghost"
+            :disabled="page + 1 >= totalPages"
+            @click="goToPage(page + 1)"
+          >
+            다음
+          </button>
+        </div>
       </div>
     </section>
 
@@ -317,6 +354,32 @@ onBeforeUnmount(() => {
 
 .table-wrap {
   overflow-x: auto;
+}
+
+.table-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-top: 1px solid var(--border-color);
+}
+
+.pagination-summary {
+  color: var(--text-muted);
+  font-weight: 700;
+  font-size: 0.9rem;
+}
+
+.pagination-controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.pagination-page {
+  color: var(--text-strong);
+  font-weight: 800;
+  font-size: 0.9rem;
 }
 
 .admin-table {
@@ -476,6 +539,10 @@ onBeforeUnmount(() => {
   background: var(--surface);
   color: var(--text-strong);
   cursor: pointer;
+}
+
+.btn.ghost {
+  background: transparent;
 }
 
 .btn.primary {
