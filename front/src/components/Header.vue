@@ -37,6 +37,9 @@ const refreshAuth = () => {
 
 const sellerMode = computed(() => isLoggedIn.value && memberCategory.value === '판매자')
 const adminMode = computed(() => isLoggedIn.value && isAdmin() && route.path.startsWith('/admin'))
+const showCart = computed(
+  () => isLoggedIn.value && !!memberCategory.value && memberCategory.value !== 'ROLE_GUEST',
+)
 
 const actionLinks = computed(() => {
   if (sellerMode.value) {
@@ -44,11 +47,10 @@ const actionLinks = computed(() => {
   }
   return isLoggedIn.value
     ? [
-      {label: '장바구니', to: '/cart', icon: 'cart'},
+      ...(showCart.value ? [{label: '장바구니', to: '/cart', icon: 'cart'}] : []),
       {label: '마이페이지', to: '/my', icon: 'user'},
     ]
     : [
-      {label: '장바구니', to: '/cart', icon: 'cart'},
       {label: '로그인', to: '/login', icon: 'user'},
     ]
 })
@@ -832,4 +834,3 @@ const handleLogout = async () => {
   }
 }
 </style>
-

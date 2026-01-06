@@ -1,13 +1,16 @@
+server:
+  port: 8080
+
 openvidu:
-  url: ${OPENVIDU_URL}  # 설치한 미디어 서버 주소
-  secret: ${OPENVIDU_SECRET}
+  url: https://49.50.139.108:4443/  # 설치한 미디어 서버 주소
+  secret: openvidu010831
 
 
 cloud:
   aws:
     credentials:
-      access-key: ${NCP_ACCESS_KEY}  # 실제 키 대신 변수명 입력
-      secret-key: ${NCP_SECRET_KEY}  # 실제 키 대신 변수명 입력
+      access-key: ${NAVER_CLOUD_ACCESS_KEY_ID}
+      secret-key: ${NAVER_CLOUD_SECRET_KEY}
     s3:
       bucket: "live-commerce-bucket"      # 버킷 이름은 공개돼도 상관없음
       endpoint: "https://kr.object.ncloudstorage.com"
@@ -19,8 +22,8 @@ cloud:
 spring:
   datasource:
     url: jdbc:mysql://localhost:3306/livecommerce?characterEncoding=UTF-8&serverTimezone=Asia/Seoul
-    username: ${MYSQL_USERNAME}
-    password: ${MYSQL_PASSWORD} # Mysql1234!
+    username: root
+    password: mysql1234 # Mysql1234!
     driver-class-name: com.mysql.cj.jdbc.Driver
   jpa:
     open-in-view: false # DB 커넥션 빨리 반납
@@ -32,10 +35,10 @@ spring:
         format_sql: true
         show_sql: true
   data:
-    redis:
-      host: redis-11674.c340.ap-northeast-2-1.ec2.cloud.redislabs.com
-      port: 11674
-      password: ${REDIS_PASSWORD}
+#    redis:
+#      host: redis-11674.c340.ap-northeast-2-1.ec2.cloud.redislabs.com
+#      port: 11674
+#      password: wfpUvcysPnJIhN8ALNLltZDLnbaA8UNg
   servlet:
     multipart:
       max-file-size: 10MB
