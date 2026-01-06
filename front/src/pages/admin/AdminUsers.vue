@@ -26,118 +26,8 @@ const trigger = ref(0)
 const showUserModal = ref(false)
 const selectedUser = ref<AdminUser | null>(null)
 
-const users = ref<AdminUser[]>([
-  {
-    id: 'u-1001',
-    email: 'jiyoon@example.com',
-    name: '김지윤',
-    type: '일반회원',
-    status: '활성화',
-    phone: '010-3212-9981',
-    joinedAt: '2025-02-04',
-    provider: 'Kakao',
-    marketingAgreed: true,
-  },
-  {
-    id: 'u-1002',
-    email: 'seojun@example.com',
-    name: '박서준',
-    type: '판매자',
-    status: '활성화',
-    phone: '010-5421-1221',
-    joinedAt: '2025-01-19',
-    provider: 'Naver',
-    marketingAgreed: false,
-  },
-  {
-    id: 'u-1003',
-    email: 'mira@example.com',
-    name: '김미라',
-    type: '일반회원',
-    status: '비활성화',
-    phone: '010-5533-4488',
-    joinedAt: '2024-12-02',
-    provider: 'Email',
-    marketingAgreed: true,
-  },
-  {
-    id: 'u-1004',
-    email: 'minsu@example.com',
-    name: '정민수',
-    type: '판매자',
-    status: '활성화',
-    phone: '010-7744-1133',
-    joinedAt: '2025-02-18',
-    provider: 'Google',
-    marketingAgreed: true,
-  },
-  {
-    id: 'u-1005',
-    email: 'haeun@example.com',
-    name: '이하은',
-    type: '일반회원',
-    status: '활성화',
-    phone: '010-8841-3372',
-    joinedAt: '2025-02-10',
-    provider: 'Kakao',
-    marketingAgreed: false,
-  },
-  {
-    id: 'u-1006',
-    email: 'yujin@example.com',
-    name: '최유진',
-    type: '판매자',
-    status: '비활성화',
-    phone: '010-3301-8831',
-    joinedAt: '2024-11-27',
-    provider: 'Naver',
-    marketingAgreed: false,
-  },
-  {
-    id: 'u-1007',
-    email: 'seona@example.com',
-    name: '김서나',
-    type: '일반회원',
-    status: '활성화',
-    phone: '010-9012-7733',
-    joinedAt: '2025-01-05',
-    provider: 'Email',
-    marketingAgreed: true,
-  },
-  {
-    id: 'u-1008',
-    email: 'donghyun@example.com',
-    name: '이동현',
-    type: '판매자',
-    status: '활성화',
-    phone: '010-6622-1994',
-    joinedAt: '2024-10-15',
-    provider: 'Google',
-    marketingAgreed: true,
-  },
-  {
-    id: 'u-1009',
-    email: 'nana@example.com',
-    name: '홍나나',
-    type: '일반회원',
-    status: '비활성화',
-    phone: '010-1122-3388',
-    joinedAt: '2024-09-09',
-    provider: 'Kakao',
-    marketingAgreed: false,
-  },
-  {
-    id: 'u-1010',
-    email: 'owner@example.com',
-    name: '오너 관리자',
-    type: '판매자',
-    status: '활성화',
-    phone: '010-4022-6677',
-    joinedAt: '2025-02-21',
-    provider: 'Email',
-    marketingAgreed: true,
-  },
-])
+const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080'
+const users = ref<AdminUser[]>([])
 
 const keywordLower = computed(() => keyword.value.trim().toLowerCase())
 
@@ -174,6 +64,22 @@ const closeUserModal = () => {
   selectedUser.value = null
 }
 
+const loadUsers = async () => {
+  try {
+    const response = await fetch(`${apiBase}/api/admin/users`, {
+      credentials: 'include',
+    })
+    if (!response.ok) {
+      const message = await response.text()
+      throw new Error(message || '회원 목록을 불러오지 못했습니다.')
+    }
+    users.value = (await response.json()) as AdminUser[]
+  } catch (error) {
+    console.error(error)
+    users.value = []
+  }
+}
+
 const handleKeydown = (event: KeyboardEvent) => {
   if (event.key === 'Escape' && showUserModal.value) {
     closeUserModal()
@@ -182,6 +88,7 @@ const handleKeydown = (event: KeyboardEvent) => {
 
 onMounted(() => {
   window.addEventListener('keydown', handleKeydown)
+  loadUsers()
 })
 
 onBeforeUnmount(() => {
