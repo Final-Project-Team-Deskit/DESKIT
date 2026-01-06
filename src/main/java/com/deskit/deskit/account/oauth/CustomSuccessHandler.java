@@ -80,7 +80,7 @@ public class CustomSuccessHandler extends SimpleUrlAuthenticationSuccessHandler 
         response.setHeader("access", access);
         response.addCookie(createCookie("access", access, Math.toIntExact(accessExpiryMs / 1000)));
         response.addCookie(createCookie("refresh", refresh, Math.toIntExact(refreshExpiryMs / 1000)));
-        response.sendRedirect("http://localhost:5173/");
+        response.sendRedirect(resolveRedirectUrl(role));
     }
 
     private Cookie createCookie(String key, String value, int maxAge) {
@@ -93,6 +93,13 @@ public class CustomSuccessHandler extends SimpleUrlAuthenticationSuccessHandler 
         cookie.setHttpOnly(true);
 
         return cookie;
+    }
+
+    private String resolveRedirectUrl(String role) {
+        if (role != null && role.startsWith("ROLE_SELLER")) {
+            return "http://localhost:5173/seller";
+        }
+        return "http://localhost:5173/";
     }
 
 }
