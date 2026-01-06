@@ -1,109 +1,155 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { computed, onMounted, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import PageContainer from '../../components/PageContainer.vue'
 import PageHeader from '../../components/PageHeader.vue'
+import {
+  buildDraftFromReservation,
+  createDefaultQuestions,
+  createEmptyDraft,
+  loadDraft,
+  saveDraft,
+  type LiveCreateDraft,
+} from '../../composables/useLiveCreateDraft'
 
 const router = useRouter()
-const DRAFT_KEY = 'deskit_seller_broadcast_draft_v1'
+const route = useRoute()
 
-const cueTitle = ref('')
-const cueNotes = ref('')
-const questions = ref<Array<{ id: string; text: string }>>([])
 const maxQuestions = 10
+const draft = ref<LiveCreateDraft>(createEmptyDraft())
+const error = ref('')
+
+const reservationId = computed(() => (typeof route.query.reservationId === 'string' ? route.query.reservationId : ''))
+const isEditMode = computed(() => route.query.mode === 'edit' && !!reservationId.value)
 
 const createQuestion = () => ({
-  id: `q-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+  id: `q-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
   text: '',
 })
 
-const loadDraft = () => {
-  const raw = localStorage.getItem(DRAFT_KEY)
-  if (!raw) return
-  try {
-    const parsed = JSON.parse(raw)
-    cueTitle.value = typeof parsed?.cueTitle === 'string' ? parsed.cueTitle : ''
-    cueNotes.value = typeof parsed?.cueNotes === 'string' ? parsed.cueNotes : ''
-    if (Array.isArray(parsed?.questions) && parsed.questions.length > 0) {
-      questions.value = parsed.questions
-        .filter((item: any) => item && typeof item.id === 'string' && typeof item.text === 'string')
-        .map((item: any) => ({ id: item.id, text: item.text }))
-    }
-  } catch {
-    return
-  }
+const syncDraft = () => {
+  saveDraft({
+    ...draft.value,
+    questions: draft.value.questions.map((q) => ({ ...q, text: q.text.trim() })),
+  })
 }
 
-const saveDraft = () => {
-  const next = {
-    cueTitle: cueTitle.value.trim(),
-    cueNotes: cueNotes.value.trim(),
-    questions: questions.value.map((item) => ({
-      id: item.id,
-      text: item.text.trim(),
-    })),
+const restoreDraft = () => {
+  const saved = loadDraft()
+  if (saved && (!isEditMode.value || saved.reservationId === reservationId.value)) {
+    draft.value = { ...draft.value, ...saved }
   }
-  localStorage.setItem(DRAFT_KEY, JSON.stringify(next))
+
+  if (isEditMode.value) {
+    draft.value = { ...draft.value, ...buildDraftFromReservation(reservationId.value) }
+  }
+
+  if (!draft.value.questions.length) {
+    draft.value.questions = createDefaultQuestions()
+  }
+
+  syncDraft()
 }
 
 const addQuestion = () => {
-  if (questions.value.length >= maxQuestions) return
-  questions.value.push(createQuestion())
+  if (draft.value.questions.length >= maxQuestions) return
+  draft.value.questions.push(createQuestion())
 }
 
 const removeQuestion = (id: string) => {
-  if (questions.value.length <= 1) return
-  questions.value = questions.value.filter((item) => item.id !== id)
+  if (draft.value.questions.length <= 1) return
+  draft.value.questions = draft.value.questions.filter((item) => item.id !== id)
 }
 
+const isQuestionValid = (text: string) => !!text.trim()
+
 const goNext = () => {
-  saveDraft()
-  router.push('/seller/live/create/basic').catch(() => {})
+  const trimmed = draft.value.questions.map((q) => ({ ...q, text: q.text.trim() }))
+  const filled = trimmed.filter((q) => q.text.length > 0)
+
+  if (filled.length === 0 && draft.value.questions.length <= 1) {
+    draft.value.questions = []
+    error.value = ''
+    syncDraft()
+    router.push({ path: '/seller/live/create/basic', query: route.query }).catch(() => {})
+    return
+  }
+
+  const hasInvalid = filled.length !== trimmed.length
+  if (hasInvalid) {
+    error.value = '모든 질문을 입력해주세요.'
+    return
+  }
+  draft.value.questions = filled
+  error.value = ''
+  syncDraft()
+  router.push({ path: '/seller/live/create/basic', query: route.query }).catch(() => {})
+}
+
+const cancel = () => {
+  const ok = window.confirm('작성 중인 내용을 취소하시겠어요?')
+  if (!ok) return
+  const redirect = isEditMode.value && reservationId.value
+    ? `/seller/broadcasts/reservations/${reservationId.value}`
+    : '/seller/live?tab=scheduled'
+  router.push(redirect).catch(() => {})
 }
 
 onMounted(() => {
-  loadDraft()
-  if (questions.value.length === 0) {
-    questions.value = [createQuestion()]
-  }
+  restoreDraft()
 })
+
+watch(
+  draft,
+  () => {
+    syncDraft()
+  },
+  { deep: true },
+)
 </script>
 
 <template>
   <PageContainer>
-    <PageHeader eyebrow="DESKIT" title="방송 등록 - 큐 카드 작성" />
+    <PageHeader :eyebrow="isEditMode ? 'DESKIT' : 'DESKIT'" :title="isEditMode ? '예약 수정 - 큐 카드 편집' : '방송 등록 - 큐 카드 작성'" />
     <section class="create-card ds-surface">
-      <label class="field">
-        <span class="field__label">큐 카드 제목</span>
-        <input v-model="cueTitle" type="text" placeholder="예: 오프닝 멘트" />
-      </label>
-      <label class="field">
-        <span class="field__label">큐 카드 메모</span>
-        <textarea v-model="cueNotes" rows="5" placeholder="방송 흐름을 간단히 적어주세요."></textarea>
-      </label>
+      <div class="step-meta">
+        <span class="step-indicator">1 / 2 단계</span>
+        <button type="button" class="btn ghost" @click="router.back()">이전</button>
+      </div>
       <div class="section-head">
         <h3>큐 카드 질문</h3>
-        <span class="count-pill">{{ questions.length }}/{{ maxQuestions }}</span>
+        <span class="count-pill">{{ draft.questions.length }}/{{ maxQuestions }}</span>
       </div>
       <div class="question-list">
-        <div v-for="(item, index) in questions" :key="item.id" class="question-card">
+        <div v-for="(item, index) in draft.questions" :key="item.id" class="question-card" :class="{ invalid: draft.questions.length > 1 && !isQuestionValid(item.text) }">
           <div class="question-head">
             <span class="question-title">질문 {{ index + 1 }}</span>
-            <button type="button" class="btn ghost" :disabled="questions.length <= 1" @click="removeQuestion(item.id)">
+            <button type="button" class="btn ghost" :disabled="draft.questions.length <= 1" @click="removeQuestion(item.id)">
               삭제
             </button>
           </div>
-          <textarea v-model="item.text" rows="3" placeholder="질문 내용을 입력하세요."></textarea>
+          <textarea
+            v-model="item.text"
+            rows="3"
+            placeholder="질문을 입력하세요."
+            @input="error = ''"
+          ></textarea>
+          <p v-if="draft.questions.length > 1 && !isQuestionValid(item.text)" class="inline-error">질문을 입력해주세요.</p>
         </div>
       </div>
       <div class="question-actions">
-        <button type="button" class="btn" :disabled="questions.length >= maxQuestions" @click="addQuestion">
+        <button type="button" class="btn" :disabled="draft.questions.length >= maxQuestions" @click="addQuestion">
           + 질문 추가
         </button>
-        <span v-if="questions.length >= maxQuestions" class="hint">최대 10개까지 추가할 수 있어요.</span>
+        <span v-if="draft.questions.length >= maxQuestions" class="hint">최대 10개까지 추가할 수 있어요.</span>
       </div>
+      <p v-if="error" class="error">{{ error }}</p>
       <div class="actions">
-        <button type="button" class="btn primary" @click="goNext">다음 단계</button>
+        <div class="step-hint">모든 질문을 입력하면 다음 단계로 이동할 수 있습니다.</div>
+        <div class="action-buttons">
+          <button type="button" class="btn" @click="cancel">취소</button>
+          <button type="button" class="btn primary" @click="goNext">다음 단계</button>
+        </div>
       </div>
     </section>
   </PageContainer>
@@ -115,6 +161,19 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   gap: 14px;
+}
+
+.step-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.step-indicator {
+  color: var(--text-muted);
+  font-weight: 800;
+  font-size: 0.95rem;
 }
 
 .field {
@@ -168,6 +227,17 @@ onMounted(() => {
   gap: 10px;
 }
 
+.question-card.invalid {
+  border-color: #ef4444;
+}
+
+.inline-error {
+  margin: 0;
+  color: #ef4444;
+  font-weight: 700;
+  font-size: 0.9rem;
+}
+
 .question-head {
   display: flex;
   align-items: center;
@@ -192,6 +262,12 @@ onMounted(() => {
   font-size: 0.85rem;
 }
 
+.error {
+  margin: 0;
+  color: #ef4444;
+  font-weight: 800;
+}
+
 input,
 textarea {
   border: 1px solid var(--border-color);
@@ -204,7 +280,13 @@ textarea {
 
 .actions {
   display: flex;
-  justify-content: flex-end;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.action-buttons {
+  display: flex;
+  gap: 10px;
 }
 
 .btn {
@@ -230,5 +312,11 @@ textarea {
 .btn.primary {
   border-color: var(--primary-color);
   color: var(--primary-color);
+}
+
+.step-hint {
+  color: var(--text-muted);
+  font-weight: 700;
+  font-size: 0.9rem;
 }
 </style>

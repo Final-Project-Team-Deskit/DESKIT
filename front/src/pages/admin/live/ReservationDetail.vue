@@ -1,14 +1,29 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { cancelAdminReservation, getAdminReservationDetail, type AdminReservationDetail } from '../../../lib/mocks/adminReservations'
+import QCardModal from '../../../components/QCardModal.vue'
+import {
+  cancelAdminReservation,
+  getAdminReservationDetail,
+  type AdminReservationDetail,
+} from '../../../lib/mocks/adminReservations'
+import { normalizeBroadcastStatus } from '../../../lib/broadcastStatus'
 
 const route = useRoute()
 const router = useRouter()
 
 const detail = ref<AdminReservationDetail | null>(null)
+const showCueCard = ref(false)
+const cueIndex = ref(0)
 
 const reservationId = computed(() => (typeof route.params.reservationId === 'string' ? route.params.reservationId : ''))
+
+const cancelReason = ref('')
+const cancelDetail = ref('')
+const showCancelModal = ref(false)
+const cancelError = ref('')
+
+const cancelReasonOptions = ['판매자 요청', '방송 기획 변경', '상품 준비 지연', '기타']
 
 const loadDetail = () => {
   detail.value = getAdminReservationDetail(reservationId.value)
@@ -22,16 +37,62 @@ const goToList = () => {
   router.push('/admin/live?tab=scheduled').catch(() => {})
 }
 
-const handleCancel = () => {
-  if (!detail.value) return
-  if (detail.value.status === '취소됨') return
-  if (!window.confirm('정말 예약을 취소하시겠습니까?')) return
-  cancelAdminReservation(detail.value.id)
-  detail.value = { ...detail.value, status: '취소됨' }
-  router.push('/admin/live?tab=scheduled').catch(() => {})
+const openCueCard = () => {
+  if (!detail.value?.cueQuestions?.length) return
+  showCueCard.value = true
 }
 
-const isCancelled = computed(() => detail.value?.status === '취소됨')
+const openCancelModal = () => {
+  if (!detail.value || normalizeBroadcastStatus(detail.value.status) === 'CANCELED') return
+  showCancelModal.value = true
+  cancelReason.value = ''
+  cancelDetail.value = ''
+  cancelError.value = ''
+}
+
+const closeCancelModal = () => {
+  showCancelModal.value = false
+  cancelReason.value = ''
+  cancelDetail.value = ''
+  cancelError.value = ''
+}
+
+const saveCancel = () => {
+  if (!cancelReason.value) {
+    cancelError.value = '취소 사유를 선택해주세요.'
+    return
+  }
+  if (cancelReason.value === '기타' && !cancelDetail.value.trim()) {
+    cancelError.value = '기타 사유를 입력해주세요.'
+    return
+  }
+  const ok = window.confirm('예약을 취소하시겠습니까?')
+  if (!ok) return
+  if (!detail.value) return
+  cancelAdminReservation(detail.value.id)
+  detail.value = {
+    ...detail.value,
+    status: 'CANCELED',
+    cancelReason: cancelReason.value === '기타' ? cancelDetail.value.trim() : cancelReason.value,
+  }
+  closeCancelModal()
+}
+
+const isCancelled = computed(() => normalizeBroadcastStatus(detail.value?.status) === 'CANCELED')
+const standbyImage = computed(() => detail.value?.standbyThumb || detail.value?.thumb)
+const scheduledWindow = computed(() => {
+  if (!detail.value) return ''
+  const raw = detail.value.datetime
+  const start = new Date(raw.replace(/\./g, '-').replace(' ', 'T'))
+  const end = new Date(start.getTime() + 30 * 60 * 1000)
+  const fmt = (d: Date) => `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`
+  return `${raw} ~ ${fmt(end)}`
+})
+
+const cancelReasonText = computed(() => {
+  if (!isCancelled.value) return ''
+  return detail.value?.cancelReason || '사유가 등록되지 않았습니다.'
+})
 
 watch(reservationId, loadDetail, { immediate: true })
 </script>
@@ -42,6 +103,9 @@ watch(reservationId, loadDetail, { immediate: true })
     <header class="detail-header">
       <button type="button" class="back-link" @click="goBack">← 뒤로 가기</button>
       <div class="detail-actions">
+        <button type="button" class="btn ghost" :disabled="!(detail.cueQuestions?.length)" @click="openCueCard">
+          큐카드 보기
+        </button>
         <button type="button" class="btn" @click="goToList">목록으로</button>
       </div>
     </header>
@@ -49,18 +113,42 @@ watch(reservationId, loadDetail, { immediate: true })
     <section class="detail-card ds-surface">
       <div class="detail-title">
         <h3>{{ detail.title }}</h3>
-        <span class="status-pill">{{ detail.status }}</span>
+        <span class="status-pill" :class="{ cancelled: isCancelled }">{{ detail.status }}</span>
       </div>
       <div class="detail-meta">
-        <p><span>방송 예정 시간</span>{{ detail.datetime }}</p>
+        <p><span>방송 예정 시간</span>{{ scheduledWindow }}</p>
         <p><span>카테고리</span>{{ detail.category }}</p>
         <p><span>판매자</span>{{ detail.sellerName }}</p>
+        <p v-if="isCancelled" class="cancel-row">
+          <span>취소 사유</span>
+          <span class="cancel-value">{{ cancelReasonText }}</span>
+        </p>
       </div>
     </section>
 
     <section class="detail-card ds-surface notice-box">
       <h4>공지사항</h4>
       <p>{{ detail.notice }}</p>
+    </section>
+
+    <section class="detail-card ds-surface">
+      <div class="card-head">
+        <h4>방송 이미지</h4>
+      </div>
+      <div class="upload-grid">
+        <div class="upload-col">
+          <p class="upload-label">썸네일</p>
+          <div class="upload-preview">
+            <img :src="detail.thumb" :alt="detail.title" />
+          </div>
+        </div>
+        <div class="upload-col">
+          <p class="upload-label">대기화면</p>
+          <div class="upload-preview">
+            <img :src="standbyImage" :alt="`${detail.title} 대기화면`" />
+          </div>
+        </div>
+      </div>
     </section>
 
     <section class="detail-card ds-surface">
@@ -97,10 +185,45 @@ watch(reservationId, loadDetail, { immediate: true })
           type="button"
           class="btn danger"
           :disabled="isCancelled"
-          @click="handleCancel"
+          @click="openCancelModal"
         >
           {{ isCancelled ? '취소됨' : '예약 취소' }}
         </button>
+      </div>
+    </div>
+
+    <QCardModal
+      v-model="showCueCard"
+      :q-cards="detail.cueQuestions || []"
+      :initial-index="cueIndex"
+      @update:initialIndex="cueIndex = $event"
+    />
+
+    <div v-if="showCancelModal" class="stop-modal">
+      <div class="stop-modal__backdrop" @click="closeCancelModal"></div>
+      <div class="stop-modal__card ds-surface">
+        <header class="stop-modal__head">
+          <h3>예약 취소</h3>
+          <button type="button" class="close-btn" @click="closeCancelModal">×</button>
+        </header>
+        <div class="stop-modal__body">
+          <label class="field">
+            <span class="field__label">취소 사유</span>
+            <select v-model="cancelReason" class="field-input">
+              <option value="">선택해주세요</option>
+              <option v-for="reason in cancelReasonOptions" :key="reason" :value="reason">{{ reason }}</option>
+            </select>
+          </label>
+          <label v-if="cancelReason === '기타'" class="field">
+            <span class="field__label">기타 사유 입력</span>
+            <textarea v-model="cancelDetail" class="field-input" rows="4" placeholder="사유를 입력해주세요."></textarea>
+          </label>
+          <p v-if="cancelError" class="error">{{ cancelError }}</p>
+        </div>
+        <div class="stop-modal__actions">
+          <button type="button" class="btn ghost" @click="closeCancelModal">취소</button>
+          <button type="button" class="btn primary" @click="saveCancel">저장</button>
+        </div>
       </div>
     </div>
   </div>
@@ -172,20 +295,34 @@ watch(reservationId, loadDetail, { immediate: true })
   font-size: 0.85rem;
 }
 
+.status-pill.cancelled {
+  background: rgba(239, 68, 68, 0.12);
+  color: #ef4444;
+}
+
 .detail-meta {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: 8px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
   font-weight: 700;
   color: var(--text-muted);
 }
 
 .detail-meta span {
   display: inline-block;
-  min-width: 120px;
+  min-width: 100px;
   color: var(--text-strong);
   font-weight: 800;
-  margin-right: 6px;
+  margin-right: 4px;
+}
+
+.cancel-row {
+  align-items: center;
+}
+
+.cancel-value {
+  color: #ef4444;
+  font-weight: 900;
 }
 
 .notice-box h4 {
@@ -206,6 +343,44 @@ watch(reservationId, loadDetail, { immediate: true })
   font-size: 1rem;
   font-weight: 900;
   color: var(--text-strong);
+}
+
+.upload-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.upload-col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.upload-label {
+  margin: 0;
+  font-weight: 800;
+  color: var(--text-strong);
+}
+
+.upload-preview {
+  position: relative;
+  height: auto;
+  aspect-ratio: 16 / 9;
+  min-height: 180px;
+  border-radius: 12px;
+  background: var(--surface-weak);
+  border: 1px solid var(--border-color);
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+}
+
+.upload-preview img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
 }
 
 .table-wrap {
@@ -262,6 +437,111 @@ watch(reservationId, loadDetail, { immediate: true })
   background: #ef4444;
   border-color: transparent;
   color: #fff;
+}
+
+.btn.ghost {
+  border-color: var(--border-color);
+  color: var(--text-muted);
+  background: transparent;
+}
+
+.btn.primary {
+  border-color: var(--primary-color);
+  color: var(--primary-color);
+}
+
+.btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.stop-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: grid;
+  place-items: center;
+}
+
+.stop-modal__backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.45);
+}
+
+.stop-modal__card {
+  position: relative;
+  width: min(520px, 92vw);
+  border-radius: 16px;
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  z-index: 1;
+}
+
+.stop-modal__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.stop-modal__head h3 {
+  margin: 0;
+  font-size: 1.1rem;
+  font-weight: 900;
+  color: var(--text-strong);
+}
+
+.close-btn {
+  border: 1px solid var(--border-color);
+  background: var(--surface);
+  color: var(--text-muted);
+  width: 32px;
+  height: 32px;
+  border-radius: 999px;
+  cursor: pointer;
+  font-size: 1.1rem;
+  line-height: 1;
+}
+
+.stop-modal__body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.field__label {
+  font-weight: 800;
+  color: var(--text-strong);
+}
+
+.field-input {
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  padding: 10px 12px;
+  font-weight: 700;
+  color: var(--text-strong);
+  background: var(--surface);
+}
+
+.stop-modal__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.error {
+  margin: 0;
+  color: #ef4444;
+  font-weight: 700;
 }
 
 @media (max-width: 720px) {

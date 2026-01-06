@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watchEffect } from 'vue'
 import { useRouter } from 'vue-router'
+import ConfirmModal from '../components/ConfirmModal.vue'
 import PageContainer from '../components/PageContainer.vue'
 import PageHeader from '../components/PageHeader.vue'
 import { liveItems } from '../lib/live/data'
@@ -19,10 +20,46 @@ const today = new Date()
 const { now } = useNow(1000)
 
 const NOTIFY_KEY = 'deskit_live_notifications'
+const WATCH_HISTORY_CONSENT_KEY = 'deskit_live_watch_history_consent_v1'
 const notifiedIds = ref<Set<string>>(new Set())
 const normalizeDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate())
 const toast = ref<{ message: string; variant: 'success' | 'neutral' } | null>(null)
+const showWatchHistoryConsent = ref(false)
+const pendingLiveId = ref<string | null>(null)
 let toastTimer: ReturnType<typeof setTimeout> | null = null
+
+const hasWatchHistoryConsent = () => {
+  try {
+    return typeof localStorage !== 'undefined' && localStorage.getItem(WATCH_HISTORY_CONSENT_KEY) === 'true'
+  } catch {
+    return false
+  }
+}
+
+const requestWatchHistoryConsent = (liveId: string) => {
+  pendingLiveId.value = liveId
+  showWatchHistoryConsent.value = true
+}
+
+const handleConfirmWatchHistory = () => {
+  try {
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem(WATCH_HISTORY_CONSENT_KEY, 'true')
+    }
+  } catch {
+    // localStorage unavailable (e.g., private mode); proceed without persistence
+  }
+  showWatchHistoryConsent.value = false
+  if (pendingLiveId.value) {
+    router.push({ name: 'live-detail', params: { id: pendingLiveId.value } }).catch(() => {})
+  }
+  pendingLiveId.value = null
+}
+
+const handleCancelWatchHistory = () => {
+  showWatchHistoryConsent.value = false
+  pendingLiveId.value = null
+}
 
 const dayWindow = computed(() => getDayWindow(today))
 const selectedDay = ref(normalizeDay(dayWindow.value[3]))
@@ -154,6 +191,10 @@ const handleRowClick = (item: LiveItem) => {
     return
   }
   if (status === 'LIVE') {
+    if (!hasWatchHistoryConsent()) {
+      requestWatchHistoryConsent(item.id)
+      return
+    }
     router.push({ name: 'live-detail', params: { id: item.id } })
     return
   }
@@ -222,6 +263,15 @@ onBeforeUnmount(() => {
 
 <template>
   <PageContainer>
+    <ConfirmModal
+      v-model="showWatchHistoryConsent"
+      title="시청 기록 수집 안내"
+      description="라이브 방송 입장 시 시청 기록을 수집합니다. 계속 진행하시겠습니까?"
+      confirm-text="동의하고 입장하기"
+      cancel-text="취소"
+      @confirm="handleConfirmWatchHistory"
+      @cancel="handleCancelWatchHistory"
+    />
     <PageHeader title="라이브 일정" eyebrow="DESKIT LIVE" />
 
     <div class="date-strip">
