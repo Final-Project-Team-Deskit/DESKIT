@@ -19,13 +19,28 @@ const navLinks = [
 ]
 
 const sellerTabs = [
-  {label: '방송관리', to: '/seller/live'},
+  {
+    label: '방송관리',
+    to: '/seller/live',
+    children: [
+      {label: '방송 목록', to: '/seller/live'},
+      {label: '방송 통계', to: '/seller/live/stats'},
+    ],
+  },
   {label: '상품관리', to: '/seller/products'},
 ]
 
 const adminTabs = [
   {label: '회원관리', to: '/admin/users'},
-  {label: '방송관리', to: '/admin/live'},
+  {
+    label: '방송관리',
+    to: '/admin/live',
+    children: [
+      {label: '방송 목록', to: '/admin/live'},
+      {label: '방송 통계', to: '/admin/live/stats'},
+      {label: '제재 통계', to: '/admin/live/sanctions'},
+    ],
+  },
   {label: '상품관리', to: '/admin/products'},
   {label: '고객센터', to: '/admin/support'},
 ]
@@ -102,10 +117,19 @@ const activeAdminPath = computed(() => {
   return match?.to ?? ''
 })
 
+const showSellerMenu = ref(false)
+const showAdminMenu = ref(false)
+
+const closeMenus = () => {
+  showSellerMenu.value = false
+  showAdminMenu.value = false
+}
+
 const logoTo = computed(() => (isSellerRoute.value ? '/seller' : isAdminRoute.value ? '/admin' : '/'))
 
 const closeMenu = () => {
   isMenuOpen.value = false
+  closeMenus()
 }
 
 const toggleMenu = () => {
@@ -180,28 +204,42 @@ const handleLogout = async () => {
         </nav>
         <div v-else class="seller-nav">
           <nav v-if="isSellerRoute" class="nav seller-tabs" aria-label="판매자 대시보드 탭">
-            <RouterLink
+            <div
               v-for="tab in sellerTabs"
               :key="tab.to"
-              :to="tab.to"
-              class="nav-link"
+              class="nav-link nav-link--dropdown"
               :class="{ 'nav-link--active': activeSellerPath === tab.to }"
-              :aria-current="activeSellerPath === tab.to ? 'page' : undefined"
+              @mouseenter="tab.children ? (showSellerMenu = true) : null"
+              @mouseleave="tab.children ? (showSellerMenu = false) : null"
             >
-              {{ tab.label }}
-            </RouterLink>
+              <RouterLink :to="tab.to" :aria-current="activeSellerPath === tab.to ? 'page' : undefined">
+                {{ tab.label }}
+              </RouterLink>
+              <div v-if="tab.children" class="dropdown" :class="{ 'dropdown--open': showSellerMenu }">
+                <RouterLink v-for="child in tab.children" :key="child.to" :to="child.to" class="dropdown__item">
+                  {{ child.label }}
+                </RouterLink>
+              </div>
+            </div>
           </nav>
           <nav v-else class="nav seller-tabs" aria-label="관리자 대시보드 탭">
-            <RouterLink
+            <div
               v-for="tab in adminTabs"
               :key="tab.to"
-              :to="tab.to"
-              class="nav-link"
+              class="nav-link nav-link--dropdown"
               :class="{ 'nav-link--active': activeAdminPath === tab.to }"
-              :aria-current="activeAdminPath === tab.to ? 'page' : undefined"
+              @mouseenter="tab.children ? (showAdminMenu = true) : null"
+              @mouseleave="tab.children ? (showAdminMenu = false) : null"
             >
-              {{ tab.label }}
-            </RouterLink>
+              <RouterLink :to="tab.to" :aria-current="activeAdminPath === tab.to ? 'page' : undefined">
+                {{ tab.label }}
+              </RouterLink>
+              <div v-if="tab.children" class="dropdown" :class="{ 'dropdown--open': showAdminMenu }">
+                <RouterLink v-for="child in tab.children" :key="child.to" :to="child.to" class="dropdown__item">
+                  {{ child.label }}
+                </RouterLink>
+              </div>
+            </div>
           </nav>
         </div>
       </div>
@@ -530,6 +568,43 @@ const handleLogout = async () => {
   color: var(--primary-color);
   background: var(--hover-bg);
   box-shadow: 0 10px 24px rgba(119, 136, 115, 0.14);
+}
+
+.nav-link--dropdown {
+  position: relative;
+}
+
+.dropdown {
+  position: absolute;
+  top: 110%;
+  left: 0;
+  min-width: 140px;
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: var(--shadow-card);
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(4px);
+  transition: opacity 0.12s ease, transform 0.12s ease;
+  z-index: 30;
+}
+
+.dropdown--open {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(0);
+}
+
+.dropdown__item {
+  display: block;
+  padding: 10px 12px;
+  color: var(--text-strong);
+  font-weight: 800;
+}
+
+.dropdown__item:hover {
+  background: var(--surface-weak);
 }
 
 .right {
