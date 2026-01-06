@@ -20,7 +20,18 @@ public class ConversationService {
 
         return conversationRepository
                 .findTopByMemberIdOrderByCreatedAtDesc(memberId)
-                .filter(c -> c.getStatus() == ConversationStatus.BOT_ACTIVE)
+                .map(latest -> {
+                    if (latest.getStatus() == ConversationStatus.BOT_ACTIVE) {
+                        return latest;
+                    }
+                    if (latest.getStatus() == ConversationStatus.CLOSED) {
+                        ChatInfo c = new ChatInfo();
+                        c.setMemberId(memberId);
+                        c.setStatus(ConversationStatus.BOT_ACTIVE);
+                        return conversationRepository.save(c);
+                    }
+                    return latest;
+                })
                 .orElseGet(() -> {
                     ChatInfo c = new ChatInfo();
                     c.setMemberId(memberId);

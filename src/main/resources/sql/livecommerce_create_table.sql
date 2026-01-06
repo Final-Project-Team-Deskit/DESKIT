@@ -1,7 +1,8 @@
 -- =========================================================
 -- DESKIT & LIVE COMMERCE INTEGRATED DB SCHEMA
--- 최근작성일: 2026-01-05
+-- 최근작성일: 2026-01-06
 -- 수정사항:
+-- chat_info, chat_handoff 테이블 updated_at 컬럼 추가 (26.01.06)
 -- broadcast_result, view_history 테이블 컬럼 수정 (26.01.05)
 -- seller_grade 테이블 컬럼(grade) 수정 : enum 요소 추가 (26.01.04)
 -- spring_ai_chat_memory 테이블 추가 (25.12.31)
@@ -542,6 +543,7 @@ CREATE TABLE chat_info (
     chat_id       BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     `status`      ENUM('BOT_ACTIVE', 'ADMIN_ACTIVE', 'ESCALATED', 'CLOSED') NOT NULL DEFAULT 'BOT_ACTIVE',
     created_at    DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at    DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     member_id     BIGINT UNSIGNED NOT NULL COMMENT 'FK: member',
     PRIMARY KEY (chat_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='CS 채팅방';
@@ -560,6 +562,7 @@ CREATE TABLE chat_handoff (
     assigned_admin_id BIGINT UNSIGNED NULL COMMENT 'FK: admin',
     `status`      ENUM('ADMIN_WAITING', 'ADMIN_CHECKED', 'ADMIN_ANSWERED') NOT NULL DEFAULT 'ADMIN_WAITING',
     created_at    DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at    DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     chat_id       BIGINT UNSIGNED NOT NULL COMMENT 'FK: chat_info',
     PRIMARY KEY (handoff_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='상담원 연결 요청';

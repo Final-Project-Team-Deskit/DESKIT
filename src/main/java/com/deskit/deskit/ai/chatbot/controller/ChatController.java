@@ -50,6 +50,12 @@ public class ChatController {
 
         // 현재 진행 중인 대화 조회 or 생성
         ChatInfo chatInfo = conversationService.getOrCreateActiveConversation(memberId);
+        if (chatInfo.getStatus() != com.deskit.deskit.ai.chatbot.openai.entity.ConversationStatus.BOT_ACTIVE) {
+            return ChatResponse.builder()
+                    .answer("상담 진행 중입니다. 관리자 상담은 종료 후 자동으로 시작됩니다.")
+                    .escalated(true)
+                    .build();
+        }
 
         if (question == null || question.isBlank()) {
             log.warn("Empty question received: {}", request);

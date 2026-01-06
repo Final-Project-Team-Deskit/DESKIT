@@ -1,8 +1,10 @@
 <script setup lang="ts">
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import CustomerCenterTabs from '../../components/CustomerCenterTabs.vue'
 import PageHeader from '../../components/PageHeader.vue'
+import { getAuthUser } from '../../lib/auth'
+import { SimpleStompClient } from '../../lib/stomp-client'
 
 type CustomerCenterTab = 'sellerApproval' | 'inquiries'
 
@@ -46,6 +48,24 @@ type AiEvaluationDetail = {
   adminEvaluation?: AdminEvaluationDetail | null
 }
 
+type DirectChatSummary = {
+  chatId: number
+  memberId: number
+  loginId?: string | null
+  status: string
+  createdAt: string
+  assignedAdminId?: number | null
+  handoffStatus?: string | null
+}
+
+type DirectChatMessage = {
+  messageId: number
+  chatId: number
+  sender: 'USER' | 'ADMIN' | 'SYSTEM'
+  content: string
+  createdAt: string
+}
+
 const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080'
 const route = useRoute()
 const router = useRouter()
@@ -56,6 +76,19 @@ const loading = ref(false)
 const detailLoading = ref(false)
 const error = ref('')
 const showModal = ref(false)
+const escalatedChats = ref<DirectChatSummary[]>([])
+const selectedChat = ref<DirectChatSummary | null>(null)
+const directMessages = ref<DirectChatMessage[]>([])
+const directInput = ref('')
+const directLoading = ref(false)
+const directError = ref('')
+const adminId = computed(() => {
+  const user = getAuthUser()
+  const rawId = user?.id ?? user?.userId ?? user?.user_id ?? user?.sellerId ?? user?.seller_id
+  return typeof rawId === 'number' ? rawId : 1
+})
+let stompClient: SimpleStompClient | null = null
+let connectedChatId: number | null = null
 
 const form = reactive({
   gradeRecommended: '',
@@ -195,6 +228,152 @@ const finalizeEvaluation = async () => {
   }
 }
 
+const wsEndpoint = computed(() => {
+  const base = apiBase.replace(/^http/, 'ws')
+  return `${base}/ws-live/websocket`
+})
+
+const loadEscalatedChats = async () => {
+  directLoading.value = true
+  directError.value = ''
+  try {
+    const response = await fetch(`${apiBase}/admin/direct-chats/escalated`, {
+      credentials: 'include',
+    })
+    if (!response.ok) {
+      const message = await response.text()
+      directError.value = message || '문의 목록을 불러오지 못했습니다.'
+      escalatedChats.value = []
+      return
+    }
+    escalatedChats.value = (await response.json()) as DirectChatSummary[]
+  } catch (err) {
+    directError.value = err instanceof Error ? err.message : '문의 목록을 불러오지 못했습니다.'
+  } finally {
+    directLoading.value = false
+  }
+}
+
+const loadDirectChatHistory = async (chatId: number) => {
+  directLoading.value = true
+  try {
+    const response = await fetch(`${apiBase}/direct-chats/${chatId}/messages`, {
+      credentials: 'include',
+    })
+    if (!response.ok) {
+      directMessages.value = []
+      return
+    }
+    directMessages.value = (await response.json()) as DirectChatMessage[]
+  } catch (err) {
+    directError.value = err instanceof Error ? err.message : '채팅 내역을 불러오지 못했습니다.'
+  } finally {
+    directLoading.value = false
+  }
+}
+
+const connectDirectChat = async (chatId: number) => {
+  if (connectedChatId === chatId && stompClient) return
+  if (stompClient) {
+    stompClient.disconnect()
+    stompClient = null
+  }
+  connectedChatId = chatId
+  stompClient = new SimpleStompClient(wsEndpoint.value)
+  try {
+    await stompClient.connect()
+    stompClient.subscribe(`/topic/direct-chats/${chatId}`, (body) => {
+      try {
+        const payload = JSON.parse(body) as DirectChatMessage
+        directMessages.value.push(payload)
+      } catch (error) {
+        console.error('direct chat parse failed', error)
+      }
+    })
+  } catch (error) {
+    console.error('direct chat connect failed', error)
+  }
+}
+
+const selectDirectChat = async (chat: DirectChatSummary) => {
+  selectedChat.value = chat
+  directMessages.value = []
+  directError.value = ''
+  await loadDirectChatHistory(chat.chatId)
+  if (chat.status === 'ADMIN_ACTIVE') {
+    await connectDirectChat(chat.chatId)
+  }
+}
+
+const acceptDirectChat = async (chatId: number) => {
+  directLoading.value = true
+  try {
+    const response = await fetch(`${apiBase}/admin/direct-chats/${chatId}/accept`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ adminId: adminId.value }),
+    })
+    if (!response.ok) {
+      const message = await response.text()
+      directError.value = message || '상담 수락에 실패했습니다.'
+      return
+    }
+    const updated = (await response.json()) as DirectChatSummary
+    selectedChat.value = updated
+    escalatedChats.value = escalatedChats.value.map((item) =>
+      item.chatId === updated.chatId ? updated : item,
+    )
+    await loadDirectChatHistory(updated.chatId)
+    await connectDirectChat(updated.chatId)
+  } catch (err) {
+    directError.value = err instanceof Error ? err.message : '상담 수락에 실패했습니다.'
+  } finally {
+    directLoading.value = false
+  }
+}
+
+const closeDirectChat = async (chatId: number) => {
+  directLoading.value = true
+  try {
+    const response = await fetch(`${apiBase}/admin/direct-chats/${chatId}/close`, {
+      method: 'POST',
+      credentials: 'include',
+    })
+    if (!response.ok) {
+      const message = await response.text()
+      directError.value = message || '상담 종료에 실패했습니다.'
+      return
+    }
+    if (selectedChat.value?.chatId === chatId) {
+      selectedChat.value = {
+        ...selectedChat.value,
+        status: 'CLOSED',
+      }
+    }
+    await loadDirectChatHistory(chatId)
+  } catch (err) {
+    directError.value = err instanceof Error ? err.message : '상담 종료에 실패했습니다.'
+  } finally {
+    directLoading.value = false
+  }
+}
+
+const sendDirectMessage = async () => {
+  const text = directInput.value.trim()
+  if (!text || !selectedChat.value) return
+  try {
+    await connectDirectChat(selectedChat.value.chatId)
+    stompClient?.send(
+      `/app/direct-chats/${selectedChat.value.chatId}`,
+      JSON.stringify({ sender: 'ADMIN', content: text }),
+    )
+    directInput.value = ''
+  } catch (error) {
+    directError.value = error instanceof Error ? error.message : '메시지 전송에 실패했습니다.'
+  }
+}
+
 watch(
   () => route.query.tab,
   () => syncTabFromQuery(),
@@ -207,9 +386,18 @@ watch(
     if (tab === 'sellerApproval') {
       loadEvaluations()
     }
+    if (tab === 'inquiries') {
+      loadEscalatedChats()
+    }
   },
   { immediate: true },
 )
+
+onBeforeUnmount(() => {
+  stompClient?.disconnect()
+  stompClient = null
+  connectedChatId = null
+})
 </script>
 
 <template>
@@ -285,6 +473,98 @@ watch(
         <h3>문의사항 확인</h3>
         <p class="ds-section-sub">고객 문의 내역을 확인합니다.</p>
       </div>
+
+      <section class="support-card ds-surface">
+        <div class="support-card__head">
+          <div>
+            <h4>1:1 문의 목록</h4>
+            <p>관리자 이관 요청을 확인하고 상담을 시작하세요.</p>
+          </div>
+          <button type="button" class="btn ghost" :disabled="directLoading" @click="loadEscalatedChats">
+            새로고침
+          </button>
+        </div>
+
+        <p v-if="directLoading" class="state-text">문의 목록을 불러오는 중입니다.</p>
+        <p v-else-if="directError" class="state-text error">{{ directError }}</p>
+        <p v-else-if="!escalatedChats.length" class="state-text">대기 중인 문의가 없습니다.</p>
+
+        <div v-else class="direct-chat-grid">
+          <div class="direct-chat-list">
+            <button
+              v-for="chat in escalatedChats"
+              :key="chat.chatId"
+              type="button"
+              class="direct-chat-item"
+              :class="{ active: selectedChat?.chatId === chat.chatId }"
+              @click="selectDirectChat(chat)"
+            >
+              <span class="direct-chat-item__id">Chat #{{ chat.chatId }}</span>
+              <span class="direct-chat-item__meta">로그인ID {{ chat.loginId || '-' }}</span>
+              <span class="direct-chat-item__status">{{ chat.status }}</span>
+            </button>
+          </div>
+          <div class="direct-chat-panel">
+            <div v-if="!selectedChat" class="state-text">문의 항목을 선택해주세요.</div>
+            <div v-else class="direct-chat-card">
+              <header class="direct-chat-card__head">
+                <div>
+                  <h4>Chat #{{ selectedChat.chatId }}</h4>
+                  <p>로그인ID {{ selectedChat.loginId || '-' }} · {{ selectedChat.status }}</p>
+                </div>
+                <div class="direct-chat-actions">
+                  <button
+                    v-if="selectedChat.status === 'ESCALATED'"
+                    type="button"
+                    class="btn primary"
+                    :disabled="directLoading"
+                    @click="acceptDirectChat(selectedChat.chatId)"
+                  >
+                    상담 수락
+                  </button>
+                  <button
+                    v-else-if="selectedChat.status === 'ADMIN_ACTIVE'"
+                    type="button"
+                    class="btn ghost"
+                    :disabled="directLoading"
+                    @click="closeDirectChat(selectedChat.chatId)"
+                  >
+                    상담 종료
+                  </button>
+                </div>
+              </header>
+              <div class="direct-chat-messages">
+                <p v-if="!directMessages.length" class="state-text">채팅 내역이 없습니다.</p>
+                <div
+                  v-for="message in directMessages"
+                  :key="message.messageId"
+                  class="direct-chat-message"
+                  :class="`is-${message.sender.toLowerCase()}`"
+                >
+                  <p class="direct-chat-text">{{ message.content }}</p>
+                </div>
+              </div>
+              <div class="direct-chat-input">
+                <input
+                  v-model="directInput"
+                  type="text"
+                  placeholder="메시지를 입력하세요."
+                  :disabled="selectedChat.status !== 'ADMIN_ACTIVE'"
+                  @keydown.enter.prevent="sendDirectMessage"
+                />
+                <button
+                  type="button"
+                  class="btn primary"
+                  :disabled="selectedChat.status !== 'ADMIN_ACTIVE'"
+                  @click="sendDirectMessage"
+                >
+                  전송
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
     </section>
 
     <div v-if="showModal" class="evaluation-modal" role="dialog" aria-modal="true" aria-label="심사 상세">
@@ -724,10 +1004,163 @@ watch(
   gap: 6px;
 }
 
+.direct-chat-grid {
+  display: grid;
+  grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
+  gap: 16px;
+}
+
+.direct-chat-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.direct-chat-item {
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  padding: 10px 12px;
+  background: var(--surface);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  text-align: left;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.direct-chat-item.active {
+  border-color: var(--primary-color);
+  background: var(--surface-weak);
+}
+
+.direct-chat-item__id {
+  color: var(--text-strong);
+  font-size: 0.95rem;
+  font-weight: 900;
+}
+
+.direct-chat-item__meta {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
+.direct-chat-item__status {
+  color: var(--text-strong);
+  font-size: 0.8rem;
+}
+
+.direct-chat-panel {
+  min-height: 360px;
+}
+
+.direct-chat-card {
+  border: 1px solid var(--border-color);
+  border-radius: 14px;
+  background: var(--surface);
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.direct-chat-card__head {
+  padding: 12px 14px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.direct-chat-card__head h4 {
+  margin: 0 0 4px;
+  font-size: 1rem;
+  font-weight: 900;
+  color: var(--text-strong);
+}
+
+.direct-chat-card__head p {
+  margin: 0;
+  color: var(--text-muted);
+  font-weight: 700;
+  font-size: 0.85rem;
+}
+
+.direct-chat-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.direct-chat-messages {
+  flex: 1;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  background: var(--surface-weak);
+  overflow-y: auto;
+}
+
+.direct-chat-message {
+  max-width: 70%;
+  padding: 10px 12px;
+  border-radius: 12px;
+  font-weight: 700;
+  line-height: 1.4;
+}
+
+.direct-chat-message.is-user {
+  align-self: flex-start;
+  background: #fff;
+  color: var(--text-strong);
+}
+
+.direct-chat-message.is-admin {
+  align-self: flex-end;
+  background: rgba(17, 24, 39, 0.08);
+  color: #111827;
+}
+
+.direct-chat-message.is-system {
+  align-self: center;
+  background: rgba(59, 130, 246, 0.1);
+  color: #1d4ed8;
+}
+
+.direct-chat-text {
+  margin: 0;
+}
+
+.direct-chat-input {
+  padding: 12px 14px;
+  display: flex;
+  gap: 10px;
+  border-top: 1px solid var(--border-color);
+}
+
+.direct-chat-input input {
+  flex: 1;
+  min-height: 40px;
+  border-radius: 12px;
+  border: 1px solid var(--border-color);
+  padding: 8px 10px;
+  font-weight: 700;
+  color: var(--text-strong);
+  background: var(--surface);
+}
+
+.direct-chat-input input:disabled {
+  background: var(--surface-weak);
+}
+
 @media (max-width: 720px) {
   .support-card__head {
     flex-direction: column;
     align-items: flex-start;
+  }
+
+  .direct-chat-grid {
+    grid-template-columns: 1fr;
   }
 
   .detail-grid {

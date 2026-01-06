@@ -7,4 +7,6 @@ import org.springframework.data.jpa.repository.JpaRepository;
 public interface ChatHandoffRepository extends JpaRepository<ChatHandoff, Long> {
 
     boolean existsByChatIdAndStatus(Long chatId, HandoffStatus status);
+
+    java.util.Optional<ChatHandoff> findTopByChatIdOrderByCreatedAtDesc(Long chatId);
 }
