@@ -7,6 +7,7 @@ import com.deskit.deskit.account.oauth.CustomOAuth2FailureHandler;
 import com.deskit.deskit.account.oauth.CustomSuccessHandler;
 import com.deskit.deskit.account.repository.RefreshRepository;
 import com.deskit.deskit.account.service.CustomOAuth2UserService;
+import com.deskit.deskit.admin.security.AdminSecondFactorFilter;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.context.annotation.Bean;
@@ -97,7 +98,8 @@ public class SecurityConfig {
 
         //JWTFilter 추가
         http
-                .addFilterBefore(new JWTFilter(jwtUtil), UsernamePasswordAuthenticationFilter.class);
+                .addFilterBefore(new JWTFilter(jwtUtil), UsernamePasswordAuthenticationFilter.class)
+                .addFilterAfter(new AdminSecondFactorFilter(), JWTFilter.class);
 
         http
                 .addFilterBefore(new CustomLogoutFilter(jwtUtil, refreshRepository), LogoutFilter.class);
