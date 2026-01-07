@@ -45,9 +45,16 @@ public class LiveChatService {
 
     // 1. 금칙어 필터링 (동기 방식 - 메시지 발송 전 처리 필요)
     public String filterContent(String content) {
+        if (content == null || cachedWords == null) {
+            return content;
+        }
+
         for (ForbiddenWord fw : cachedWords) {
-            if (content.contains(fw.getWord())) {
-                content = content.replace(fw.getWord(), fw.getReplacement());
+            String forbiddenWord = fw.getWord();
+            // 콘텐트에 금칙어가 포함되어 있는지 확인
+            if (forbiddenWord != null && content.contains(forbiddenWord)) {
+                // 기존 getReplacement() 대신 고정된 "***"로 대체
+                content = content.replace(forbiddenWord, "***");
             }
         }
         return content;

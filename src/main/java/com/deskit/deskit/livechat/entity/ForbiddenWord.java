@@ -11,11 +11,9 @@ import lombok.NoArgsConstructor;
 public class ForbiddenWord {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @Column(name = "word_id")
     private Integer wordId;
 
     @Column(length = 50, nullable = false)
     private String word;
-
-    @Column(length = 50, nullable = false)
-    private String replacement;
 }
