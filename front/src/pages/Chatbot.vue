@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import PageContainer from '../components/PageContainer.vue'
 import PageHeader from '../components/PageHeader.vue'
-import { getAuthUser } from '../lib/auth'
+import { getAuthUser, hydrateSessionUser } from '../lib/auth'
+import { SimpleStompClient } from '../lib/stomp-client'
 
 type ChatRole = 'user' | 'bot' | 'system'
 
@@ -25,6 +26,14 @@ type ChatResponse = {
   escalated?: boolean
 }
 
+type DirectChatMessage = {
+  messageId: number
+  chatId: number
+  sender: 'USER' | 'ADMIN' | 'SYSTEM'
+  content: string
+  createdAt: string
+}
+
 const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080'
 const messages = ref<ChatMessage[]>([])
 const inputText = ref('')
@@ -32,14 +41,20 @@ const isSending = ref(false)
 const isLocked = ref(false)
 const statusLabel = ref<string>('BOT_ACTIVE')
 const chatListRef = ref<HTMLDivElement | null>(null)
+const chatId = ref<number | null>(null)
+const isAdminChat = computed(() => statusLabel.value === 'ADMIN_ACTIVE')
+const isEscalated = computed(() => statusLabel.value === 'ESCALATED')
+const isClosed = computed(() => statusLabel.value === 'CLOSED')
+let stompClient: SimpleStompClient | null = null
+let statusPoller: number | null = null
 
-const memberId = computed(() => {
+const memberId = ref('1')
+const resolveMemberId = () => {
   const user = getAuthUser()
   const rawId = user?.id ?? user?.userId ?? user?.user_id ?? user?.sellerId ?? user?.seller_id
-  return rawId ? String(rawId) : '1'
-})
-
-const chatId = computed(() => {
+  memberId.value = rawId ? String(rawId) : '1'
+}
+const fallbackChatId = computed(() => {
   const numeric = Number.parseInt(memberId.value, 10)
   return Number.isFinite(numeric) ? numeric : 1
 })
@@ -62,6 +77,7 @@ const appendMessage = (role: ChatRole, content: string, sources?: string[]) => {
 }
 
 const loadChatHistory = async () => {
+  if (!chatId.value) return
   try {
     const response = await fetch(`${apiBase}/chat/history/${chatId.value}`, {
       method: 'POST',
@@ -76,6 +92,153 @@ const loadChatHistory = async () => {
     scrollToBottom()
   } catch (error) {
     console.error('chat history load failed', error)
+  }
+}
+
+const loadDirectChatHistory = async () => {
+  if (!chatId.value) return
+  try {
+    const response = await fetch(`${apiBase}/direct-chats/${chatId.value}/messages`)
+    if (!response.ok) return
+    const history = (await response.json()) as DirectChatMessage[]
+    messages.value = history.map((item) => ({
+      id: `${item.messageId}`,
+      role: item.sender === 'USER' ? 'user' : item.sender === 'SYSTEM' ? 'system' : 'bot',
+      content: item.content ?? '',
+    }))
+    scrollToBottom()
+  } catch (error) {
+    console.error('direct chat history load failed', error)
+  }
+}
+
+const wsEndpoint = computed(() => {
+  const base = apiBase.replace(/^http/, 'ws')
+  return `${base}/ws-live/websocket`
+})
+
+const stopStatusPolling = () => {
+  if (statusPoller !== null) {
+    window.clearInterval(statusPoller)
+    statusPoller = null
+  }
+}
+
+const startStatusPolling = () => {
+  if (statusPoller !== null) return
+  statusPoller = window.setInterval(async () => {
+    await syncConversationStatus()
+    if (statusLabel.value !== 'ESCALATED') {
+      stopStatusPolling()
+      if (statusLabel.value === 'ADMIN_ACTIVE' && chatId.value) {
+        await loadDirectChatHistory()
+        await connectDirectChat()
+      }
+    }
+  }, 5000)
+}
+
+const applyStatus = (status: string) => {
+  statusLabel.value = status
+  if (status === 'BOT_ACTIVE') {
+    isLocked.value = false
+    return
+  }
+  if (status === 'ADMIN_ACTIVE') {
+    isLocked.value = false
+    stopStatusPolling()
+    return
+  }
+  isLocked.value = true
+  if (status === 'ESCALATED') {
+    startStatusPolling()
+  } else {
+    stopStatusPolling()
+  }
+  if (status !== 'ADMIN_ACTIVE' && stompClient) {
+    stompClient.disconnect()
+    stompClient = null
+    connectedChatId = null
+  }
+}
+
+let connectedChatId: number | null = null
+
+const connectDirectChat = async () => {
+  if (!chatId.value) return
+  if (connectedChatId === chatId.value && stompClient) return
+  if (stompClient) {
+    stompClient.disconnect()
+    stompClient = null
+  }
+  connectedChatId = chatId.value
+  stompClient = new SimpleStompClient(wsEndpoint.value)
+  try {
+    await stompClient.connect()
+    stompClient.subscribe(`/topic/direct-chats/${chatId.value}`, (body) => {
+      try {
+        const payload = JSON.parse(body) as DirectChatMessage
+        messages.value.push({
+          id: `${payload.messageId}`,
+          role: payload.sender === 'USER' ? 'user' : payload.sender === 'SYSTEM' ? 'system' : 'bot',
+          content: payload.content,
+        })
+        scrollToBottom()
+      } catch (error) {
+        console.error('direct chat message parse failed', error)
+      }
+    })
+  } catch (error) {
+    console.error('direct chat connect failed', error)
+  }
+}
+
+const syncConversationStatus = async () => {
+  try {
+    const response = await fetch(`${apiBase}/direct-chats/latest/${memberId.value}`)
+    if (response.ok) {
+      const data = (await response.json()) as { chatId?: number; status?: string }
+      chatId.value = typeof data.chatId === 'number' ? data.chatId : chatId.value
+      applyStatus(data.status ?? 'BOT_ACTIVE')
+      return
+    }
+  } catch (error) {
+    console.error('latest conversation load failed', error)
+  }
+
+  try {
+    const response = await fetch(`${apiBase}/chat/status/${memberId.value}`)
+    if (!response.ok) return
+    const data = (await response.json()) as { status?: string }
+    applyStatus(data.status ?? 'BOT_ACTIVE')
+  } catch (error) {
+    console.error('status check failed', error)
+  }
+}
+
+const startNewInquiry = async () => {
+  if (isSending.value) return
+  isSending.value = true
+  try {
+    const response = await fetch(`${apiBase}/direct-chats/start/${memberId.value}`, {
+      method: 'POST',
+    })
+    if (!response.ok) {
+      appendMessage('system', '새 문의를 시작할 수 없습니다. 잠시 후 다시 시도해주세요.')
+      return
+    }
+    const data = (await response.json()) as { chatId?: number; status?: string }
+    stompClient?.disconnect()
+    stompClient = null
+    connectedChatId = null
+    messages.value = []
+    chatId.value = typeof data.chatId === 'number' ? data.chatId : chatId.value
+    applyStatus(data.status ?? 'BOT_ACTIVE')
+  } catch (error) {
+    console.error('new inquiry start failed', error)
+    appendMessage('system', '새 문의를 시작할 수 없습니다. 잠시 후 다시 시도해주세요.')
+  } finally {
+    isSending.value = false
   }
 }
 
@@ -97,6 +260,27 @@ const checkConversationStatus = async () => {
 const sendMessage = async () => {
   const text = inputText.value.trim()
   if (!text || isSending.value || isLocked.value) return
+  if (isAdminChat.value) {
+    isSending.value = true
+    inputText.value = ''
+    try {
+      if (!chatId.value) {
+        await syncConversationStatus()
+      }
+      if (!chatId.value) return
+      await connectDirectChat()
+      stompClient?.send(
+        `/app/direct-chats/${chatId.value}`,
+        JSON.stringify({ sender: 'USER', content: text }),
+      )
+    } catch (error) {
+      console.error('direct chat send failed', error)
+      appendMessage('system', '네트워크 오류가 발생했습니다. 잠시 후 다시 시도해주세요.')
+    } finally {
+      isSending.value = false
+    }
+    return
+  }
   appendMessage('user', text)
   inputText.value = ''
   isSending.value = true
@@ -113,6 +297,7 @@ const sendMessage = async () => {
     const data = (await response.json()) as ChatResponse
     appendMessage('bot', data.answer ?? 'No response received.', data.sources)
     if (data.escalated) {
+      applyStatus('ESCALATED')
       isLocked.value = true
       appendMessage('system', '고객님의 문의가 관리자에게 이관되었어요.')
     }
@@ -125,8 +310,25 @@ const sendMessage = async () => {
 }
 
 onMounted(async () => {
-  await loadChatHistory()
-  await checkConversationStatus()
+  await hydrateSessionUser()
+  resolveMemberId()
+  await syncConversationStatus()
+  if (chatId.value) {
+    if (isAdminChat.value || isEscalated.value || isClosed.value) {
+      await loadDirectChatHistory()
+    } else {
+      await loadChatHistory()
+    }
+  }
+  if (isAdminChat.value) {
+    await connectDirectChat()
+  }
+})
+
+onBeforeUnmount(() => {
+  stompClient?.disconnect()
+  stompClient = null
+  stopStatusPolling()
 })
 </script>
 
@@ -149,7 +351,10 @@ onMounted(async () => {
         <p class="hint">
           관리자에게 대화가 이관될 경우, 입력창이 잠시 비활성화돼요.
         </p>
-      </header>
+      <button v-if="isClosed" type="button" class="btn primary" @click="startNewInquiry">
+        새 문의 시작
+      </button>
+    </header>
 
       <div class="chat-body">
         <div ref="chatListRef" class="chat-list">
@@ -206,6 +411,10 @@ onMounted(async () => {
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+
+.chat-head .btn {
+  align-self: flex-start;
 }
 
 .chat-meta {

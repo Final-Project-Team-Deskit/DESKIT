@@ -1,10 +1,15 @@
 -- =========================================================
 -- DESKIT & LIVE COMMERCE INTEGRATED DB SCHEMA
--- 작성일: 2025-12-25
--- 수정사항: 사용자 커스텀 반영 및 toss_payment 테이블 에러(VARCHAR AUTO_INCREMENT) 수정
+-- 최근작성일: 2026-01-06
+-- 수정사항:
+-- chat_info, chat_handoff 테이블 updated_at 컬럼 추가 (26.01.06)
+-- broadcast_result, view_history 테이블 컬럼 수정 (26.01.05)
+-- seller_grade 테이블 컬럼(grade) 수정 : enum 요소 추가 (26.01.04)
+-- spring_ai_chat_memory 테이블 추가 (25.12.31)
+-- member, seller 테이블 컬럼 추가 및 일부 타입 변경 / seller_register 테이블 컬럼 누락 수정 (25.12.30)
+-- 사용자 커스텀 반영 및 toss_payment 테이블 에러(VARCHAR AUTO_INCREMENT) 수정 (25.12.25)
 -- =========================================================
-CREATE DATABASE livecommerce;
-USE livecommerce;
+
 SET FOREIGN_KEY_CHECKS = 0;
 
 -- =========================================================
@@ -73,7 +78,7 @@ CREATE TABLE member (
     member_id     BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '회원 ID',
     `name`        VARCHAR(20)     NOT NULL COMMENT '회원명',
     login_id      VARCHAR(100)    NOT NULL COMMENT '로그인 아이디(이메일 등)',
-    `profile`     VARCHAR(500)    NULL COMMENT '프로필',
+    `profile`     TEXT    NULL COMMENT '프로필',
     phone         VARCHAR(15)     NOT NULL COMMENT '전화번호',
     is_agreed     TINYINT         NOT NULL COMMENT '약관 동의 여부',
     `status`      ENUM('ACTIVE', 'INACTIVE') NOT NULL DEFAULT 'ACTIVE' COMMENT '회원 상태',
@@ -84,7 +89,7 @@ CREATE TABLE member (
                        'ISTJ', 'ISFJ', 'ESTJ', 'ESFJ',
                        'ISTP', 'ISFP', 'ESTP', 'ESFP', 'NONE') NULL DEFAULT 'NONE',
     `role`        VARCHAR(20)     NOT NULL DEFAULT 'ROLE_MEMBER',
-    job_category  ENUM('사무/기획형', '창의/디자인형', '교육/연구형', '의료/전문서비스형', '자유/유연형', 'NONE') NULL DEFAULT 'NONE',
+    job_category  ENUM('ADMIN_PLAN_TYPE', 'CREATIVE_TYPE', 'EDU_RES_TYPE', 'MED_PRO_TYPE', 'FLEXIBLE_TYPE', 'NONE') NULL DEFAULT 'NONE',
     PRIMARY KEY (member_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='회원';
 
@@ -96,8 +101,9 @@ CREATE TABLE seller (
     `name`        VARCHAR(20)     NOT NULL COMMENT '판매자명(대표자명)',
     login_id      VARCHAR(100)    NOT NULL COMMENT '로그인 아이디',
     phone         VARCHAR(15)     NOT NULL COMMENT '전화번호',
-    `profile`     VARCHAR(500)    NULL COMMENT '판매자 프로필',
-    `role`        VARCHAR(20)     NOT NULL,
+    `profile`     TEXT    NULL COMMENT '판매자 프로필',
+    `role`        ENUM('ROLE_SELLER_OWNER', 'ROLE_SELLER_MANAGER')     NOT NULL DEFAULT 'ROLE_SELLER_MANAGER',
+    `is_agreed`   TINYINT   NOT NULL COMMENT '약관 동의 여부',
     PRIMARY KEY (seller_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='판매자';
 
@@ -344,7 +350,7 @@ CREATE TABLE qcard (
 CREATE TABLE view_history (
     history_id     BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     broadcast_id   BIGINT UNSIGNED NOT NULL,
-    member_id      BIGINT UNSIGNED NOT NULL,
+    viewer_id      VARCHAR(100)    NOT NULL,
     created_at     DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at     DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (history_id)
@@ -359,6 +365,7 @@ CREATE TABLE broadcast_result (
     total_chats    INT             NOT NULL DEFAULT 0,
     total_sales    DECIMAL(30, 0)  NOT NULL DEFAULT 0,
     avg_watch_time INT             NOT NULL DEFAULT 0,
+    total_reports  INT             NOT NULL DEFAULT 0,
     created_at     DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at     DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (broadcast_id)
@@ -417,6 +424,7 @@ CREATE TABLE notification (
 CREATE TABLE seller_register (
     register_id    BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     plan_file      LONGBLOB        NOT NULL COMMENT '사업계획서 등',
+    description    TEXT            NULL COMMENT '설명',
     seller_id      BIGINT UNSIGNED NOT NULL COMMENT 'FK: seller',
     company_name   VARCHAR(100)    NOT NULL,
     PRIMARY KEY (register_id)
@@ -465,11 +473,11 @@ CREATE TABLE company_registered (
 
 CREATE TABLE seller_grade (
     grade_id       BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-    grade          ENUM('A', 'B', 'C') NOT NULL DEFAULT 'C',
+    grade          ENUM('A', 'B', 'C', 'REJECTED') NOT NULL DEFAULT 'C',
     `status`       ENUM('ACTIVE', 'TEMP', 'REVIEW') NOT NULL DEFAULT 'ACTIVE',
     created_at     DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at     DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    expired_at     DATETIME        NOT NULL,
+    expired_at     DATETIME        NULL,
     company_id     BIGINT UNSIGNED NOT NULL COMMENT 'FK: company_registered',
     PRIMARY KEY (grade_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='판매자 등급';
@@ -478,6 +486,7 @@ CREATE TABLE invitation (
     invitation_id  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     email          VARCHAR(100)    NOT NULL,
     created_at     DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at     DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     expired_at     DATETIME        NOT NULL,
     `status`       ENUM('PENDING','ACCEPTED','EXPIRED') NOT NULL DEFAULT 'PENDING',
     token          VARCHAR(255)    NOT NULL,
@@ -534,6 +543,7 @@ CREATE TABLE chat_info (
     chat_id       BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     `status`      ENUM('BOT_ACTIVE', 'ADMIN_ACTIVE', 'ESCALATED', 'CLOSED') NOT NULL DEFAULT 'BOT_ACTIVE',
     created_at    DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at    DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     member_id     BIGINT UNSIGNED NOT NULL COMMENT 'FK: member',
     PRIMARY KEY (chat_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='CS 채팅방';
@@ -552,10 +562,18 @@ CREATE TABLE chat_handoff (
     assigned_admin_id BIGINT UNSIGNED NULL COMMENT 'FK: admin',
     `status`      ENUM('ADMIN_WAITING', 'ADMIN_CHECKED', 'ADMIN_ANSWERED') NOT NULL DEFAULT 'ADMIN_WAITING',
     created_at    DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at    DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     chat_id       BIGINT UNSIGNED NOT NULL COMMENT 'FK: chat_info',
     PRIMARY KEY (handoff_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='상담원 연결 요청';
 
+CREATE TABLE spring_ai_chat_memory (
+   id BIGINT AUTO_INCREMENT PRIMARY KEY,
+   conversation_id VARCHAR(255) NOT NULL,
+   type ENUM('USER', 'ASSISTANT', 'SYSTEM', 'TOOL') NOT NULL,
+   content TEXT NOT NULL,
+   timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='채팅 메모리';
 
 -- =========================================================
 -- 3. ALTER TABLE (FOREIGN KEYS)
@@ -601,7 +619,7 @@ ALTER TABLE broadcast_result ADD CONSTRAINT FK_br_broadcast FOREIGN KEY (broadca
 
 -- [Live Interaction Relations]
 ALTER TABLE view_history ADD CONSTRAINT FK_vh_broadcast FOREIGN KEY (broadcast_id) REFERENCES broadcast (broadcast_id);
-ALTER TABLE view_history ADD CONSTRAINT FK_vh_member FOREIGN KEY (member_id) REFERENCES member (member_id);
+# ALTER TABLE view_history ADD CONSTRAINT FK_vh_member FOREIGN KEY (member_id) REFERENCES member (member_id);
 
 ALTER TABLE live_chat ADD CONSTRAINT FK_lc_broadcast FOREIGN KEY (broadcast_id) REFERENCES broadcast (broadcast_id);
 ALTER TABLE live_chat ADD CONSTRAINT FK_lc_member FOREIGN KEY (member_id) REFERENCES member (member_id);

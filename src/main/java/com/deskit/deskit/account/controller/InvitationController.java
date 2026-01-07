@@ -1,5 +1,6 @@
 package com.deskit.deskit.account.controller;
 
+import com.deskit.deskit.account.dto.SellerManagerResponse;
 import com.deskit.deskit.account.entity.Invitation;
 import com.deskit.deskit.account.entity.Member;
 import com.deskit.deskit.account.entity.Seller;
@@ -10,6 +11,7 @@ import com.deskit.deskit.account.repository.InvitationRepository;
 import com.deskit.deskit.account.repository.MemberRepository;
 import com.deskit.deskit.account.repository.SellerRepository;
 import com.deskit.deskit.account.service.InviteEmailService;
+import com.deskit.deskit.account.service.InvitationQueryService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -41,6 +43,7 @@ public class InvitationController {
     private final SellerRepository sellerRepository;
     private final MemberRepository memberRepository;
     private final InviteEmailService inviteEmailService;
+    private final InvitationQueryService invitationQueryService;
 
     // Create a new seller invitation and email the link.
     @PostMapping
@@ -81,7 +84,7 @@ public class InvitationController {
         }
 
         // Lookup owner seller record for invitation linkage.
-        Seller ownerSeller = sellerRepository.findByLoginId(user.getEmail());
+        Seller ownerSeller = sellerRepository.findByLoginId(user.getUsername());
         if (ownerSeller == null) {
             return new ResponseEntity<>("owner seller not found", HttpStatus.NOT_FOUND);
         }
@@ -128,6 +131,27 @@ public class InvitationController {
         }
 
         return new ResponseEntity<>("invitation sent", HttpStatus.OK);
+    }
+
+    // Get accepted manager list for the owner seller.
+    @GetMapping("/managers")
+    public ResponseEntity<?> listManagers(@AuthenticationPrincipal CustomOAuth2User user) {
+        if (user == null) {
+            return new ResponseEntity<>("unauthorized", HttpStatus.UNAUTHORIZED);
+        }
+
+        String role = user.getAuthorities().iterator().next().getAuthority();
+        if (!SellerRole.ROLE_SELLER_OWNER.name().equals(role)) {
+            return new ResponseEntity<>("owner role required", HttpStatus.FORBIDDEN);
+        }
+
+        Seller ownerSeller = sellerRepository.findByLoginId(user.getUsername());
+        if (ownerSeller == null) {
+            return new ResponseEntity<>("owner seller not found", HttpStatus.NOT_FOUND);
+        }
+
+        List<SellerManagerResponse> managers = invitationQueryService.findManagersForOwner(ownerSeller.getSellerId());
+        return new ResponseEntity<>(managers, HttpStatus.OK);
     }
 
     // Validate an invitation token before signup.

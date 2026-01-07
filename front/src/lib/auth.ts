@@ -13,44 +13,76 @@ export type AuthUser = {
   userId?: number
 }
 
-const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080'
-
-export const getAuthUser = (): AuthUser | null => {
-  const raw = localStorage.getItem('deskit-user')
-  if (!raw) return null
-  try {
-    const parsed = JSON.parse(raw) as Partial<AuthUser>
-    if (typeof parsed?.email === 'string' && typeof parsed?.name === 'string') {
-      return {
-        name: parsed.name,
-        email: parsed.email,
-        signupType: parsed.signupType || '',
-        memberCategory: parsed.memberCategory || '',
-        sellerRole: (parsed as any).sellerRole || '',
-        mbti: parsed.mbti || '',
-        job: parsed.job || '',
-        seller_id: typeof (parsed as any).seller_id === 'number' ? (parsed as any).seller_id : undefined,
-        sellerId: typeof (parsed as any).sellerId === 'number' ? (parsed as any).sellerId : undefined,
-        id: typeof (parsed as any).id === 'number' ? (parsed as any).id : undefined,
-        user_id: typeof (parsed as any).user_id === 'number' ? (parsed as any).user_id : undefined,
-        userId: typeof (parsed as any).userId === 'number' ? (parsed as any).userId : undefined,
-      }
-    }
-  } catch {
-    return null
-  }
-  return null
+type SessionPayload = Partial<AuthUser> & {
+  role?: string
+  sellerRole?: string
+  memberCategory?: string
 }
 
-export const isLoggedIn = (): boolean => getAuthUser() !== null
+const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080'
+let sessionUser: AuthUser | null = null
 
-export const isSeller = (): boolean => getAuthUser()?.memberCategory === '판매자'
+export const setAuthUser = (next: AuthUser | null): void => {
+  sessionUser = next
+  window.dispatchEvent(new Event('deskit-user-updated'))
+}
 
-export const isAdmin = (): boolean => getAuthUser()?.memberCategory === '관리자'
+export const getAuthUser = (): AuthUser | null => sessionUser
+
+export const isLoggedIn = (): boolean => sessionUser !== null
+
+const normalizeRole = (value: string): string => value.trim().toUpperCase()
+
+const isSellerCategory = (value: string): boolean => {
+  const normalized = value.trim()
+  if (!normalized) return false
+  if (normalized === '판매자') return true
+  const upper = normalized.toUpperCase()
+  return upper === 'SELLER' || upper.startsWith('ROLE_SELLER')
+}
+
+const isAdminCategory = (value: string): boolean => {
+  const normalized = value.trim()
+  if (!normalized) return false
+  if (normalized === '관리자') return true
+  const upper = normalized.toUpperCase()
+  return upper === 'ADMIN' || upper === 'ROLE_ADMIN'
+}
+
+const deriveMemberCategoryFromRole = (role: string): string => {
+  const normalized = normalizeRole(role)
+  if (normalized === 'ROLE_ADMIN') return '관리자'
+  if (normalized === 'ROLE_MEMBER') return '일반회원'
+  if (normalized.startsWith('ROLE_SELLER')) return '판매자'
+  return ''
+}
+
+const deriveSellerRoleFromRole = (role: string): string => {
+  const normalized = normalizeRole(role)
+  if (normalized === 'ROLE_SELLER_OWNER') return '대표'
+  if (normalized === 'ROLE_SELLER_MANAGER') return '매니저'
+  return ''
+}
+
+const resolveMemberCategory = (value?: string, role?: string): string => {
+  if (value && value.trim()) return value
+  if (role) return deriveMemberCategoryFromRole(role)
+  return ''
+}
+
+const resolveSellerRole = (value?: string, role?: string): string => {
+  if (value && value.trim()) return value
+  if (role) return deriveSellerRoleFromRole(role)
+  return ''
+}
+
+export const isSeller = (): boolean => isSellerCategory(getAuthUser()?.memberCategory ?? '')
+
+export const isAdmin = (): boolean => isAdminCategory(getAuthUser()?.memberCategory ?? '')
 
 export const loginSeller = (): void => {
-  const sellerUser = {
-    name: '홍길동(판매자)',
+  const sellerUser: AuthUser = {
+    name: '홍길동 판매자',
     email: 'honggildong+seller@test.com',
     signupType: '판매자(임시)',
     memberCategory: '판매자',
@@ -58,27 +90,27 @@ export const loginSeller = (): void => {
     seller_id: 101,
   }
 
-  localStorage.setItem('deskit-user', JSON.stringify(sellerUser))
-  localStorage.setItem('deskit-auth', 'seller')
-  window.dispatchEvent(new Event('deskit-user-updated'))
+  setAuthUser(sellerUser)
+  // localStorage.setItem('deskit-user', JSON.stringify(sellerUser))
+  // localStorage.setItem('deskit-auth', 'seller')
 }
 
 export const loginAdmin = (): void => {
-  const adminUser = {
+  const adminUser: AuthUser = {
     name: '관리자',
     email: 'admin@test.com',
     signupType: '관리자(임시)',
     memberCategory: '관리자',
   }
 
-  localStorage.setItem('deskit-user', JSON.stringify(adminUser))
-  localStorage.setItem('deskit-auth', 'admin')
-  window.dispatchEvent(new Event('deskit-user-updated'))
+  setAuthUser(adminUser)
+  // localStorage.setItem('deskit-user', JSON.stringify(adminUser))
+  // localStorage.setItem('deskit-auth', 'admin')
 }
 
 export const logout = (): void => {
+  setAuthUser(null)
   ;['deskit-user', 'deskit-auth', 'token'].forEach((key) => localStorage.removeItem(key))
-  window.dispatchEvent(new Event('deskit-user-updated'))
 }
 
 export const requestLogout = async (): Promise<boolean> => {
@@ -137,7 +169,7 @@ export const requestWithdraw = async (): Promise<{ ok: boolean; message?: string
 
 export const hydrateSessionUser = async (): Promise<boolean> => {
   try {
-    let response = await fetch(`${apiBase}/my`, {credentials: 'include'})
+    let response = await fetch(`${apiBase}/my`, { credentials: 'include' })
     if (!response.ok) {
       if (response.status === 401) {
         const reissue = await fetch(`${apiBase}/reissue`, {
@@ -145,21 +177,33 @@ export const hydrateSessionUser = async (): Promise<boolean> => {
           credentials: 'include',
         })
         if (!reissue.ok) return false
-        response = await fetch(`${apiBase}/my`, {credentials: 'include'})
+        response = await fetch(`${apiBase}/my`, { credentials: 'include' })
       }
       if (!response.ok) return false
     }
 
-    if (!getAuthUser()) {
-      const authUser = {
-        name: '로그인 사용자',
-        email: '',
-        signupType: '소셜 회원',
-        memberCategory: '일반회원',
-      }
-      localStorage.setItem('deskit-user', JSON.stringify(authUser))
-      window.dispatchEvent(new Event('deskit-user-updated'))
+    const payload = (await response.json().catch(() => null)) as SessionPayload | null
+    if (!payload || typeof payload !== 'object') {
+      return true
     }
+
+    const memberCategory = resolveMemberCategory(payload.memberCategory, payload.role)
+    const sellerRole = resolveSellerRole(payload.sellerRole, payload.role)
+
+    setAuthUser({
+      name: typeof payload.name === 'string' ? payload.name : '',
+      email: typeof payload.email === 'string' ? payload.email : '',
+      signupType: typeof payload.signupType === 'string' ? payload.signupType : '',
+      memberCategory,
+      sellerRole: sellerRole || undefined,
+      mbti: typeof payload.mbti === 'string' ? payload.mbti : '',
+      job: typeof payload.job === 'string' ? payload.job : '',
+      seller_id: typeof payload.seller_id === 'number' ? payload.seller_id : undefined,
+      sellerId: typeof payload.sellerId === 'number' ? payload.sellerId : undefined,
+      id: typeof payload.id === 'number' ? payload.id : undefined,
+      user_id: typeof payload.user_id === 'number' ? payload.user_id : undefined,
+      userId: typeof payload.userId === 'number' ? payload.userId : undefined,
+    })
 
     return true
   } catch {

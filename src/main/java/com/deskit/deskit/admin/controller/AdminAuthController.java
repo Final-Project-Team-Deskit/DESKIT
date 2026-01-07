@@ -107,7 +107,7 @@ public class AdminAuthController {
     }
 
     private void issueTokens(String username, String role, HttpServletResponse response) {
-        long accessExpiryMs = 600000L;
+        long accessExpiryMs = 1800000L;
         long refreshExpiryMs = 86400000L;
 
         String access = jwtUtil.createJwt("access", username, role, accessExpiryMs);

@@ -8,6 +8,14 @@ export type AdminVodSummary = {
   endedAt: string
   statusLabel: string
   sellerName: string
+  category: string
+  metrics: {
+    maxViewers: number
+    reports: number
+    sanctions: number
+    likes: number
+    totalRevenue: number
+  }
 }
 
 export type AdminVodDetail = SellerVodDetail & {
@@ -46,8 +54,10 @@ const readAll = (): AdminVodDetail[] => {
   return seeded
 }
 
+const categories = ['홈오피스', '주변기기', '정리/수납', '조명'] as const
+
 export const getAdminVodSummaries = (): AdminVodSummary[] => {
-  return readAll().map((detail) => ({
+  return readAll().map((detail, index) => ({
     id: detail.id,
     title: detail.title,
     thumb: detail.thumb,
@@ -55,6 +65,8 @@ export const getAdminVodSummaries = (): AdminVodSummary[] => {
     endedAt: detail.endedAt,
     statusLabel: detail.statusLabel,
     sellerName: detail.sellerName,
+    category: categories[index % categories.length],
+    metrics: detail.metrics,
   }))
 }
 

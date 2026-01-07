@@ -75,6 +75,7 @@ const formatNumber = (value: number) => value.toLocaleString('ko-KR')
         <video v-if="detail.vod.url" :src="detail.vod.url" controls></video>
         <div v-else class="vod-placeholder">VOD 미리보기 영역</div>
       </div>
+      <p class="vod-note">관리자가 비공개로 전환한 VOD는 판매자가 다시 공개로 바꿀 수 없습니다.</p>
     </section>
 
     <section class="vod-card ds-surface">
@@ -224,6 +225,12 @@ const formatNumber = (value: number) => value.toLocaleString('ko-KR')
   aspect-ratio: 16 / 9;
   display: grid;
   place-items: center;
+}
+
+.vod-note {
+  margin: 0;
+  color: var(--text-muted);
+  font-weight: 700;
 }
 
 .vod-player video {

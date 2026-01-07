@@ -1,6 +1,5 @@
 package com.deskit.deskit.common.config;
 
-
 import org.springframework.context.annotation.Configuration;
 import org.springframework.messaging.simp.config.MessageBrokerRegistry;
 import org.springframework.web.socket.config.annotation.EnableWebSocketMessageBroker;
@@ -9,18 +8,23 @@ import org.springframework.web.socket.config.annotation.WebSocketMessageBrokerCo
 
 @Configuration
 @EnableWebSocketMessageBroker
-public class WebSocketConfig implements WebSocketMessageBrokerConfigurer { // stomp 설정
+public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
 
     @Override
     public void configureMessageBroker(MessageBrokerRegistry config) {
-        config.enableSimpleBroker("/sub"); // 구독 경로
-        config.setApplicationDestinationPrefixes("/pub"); // 발행 경로
-        //클라이언트가 서버한테 보낼때
+        // 메시지를 구독(수신)하는 요청의 접두사
+        config.enableSimpleBroker("/topic", "/queue","/sub");
+
+        // 메시지를 발행(송신)하는 요청의 접두사
+        config.setApplicationDestinationPrefixes("/app","/pub");
     }
 
     @Override
     public void registerStompEndpoints(StompEndpointRegistry registry) {
-        // 클라이언트에서 연결할 엔드포인트: /ws
-        registry.addEndpoint("/ws").setAllowedOriginPatterns("*").withSockJS();
+        // 프론트엔드에서 연결할 웹소켓 엔드포인트 주소
+        registry.addEndpoint("/ws-live","/ws")
+                // CORS 허용 (프론트엔드 포트가 5173인 경우)
+                .setAllowedOriginPatterns("http://localhost:5173", "http://localhost:3000", "*")
+                .withSockJS(); // SockJS 지원
     }
 }
