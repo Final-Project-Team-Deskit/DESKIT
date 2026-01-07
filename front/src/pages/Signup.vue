@@ -1,8 +1,8 @@
 ﻿<script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import PageContainer from '../components/PageContainer.vue'
 import PageHeader from '../components/PageHeader.vue'
-import { setAuthUser } from '../lib/auth'
 
 type PendingSignup = {
   username?: string
@@ -39,6 +39,7 @@ const pending = ref<PendingSignup | null>(null)
 const signupToken = ref('')
 const inviteToken = ref('')
 const inviteError = ref('')
+const router = useRouter()
 
 const form = reactive({
   phoneNumber: '',
@@ -387,25 +388,6 @@ const verifyCode = async () => {
   form.message = '전화번호 인증이 완료되었습니다.'
 }
 
-const storeAuthUser = () => {
-  const memberCategory = form.memberType === 'SELLER' ? '판매자' : '일반회원'
-  const mbtiValue = form.mbti === 'NONE' ? '' : form.mbti
-  const jobValue = form.jobCategory === 'NONE' ? '' : jobLabelMap[form.jobCategory]
-
-  const authUser = {
-    name: pending.value?.name ?? '',
-    email: pending.value?.email ?? '',
-    signupType: '소셜 회원',
-    memberCategory,
-    mbti: mbtiValue,
-    job: jobValue,
-  }
-
-  setAuthUser(authUser)
-  // localStorage.setItem('deskit-user', JSON.stringify(authUser))
-  // localStorage.setItem('deskit-auth', memberCategory)
-}
-
 const submitSignup = async () => {
   if (!signupToken.value) {
     form.message = '로그인이 필요합니다.'
@@ -445,17 +427,22 @@ const submitSignup = async () => {
   }
 
   const successText = await response.text()
-  storeAuthUser()
+  const completionMessage =
+    successText ||
+    (form.memberType === 'SELLER'
+      ? '판매자 가입이 접수되었습니다. 관리자 승인을 기다려 주세요.'
+      : '회원가입이 완료되었습니다.')
 
-  if (form.memberType === 'SELLER') {
-    form.message =
-      successText ||
-      '판매자 가입이 접수되었습니다. 관리자 승인을 기다려 주세요.'
-    return
-  }
-
-  form.message = successText || '회원가입이 완료되었습니다.'
-  window.location.href = '/my'
+  sessionStorage.setItem(
+    'registerComplete',
+    JSON.stringify({
+      memberType: form.memberType,
+      message: completionMessage,
+    }),
+  )
+  sessionStorage.removeItem('signupToken')
+  sessionStorage.removeItem('inviteToken')
+  router.push('/signup/complete').catch(() => {})
 }
 
 const handlePlanFileChange = (event: Event) => {
