@@ -4,7 +4,6 @@ import { useRouter } from 'vue-router'
 import ConfirmModal from '../components/ConfirmModal.vue'
 import PageContainer from '../components/PageContainer.vue'
 import PageHeader from '../components/PageHeader.vue'
-import { liveItems } from '../lib/live/data'
 import {
   filterLivesByDay,
   getDayWindow,
@@ -14,6 +13,7 @@ import {
 } from '../lib/live/utils'
 import type { LiveItem } from '../lib/live/types'
 import { useNow } from '../lib/live/useNow'
+import { fetchPublicBroadcastOverview } from '../lib/live/api'
 
 const router = useRouter()
 const today = new Date()
@@ -26,6 +26,7 @@ const normalizeDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getD
 const toast = ref<{ message: string; variant: 'success' | 'neutral' } | null>(null)
 const showWatchHistoryConsent = ref(false)
 const pendingLiveId = ref<string | null>(null)
+const liveItems = ref<LiveItem[]>([])
 let toastTimer: ReturnType<typeof setTimeout> | null = null
 
 const hasWatchHistoryConsent = () => {
@@ -108,7 +109,7 @@ const getCountdownLabel = (item: LiveItem) => {
 }
 
 const itemsForDay = computed(() => {
-  return sortLivesByStartAt(filterLivesByDay(liveItems, selectedDay.value))
+  return sortLivesByStartAt(filterLivesByDay(liveItems.value, selectedDay.value))
 })
 
 const liveItemsForDay = computed(() => itemsForDay.value.filter((item) => getStatus(item) === 'LIVE'))
@@ -175,7 +176,7 @@ const formatDayLabel = (day: Date) => {
   return { label, date }
 }
 
-const getDayCount = (day: Date) => filterLivesByDay(liveItems, day).length
+const getDayCount = (day: Date) => filterLivesByDay(liveItems.value, day).length
 
 const selectDay = (day: Date) => {
   selectedDay.value = normalizeDay(day)
@@ -250,6 +251,29 @@ onMounted(() => {
   }
 })
 
+const mapToLiveItems = (items: Array<{ broadcastId: number; title: string; notice?: string; thumbnailUrl?: string; startAt?: string; endAt?: string; liveViewerCount?: number; viewerCount?: number; sellerName?: string }>) =>
+  items
+    .filter((item) => item.startAt)
+    .map((item) => ({
+      id: String(item.broadcastId),
+      title: item.title,
+      description: item.notice ?? '',
+      thumbnailUrl: item.thumbnailUrl ?? '',
+      startAt: item.startAt ?? '',
+      endAt: item.endAt ?? item.startAt ?? '',
+      viewerCount: item.liveViewerCount ?? item.viewerCount ?? 0,
+      sellerName: item.sellerName ?? '',
+    }))
+
+const loadBroadcasts = async () => {
+  try {
+    const items = await fetchPublicBroadcastOverview()
+    liveItems.value = mapToLiveItems(items)
+  } catch {
+    liveItems.value = []
+  }
+}
+
 watchEffect(() => {
   localStorage.setItem(NOTIFY_KEY, JSON.stringify(Array.from(notifiedIds.value)))
 })
@@ -258,6 +282,10 @@ onBeforeUnmount(() => {
   if (toastTimer) {
     clearTimeout(toastTimer)
   }
+})
+
+onMounted(() => {
+  void loadBroadcasts()
 })
 </script>
 
