@@ -9,13 +9,15 @@ import ConfirmModal from '../components/ConfirmModal.vue'
 import { getLiveStatus, parseLiveDate } from '../lib/live/utils'
 import { useNow } from '../lib/live/useNow'
 import { getAuthUser } from '../lib/auth'
-import { fetchBroadcastProducts, fetchPublicBroadcastDetail, type BroadcastProductItem } from '../lib/live/api'
+import { fetchBroadcastProducts, fetchBroadcastStats, fetchPublicBroadcastDetail, type BroadcastProductItem } from '../lib/live/api'
 import type { LiveItem } from '../lib/live/types'
 
 const route = useRoute()
 const router = useRouter()
 const { now } = useNow(1000)
 const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080'
+const sseSource = ref<EventSource | null>(null)
+const statsTimer = ref<number | null>(null)
 
 const liveId = computed(() => {
   const value = route.params.id
@@ -76,6 +78,19 @@ const loadDetail = async () => {
     liveItem.value = buildLiveItem(detail)
   } catch {
     liveItem.value = null
+  }
+}
+
+const loadStats = async () => {
+  if (!broadcastId.value || !liveItem.value) return
+  try {
+    const stats = await fetchBroadcastStats(broadcastId.value)
+    liveItem.value = {
+      ...liveItem.value,
+      viewerCount: stats.viewerCount ?? liveItem.value.viewerCount ?? 0,
+    }
+  } catch {
+    return
   }
 }
 
@@ -220,6 +235,84 @@ const scrollToBottom = () => {
     }
     chatListRef.value.scrollTop = chatListRef.value.scrollHeight
   })
+}
+
+const parseSseData = (event: MessageEvent) => {
+  if (!event.data) return null
+  try {
+    return JSON.parse(event.data)
+  } catch {
+    return event.data
+  }
+}
+
+const handleSseEvent = (event: MessageEvent) => {
+  const data = parseSseData(event)
+  switch (event.type) {
+    case 'BROADCAST_READY':
+    case 'BROADCAST_UPDATED':
+      void loadDetail()
+      void loadStats()
+      void loadProducts()
+      break
+    case 'PRODUCT_PINNED':
+      void loadProducts()
+      break
+    case 'SANCTION_ALERT':
+      alert(typeof data === 'object' && data ? `${data.type} 제재가 적용되었습니다.` : '제재가 적용되었습니다.')
+      router.push({ name: 'live' }).catch(() => {})
+      break
+    case 'BROADCAST_ENDING_SOON':
+      alert('방송 종료 1분 전입니다.')
+      break
+    case 'BROADCAST_CANCELED':
+      alert('방송이 자동 취소되었습니다.')
+      router.push({ name: 'live' }).catch(() => {})
+      break
+    case 'BROADCAST_ENDED':
+    case 'BROADCAST_SCHEDULED_END':
+      alert('방송이 종료되었습니다.')
+      router.push({ name: 'live' }).catch(() => {})
+      break
+    case 'BROADCAST_STOPPED':
+      alert(typeof data === 'string' ? data : '관리자에 의해 방송이 중지되었습니다.')
+      router.push({ name: 'live' }).catch(() => {})
+      break
+    default:
+      break
+  }
+}
+
+const connectSse = (id: number) => {
+  sseSource.value?.close()
+  const user = getAuthUser()
+  const viewerId = user?.id ?? user?.userId ?? user?.user_id ?? user?.userId
+  const query = viewerId ? `?viewerId=${encodeURIComponent(String(viewerId))}` : ''
+  const source = new EventSource(`${apiBase}/api/broadcasts/${id}/subscribe${query}`)
+  const events = [
+    'BROADCAST_READY',
+    'BROADCAST_UPDATED',
+    'PRODUCT_PINNED',
+    'SANCTION_ALERT',
+    'BROADCAST_ENDING_SOON',
+    'BROADCAST_CANCELED',
+    'BROADCAST_ENDED',
+    'BROADCAST_SCHEDULED_END',
+    'BROADCAST_STOPPED',
+  ]
+  events.forEach((name) => source.addEventListener(name, handleSseEvent))
+  source.onerror = () => {
+    source.close()
+  }
+  sseSource.value = source
+}
+
+const startStatsPolling = (id: number) => {
+  if (statsTimer.value) window.clearInterval(statsTimer.value)
+  statsTimer.value = window.setInterval(() => {
+    void loadStats()
+    void loadProducts()
+  }, 10000)
 }
 
 const appendMessage = (message: ChatMessage) => {
@@ -515,11 +608,18 @@ watch(
     }
     void loadDetail()
     void loadProducts()
+    void loadStats()
     messages.value = []
     disconnectChat()
+    sseSource.value?.close()
+    sseSource.value = null
+    if (statsTimer.value) window.clearInterval(statsTimer.value)
+    statsTimer.value = null
     if (value) {
       fetchRecentMessages()
       connectChat()
+      connectSse(value)
+      startStatsPolling(value)
     }
   },
   { immediate: true }
@@ -535,6 +635,10 @@ onBeforeUnmount(() => {
   panelResizeObserver?.disconnect()
   window.removeEventListener('deskit-user-updated', handleAuthUpdate)
   disconnectChat()
+  sseSource.value?.close()
+  sseSource.value = null
+  if (statsTimer.value) window.clearInterval(statsTimer.value)
+  statsTimer.value = null
 })
 </script>
 

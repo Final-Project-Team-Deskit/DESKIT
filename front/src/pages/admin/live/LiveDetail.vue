@@ -58,6 +58,9 @@ const liveProducts = ref<
     stock: number
   }>
 >([])
+const sseSource = ref<EventSource | null>(null)
+const statsTimer = ref<number | null>(null)
+const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080'
 
 const reasonOptions = [
   '음란물',
@@ -165,6 +168,138 @@ const loadDetail = async () => {
     liveProducts.value = []
     chatMessages.value = []
   }
+}
+
+const refreshStats = async (broadcastId: number) => {
+  if (!detail.value) return
+  try {
+    const stats = await fetchBroadcastStats(broadcastId)
+    detail.value = {
+      ...detail.value,
+      viewers: stats.viewerCount ?? detail.value.viewers,
+      likes: stats.likeCount ?? detail.value.likes,
+      reports: stats.reportCount ?? detail.value.reports,
+    }
+  } catch {
+    return
+  }
+}
+
+const refreshProducts = async (broadcastId: number) => {
+  try {
+    const products = await fetchBroadcastProducts(broadcastId)
+    liveProducts.value = products.map((item) => ({
+      id: item.id,
+      name: item.name,
+      option: '-',
+      price: `₩${item.price.toLocaleString('ko-KR')}`,
+      sale: `₩${item.price.toLocaleString('ko-KR')}`,
+      status: item.isSoldOut ? '품절' : '판매중',
+      thumb: item.imageUrl || '/placeholder-product.jpg',
+      sold: 0,
+      stock: item.stockQty,
+    }))
+  } catch {
+    return
+  }
+}
+
+const refreshDetail = async (broadcastId: number) => {
+  try {
+    const detailResponse = await fetchAdminBroadcastDetail(broadcastId)
+    if (!detail.value) return
+    const startedAt = detailResponse.startedAt ?? detailResponse.scheduledAt ?? ''
+    detail.value = {
+      ...detail.value,
+      title: detailResponse.title,
+      sellerName: detailResponse.sellerName ?? detail.value.sellerName,
+      startedAt,
+      status: detailResponse.status ?? detail.value.status,
+      elapsed: formatElapsed(startedAt),
+    }
+  } catch {
+    return
+  }
+}
+
+const parseSseData = (event: MessageEvent) => {
+  if (!event.data) return null
+  try {
+    return JSON.parse(event.data)
+  } catch {
+    return event.data
+  }
+}
+
+const handleSseEvent = (event: MessageEvent) => {
+  const idValue = Number(liveId.value)
+  if (Number.isNaN(idValue)) return
+  const data = parseSseData(event)
+  switch (event.type) {
+    case 'BROADCAST_READY':
+    case 'BROADCAST_UPDATED':
+      void refreshDetail(idValue)
+      void refreshStats(idValue)
+      void refreshProducts(idValue)
+      break
+    case 'PRODUCT_PINNED':
+      void refreshProducts(idValue)
+      break
+    case 'SANCTION_UPDATED':
+      void refreshStats(idValue)
+      break
+    case 'BROADCAST_ENDING_SOON':
+      alert('방송 종료 1분 전입니다.')
+      break
+    case 'BROADCAST_CANCELED':
+      alert('방송이 자동 취소되었습니다.')
+      goToList()
+      break
+    case 'BROADCAST_ENDED':
+    case 'BROADCAST_SCHEDULED_END':
+      alert('방송이 종료되었습니다.')
+      void refreshDetail(idValue)
+      break
+    case 'BROADCAST_STOPPED':
+      if (detail.value) {
+        detail.value.status = 'STOPPED'
+      }
+      alert(typeof data === 'string' ? data : '관리자에 의해 방송이 중지되었습니다.')
+      break
+    default:
+      break
+  }
+}
+
+const connectSse = (broadcastId: number) => {
+  if (sseSource.value) {
+    sseSource.value.close()
+  }
+  const source = new EventSource(`${apiBase}/api/broadcasts/${broadcastId}/subscribe`)
+  const events = [
+    'BROADCAST_READY',
+    'BROADCAST_UPDATED',
+    'PRODUCT_PINNED',
+    'SANCTION_UPDATED',
+    'BROADCAST_ENDING_SOON',
+    'BROADCAST_CANCELED',
+    'BROADCAST_ENDED',
+    'BROADCAST_SCHEDULED_END',
+    'BROADCAST_STOPPED',
+  ]
+  events.forEach((name) => source.addEventListener(name, handleSseEvent))
+  source.onerror = () => {
+    source.close()
+  }
+  sseSource.value = source
+}
+
+const startStatsPolling = (broadcastId: number) => {
+  if (statsTimer.value) window.clearInterval(statsTimer.value)
+  statsTimer.value = window.setInterval(() => {
+    void refreshStats(broadcastId)
+    void refreshProducts(broadcastId)
+  }, 10000)
 }
 
 const openStopConfirm = () => {
@@ -304,15 +439,29 @@ const saveModeration = () => {
 }
 
 onMounted(() => {
-  loadDetail()
   document.addEventListener('fullscreenchange', syncFullscreen)
 })
 
 onBeforeUnmount(() => {
   document.removeEventListener('fullscreenchange', syncFullscreen)
+  sseSource.value?.close()
+  sseSource.value = null
+  if (statsTimer.value) window.clearInterval(statsTimer.value)
+  statsTimer.value = null
 })
 
-watch(liveId, loadDetail, { immediate: true })
+watch(
+  liveId,
+  (value) => {
+    loadDetail()
+    const idValue = Number(value)
+    if (!Number.isNaN(idValue)) {
+      connectSse(idValue)
+      startStatsPolling(idValue)
+    }
+  },
+  { immediate: true },
+)
 </script>
 
 <template>

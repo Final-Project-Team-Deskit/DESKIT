@@ -6,7 +6,13 @@ import ChatSanctionModal from '../../components/ChatSanctionModal.vue'
 import ConfirmModal from '../../components/ConfirmModal.vue'
 import PageContainer from '../../components/PageContainer.vue'
 import QCardModal from '../../components/QCardModal.vue'
-import { fetchBroadcastStats, fetchMediaConfig, fetchRecentLiveChats, fetchSellerBroadcastDetail, pinSellerBroadcastProduct } from '../../lib/live/api'
+import {
+  fetchBroadcastStats,
+  fetchMediaConfig,
+  fetchRecentLiveChats,
+  fetchSellerBroadcastDetail,
+  pinSellerBroadcastProduct,
+} from '../../lib/live/api'
 import { parseLiveDate } from '../../lib/live/utils'
 
 type StreamProduct = {
@@ -91,6 +97,9 @@ const sanctionedUsers = ref<Record<string, { type: string; reason: string }>>({}
 const broadcastInfo = ref<(EditableBroadcastInfo & { qCards: string[] }) | null>(null)
 const stream = ref<StreamData | null>(null)
 const chatMessages = ref<StreamChat[]>([])
+const sseSource = ref<EventSource | null>(null)
+const statsTimer = ref<number | null>(null)
+const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080'
 
 const streamId = computed(() => {
   const id = route.params.id
@@ -296,10 +305,169 @@ const hydrateStream = async () => {
   }
 }
 
+const refreshStats = async (broadcastId: number) => {
+  try {
+    const stats = await fetchBroadcastStats(broadcastId)
+    viewerCount.value = stats.viewerCount ?? 0
+    likeCount.value = stats.likeCount ?? 0
+  } catch {
+    return
+  }
+}
+
+const refreshProducts = async (broadcastId: number) => {
+  try {
+    const detail = await fetchSellerBroadcastDetail(broadcastId)
+    const products = (detail.products ?? []).map((product) => ({
+      id: String(product.productId),
+      title: product.name,
+      option: product.name,
+      status: product.status === 'SOLDOUT' ? '품절' : '판매중',
+      pinned: product.pinned,
+    }))
+    pinnedProductId.value = products.find((item) => item.pinned)?.id ?? null
+    if (stream.value) {
+      stream.value = { ...stream.value, products }
+    }
+  } catch {
+    return
+  }
+}
+
+const refreshInfo = async (broadcastId: number) => {
+  try {
+    const detail = await fetchSellerBroadcastDetail(broadcastId)
+    if (stream.value) {
+      stream.value = {
+        ...stream.value,
+        title: detail.title ?? '',
+        datetime: formatScheduleWindow(detail.scheduledAt, detail.startedAt),
+        category: detail.categoryName ?? '',
+        notice: detail.notice ?? defaultNotice,
+        thumbnail: detail.thumbnailUrl,
+        waitingScreen: detail.waitScreenUrl,
+        qCards: (detail.qcards ?? []).map((card) => card.question),
+      }
+    }
+    if (broadcastInfo.value) {
+      broadcastInfo.value = {
+        ...broadcastInfo.value,
+        title: detail.title ?? '',
+        category: detail.categoryName ?? '',
+        notice: detail.notice ?? defaultNotice,
+        thumbnail: detail.thumbnailUrl,
+        waitingScreen: detail.waitScreenUrl,
+        qCards: (detail.qcards ?? []).map((card) => card.question),
+      }
+    }
+  } catch {
+    return
+  }
+}
+
+const parseSseData = (event: MessageEvent) => {
+  if (!event.data) return null
+  try {
+    return JSON.parse(event.data)
+  } catch {
+    return event.data
+  }
+}
+
+const handleSseEvent = (event: MessageEvent) => {
+  const id = streamId.value ? Number(streamId.value) : NaN
+  if (Number.isNaN(id)) return
+  const data = parseSseData(event)
+  switch (event.type) {
+    case 'BROADCAST_READY':
+    case 'BROADCAST_UPDATED':
+      void refreshInfo(id)
+      void refreshStats(id)
+      void refreshProducts(id)
+      break
+    case 'PRODUCT_PINNED':
+      pinnedProductId.value = typeof data === 'number' ? String(data) : pinnedProductId.value
+      void refreshProducts(id)
+      break
+    case 'SANCTION_UPDATED':
+      void refreshStats(id)
+      break
+    case 'BROADCAST_ENDING_SOON':
+      alert('방송 종료 1분 전입니다.')
+      break
+    case 'BROADCAST_CANCELED':
+      alert('방송이 자동 취소되었습니다.')
+      handleGoToList()
+      break
+    case 'BROADCAST_ENDED':
+    case 'BROADCAST_SCHEDULED_END':
+      alert('방송이 종료되었습니다.')
+      handleEndBroadcast()
+      break
+    case 'BROADCAST_STOPPED':
+      alert('관리자에 의해 방송이 중지되었습니다.')
+      handleEndBroadcast()
+      break
+    default:
+      break
+  }
+}
+
+const connectSse = (broadcastId: number) => {
+  if (sseSource.value) {
+    sseSource.value.close()
+  }
+  const source = new EventSource(`${apiBase}/api/broadcasts/${broadcastId}/subscribe`)
+  const events = [
+    'BROADCAST_READY',
+    'BROADCAST_UPDATED',
+    'PRODUCT_PINNED',
+    'SANCTION_UPDATED',
+    'BROADCAST_ENDING_SOON',
+    'BROADCAST_CANCELED',
+    'BROADCAST_ENDED',
+    'BROADCAST_SCHEDULED_END',
+    'BROADCAST_STOPPED',
+  ]
+  events.forEach((name) => {
+    source.addEventListener(name, handleSseEvent)
+  })
+  source.onerror = () => {
+    source.close()
+  }
+  sseSource.value = source
+}
+
+const startStatsPolling = (broadcastId: number) => {
+  if (statsTimer.value) window.clearInterval(statsTimer.value)
+  statsTimer.value = window.setInterval(() => {
+    void refreshStats(broadcastId)
+    void refreshProducts(broadcastId)
+  }, 10000)
+}
+
 watch(
   () => route.params.id,
   () => {
     hydrateStream()
+  },
+  { immediate: true },
+)
+
+watch(
+  () => streamId.value,
+  (value) => {
+    if (!value) {
+      sseSource.value?.close()
+      sseSource.value = null
+      if (statsTimer.value) window.clearInterval(statsTimer.value)
+      statsTimer.value = null
+      return
+    }
+    const idValue = Number(value)
+    if (Number.isNaN(idValue)) return
+    connectSse(idValue)
+    startStatsPolling(idValue)
   },
   { immediate: true },
 )
@@ -334,6 +502,10 @@ onBeforeUnmount(() => {
   document.removeEventListener('fullscreenchange', handleFullscreenChange)
   window.removeEventListener('resize', handleResize)
   gridObserver?.disconnect()
+  sseSource.value?.close()
+  sseSource.value = null
+  if (statsTimer.value) window.clearInterval(statsTimer.value)
+  statsTimer.value = null
 })
 
 const openConfirm = (options: Partial<typeof confirmState>, onConfirm: () => void) => {
