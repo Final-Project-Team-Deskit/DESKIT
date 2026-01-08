@@ -342,7 +342,7 @@ public class SignupController {
         clearPhoneSession(session);
 
         return new ResponseEntity<>(
-                "판매자 회원 가입 신청이 완료되었습니다. 관리자 승인 후에 서비스 이용이 가능합니다.",
+                "판매자 회원 가입 신청이 완료되었습니다.",
                 HttpStatus.OK
         );
     }
