@@ -13,12 +13,15 @@ import {
   type PaymentMethod,
 } from '../lib/checkout/checkout-storage'
 import { removeCartItemsByProductIds } from '../lib/cart/cart-storage'
+import { createOrder } from '../api/orders'
 import { saveLastOrder, appendOrder, type OrderReceipt } from '../lib/order/order-storage'
 
 const router = useRouter()
 const route = useRoute()
 
 const draft = ref<CheckoutDraft | null>(null)
+const isSubmitting = ref(false)
+let inflight: Promise<void> | null = null
 
 const form = reactive<ShippingInfo>({
   buyerName: '',
@@ -166,10 +169,22 @@ const generateOrderId = () => {
   return `ORD-${yy}${mm}${dd}-${rand}`
 }
 
-const handlePaymentComplete = () => {
+const handlePaymentComplete = async () => {
+  if (inflight) return
   const current = draft.value ?? loadCheckout()
   if (!current || !current.items || current.items.length === 0) {
     router.push('/cart')
+    return
+  }
+
+  const orderItems = current.items
+    .map((item) => ({
+      product_id: Number(item.productId),
+      quantity: item.quantity,
+    }))
+    .filter((item) => Number.isFinite(item.product_id) && item.quantity > 0)
+
+  if (orderItems.length === 0) {
     return
   }
 
@@ -201,7 +216,8 @@ const handlePaymentComplete = () => {
       discountRate: item.discountRate ?? 0,
     })),
     shipping: {...current.shipping},
-    status: 'PAID',
+    // 결제 완료 여부는 추후 결제 연동 단계에서 확정 처리
+    status: 'CREATED',
     paymentMethodLabel: '토스페이(예정)',
     totals: {
       listPriceTotal,
@@ -212,11 +228,25 @@ const handlePaymentComplete = () => {
     },
   }
 
-  saveLastOrder(receipt)
-  appendOrder(receipt)
-  removeCartItemsByProductIds(current.items.map((it) => it.productId))
-  clearCheckout()
-  router.push({name: 'order-complete'}).catch(() => router.push('/order/complete'))
+  isSubmitting.value = true
+  inflight = (async () => {
+    const response = await createOrder({ items: orderItems })
+    if (!response?.order_id) {
+      throw new Error('invalid order response')
+    }
+    receipt.orderId = response.order_number || String(response.order_id)
+    saveLastOrder(receipt)
+    appendOrder(receipt)
+    removeCartItemsByProductIds(current.items.map((it) => it.productId))
+    clearCheckout()
+    router.push({ name: 'order-complete' }).catch(() => router.push('/order/complete'))
+  })()
+  try {
+    await inflight
+  } finally {
+    inflight = null
+    isSubmitting.value = false
+  }
 }
 
 const storageRefreshHandler = () => refreshDraft()
