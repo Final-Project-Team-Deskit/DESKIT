@@ -58,6 +58,19 @@ export type BroadcastProductItem = {
   imageUrl: string
   price: number
   isSoldOut: boolean
+  stockQty: number
+}
+
+export type BroadcastStats = {
+  viewerCount: number
+  likeCount: number
+  reportCount: number
+}
+
+export type BroadcastResult = {
+  totalSales?: number | string
+  totalViews?: number
+  totalLikes?: number
 }
 
 type ApiResult<T> = {
@@ -173,7 +186,31 @@ export const fetchBroadcastProducts = async (broadcastId: number): Promise<Broad
     imageUrl: item.imageUrl ?? '/placeholder-product.jpg',
     price: item.bpPrice,
     isSoldOut: item.status === 'SOLDOUT' || item.bpQuantity <= 0,
+    stockQty: item.bpQuantity,
   }))
+}
+
+export const fetchBroadcastStats = async (broadcastId: number): Promise<BroadcastStats> => {
+  const { data } = await http.get<ApiResult<BroadcastStats>>(`/api/broadcasts/${broadcastId}/stats`)
+  return ensureSuccess(data)
+}
+
+export const fetchSellerBroadcastReport = async (broadcastId: number): Promise<BroadcastResult> => {
+  const { data } = await http.get<ApiResult<BroadcastResult>>(`/api/seller/broadcasts/${broadcastId}/report`)
+  return ensureSuccess(data)
+}
+
+export const fetchSellerBroadcasts = async (params: { tab?: string; statusFilter?: string; sortType?: string; page?: number; size?: number }) => {
+  const { data } = await http.get<ApiResult<{ content?: BroadcastListItem[]; slice?: BroadcastListItem[] }>>('/api/seller/broadcasts', { params })
+  const payload = ensureSuccess(data)
+  if (Array.isArray(payload)) {
+    return payload as BroadcastListItem[]
+  }
+  const content = (payload as any)?.content
+  if (Array.isArray(content)) return content
+  const slice = (payload as any)?.slice
+  if (Array.isArray(slice)) return slice
+  return []
 }
 
 export const createBroadcast = async (payload: BroadcastPayload): Promise<number> => {
