@@ -3,14 +3,29 @@ import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import QCardModal from '../../../components/QCardModal.vue'
 import {
-  cancelAdminReservation,
-  getAdminReservationDetail,
-  type AdminReservationDetail,
-} from '../../../lib/mocks/adminReservations'
+  cancelAdminBroadcast,
+  fetchAdminBroadcastDetail,
+  type BroadcastDetailResponse,
+} from '../../../lib/live/api'
 import { normalizeBroadcastStatus } from '../../../lib/broadcastStatus'
 
 const route = useRoute()
 const router = useRouter()
+
+type AdminReservationDetail = {
+  id: string
+  title: string
+  status: string
+  datetime: string
+  category: string
+  sellerName: string
+  notice: string
+  thumb: string
+  standbyThumb?: string
+  products: Array<{ id: string; name: string; price: string; salePrice: string; qty: number; stock: number }>
+  cueQuestions?: string[]
+  cancelReason?: string
+}
 
 const detail = ref<AdminReservationDetail | null>(null)
 const showCueCard = ref(false)
@@ -25,8 +40,47 @@ const cancelError = ref('')
 
 const cancelReasonOptions = ['판매자 요청', '방송 기획 변경', '상품 준비 지연', '기타']
 
-const loadDetail = () => {
-  detail.value = getAdminReservationDetail(reservationId.value)
+const formatScheduledAt = (scheduledAt?: string) => {
+  if (!scheduledAt) return ''
+  return scheduledAt.replace(/-/g, '.').replace('T', ' ').slice(0, 16)
+}
+
+const formatCurrency = (value: number) => `₩${value.toLocaleString('ko-KR')}`
+
+const mapDetail = (payload: BroadcastDetailResponse): AdminReservationDetail => ({
+  id: String(payload.broadcastId),
+  title: payload.title ?? '',
+  status: payload.status ?? '',
+  datetime: formatScheduledAt(payload.scheduledAt),
+  category: payload.categoryName ?? '',
+  sellerName: payload.sellerName ?? '',
+  notice: payload.notice ?? '',
+  thumb: payload.thumbnailUrl ?? '',
+  standbyThumb: payload.waitScreenUrl ?? payload.thumbnailUrl ?? '',
+  products: (payload.products ?? []).map((item) => ({
+    id: String(item.productId),
+    name: item.name,
+    price: formatCurrency(item.originalPrice ?? 0),
+    salePrice: formatCurrency(item.bpPrice ?? item.originalPrice ?? 0),
+    qty: item.bpQuantity ?? 0,
+    stock: item.stockQty ?? item.bpQuantity ?? 0,
+  })),
+  cueQuestions: (payload.qcards ?? []).map((card) => card.question),
+  cancelReason: payload.stoppedReason ?? undefined,
+})
+
+const loadDetail = async () => {
+  if (!reservationId.value) {
+    detail.value = null
+    return
+  }
+  const idValue = Number(reservationId.value)
+  if (Number.isNaN(idValue)) {
+    detail.value = null
+    return
+  }
+  const payload = await fetchAdminBroadcastDetail(idValue)
+  detail.value = mapDetail(payload)
 }
 
 const goBack = () => {
@@ -69,13 +123,20 @@ const saveCancel = () => {
   const ok = window.confirm('예약을 취소하시겠습니까?')
   if (!ok) return
   if (!detail.value) return
-  cancelAdminReservation(detail.value.id)
-  detail.value = {
-    ...detail.value,
-    status: 'CANCELED',
-    cancelReason: cancelReason.value === '기타' ? cancelDetail.value.trim() : cancelReason.value,
-  }
-  closeCancelModal()
+  const reason = cancelReason.value === '기타' ? cancelDetail.value.trim() : cancelReason.value
+  cancelAdminBroadcast(Number(detail.value.id), reason)
+    .then(() => {
+      if (detail.value) {
+        detail.value = {
+          ...detail.value,
+          status: 'CANCELED',
+          cancelReason: reason,
+        }
+      }
+    })
+    .finally(() => {
+      closeCancelModal()
+    })
 }
 
 const isCancelled = computed(() => normalizeBroadcastStatus(detail.value?.status) === 'CANCELED')
