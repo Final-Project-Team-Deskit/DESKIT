@@ -5,12 +5,9 @@ import PageContainer from '../../components/PageContainer.vue'
 import PageHeader from '../../components/PageHeader.vue'
 import LiveImageCropModal from '../../components/LiveImageCropModal.vue'
 import {
-  activateDraftFlow,
   buildDraftFromReservation,
   clearDraft,
   createEmptyDraft,
-  deactivateDraftFlow,
-  isDraftFlowActive,
   loadDraft,
   saveDraft,
   type LiveCreateDraft,
@@ -127,23 +124,14 @@ const syncDraft = () => {
 const restoreDraft = async () => {
   const savedDraft = loadDraft()
   let baseDraft = createEmptyDraft()
-  if (savedDraft && (!isEditMode.value || savedDraft.reservationId === reservationId.value)) {
-    if (isEditMode.value) {
+  if (!isEditMode.value && savedDraft && (!savedDraft.reservationId || savedDraft.reservationId === reservationId.value)) {
+    const shouldRestore = window.confirm('이전에 작성 중인 내용을 불러올까요?')
+    if (shouldRestore) {
       baseDraft = { ...createEmptyDraft(), ...savedDraft }
     } else {
-      if (isDraftFlowActive()) {
-        baseDraft = { ...createEmptyDraft(), ...savedDraft }
-      } else {
-        const shouldRestore = window.confirm('이전에 작성 중인 내용을 불러올까요?')
-        if (shouldRestore) {
-          baseDraft = { ...createEmptyDraft(), ...savedDraft }
-        } else {
-          clearDraft()
-        }
-      }
+      clearDraft()
     }
   }
-  activateDraftFlow()
 
   const reservationDraft = isEditMode.value
     ? {
@@ -306,7 +294,6 @@ const goPrev = () => {
 const cancel = () => {
   const ok = window.confirm('작성 중인 내용을 취소하시겠어요?')
   if (!ok) return
-  deactivateDraftFlow()
   const redirect = isEditMode.value && reservationId.value
     ? `/seller/broadcasts/reservations/${reservationId.value}`
     : '/seller/live?tab=scheduled'
