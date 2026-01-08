@@ -112,12 +112,16 @@ public class BroadcastService {
     @Transactional
     public Long createBroadcast(Long sellerId, BroadcastCreateRequest request) {
         String lockKey = "lock:seller:" + sellerId + ":broadcast_create";
+        String slotLockKey = "lock:broadcast_slot:" + request.getScheduledAt().toString();
 
         if (!Boolean.TRUE.equals(redisService.acquireLock(lockKey, 3000))) {
             throw new BusinessException(ErrorCode.TOO_MANY_REQUESTS);
         }
 
         try {
+            if (!Boolean.TRUE.equals(redisService.acquireLock(slotLockKey, 3000))) {
+                throw new BusinessException(ErrorCode.TOO_MANY_REQUESTS);
+            }
             long reservedCount = broadcastRepository.countBySellerIdAndStatus(sellerId, BroadcastStatus.RESERVED);
             if (reservedCount >= 7) {
                 throw new BusinessException(ErrorCode.RESERVATION_LIMIT_EXCEEDED);
@@ -152,6 +156,7 @@ public class BroadcastService {
             log.info("방송 생성 완료: id={}", saved.getBroadcastId());
             return saved.getBroadcastId();
         } finally {
+            redisService.releaseLock(slotLockKey);
             redisService.releaseLock(lockKey);
         }
     }
@@ -169,6 +174,22 @@ public class BroadcastService {
                 .orElseThrow(() -> new BusinessException(ErrorCode.CATEGORY_NOT_FOUND));
 
         if (broadcast.getStatus() == BroadcastStatus.RESERVED || broadcast.getStatus() == BroadcastStatus.CANCELED) {
+            LocalDateTime nextScheduledAt = request.getScheduledAt();
+            LocalDateTime currentScheduledAt = broadcast.getScheduledAt();
+            if (nextScheduledAt != null && (currentScheduledAt == null || !currentScheduledAt.equals(nextScheduledAt))) {
+                String slotLockKey = "lock:broadcast_slot:" + nextScheduledAt.toString();
+                if (!Boolean.TRUE.equals(redisService.acquireLock(slotLockKey, 3000))) {
+                    throw new BusinessException(ErrorCode.TOO_MANY_REQUESTS);
+                }
+                try {
+                    long slotCount = broadcastRepository.countByTimeSlot(nextScheduledAt, nextScheduledAt.plusMinutes(30));
+                    if (slotCount >= 3) {
+                        throw new BusinessException(ErrorCode.BROADCAST_SLOT_FULL);
+                    }
+                } finally {
+                    redisService.releaseLock(slotLockKey);
+                }
+            }
             broadcast.updateBroadcastInfo(
                     category, request.getTitle(), request.getNotice(),
                     request.getScheduledAt(), request.getThumbnailUrl(),
@@ -390,26 +411,34 @@ public class BroadcastService {
 
     @Transactional
     public String startBroadcast(Long sellerId, Long broadcastId) {
-        Broadcast broadcast = broadcastRepository.findById(broadcastId)
-                .orElseThrow(() -> new BusinessException(ErrorCode.BROADCAST_NOT_FOUND));
-
-        if (!broadcast.getSeller().getSellerId().equals(sellerId)) {
-            throw new BusinessException(ErrorCode.FORBIDDEN_ACCESS);
+        String lockKey = "lock:broadcast_transition:" + broadcastId;
+        if (!Boolean.TRUE.equals(redisService.acquireLock(lockKey, 3000))) {
+            throw new BusinessException(ErrorCode.TOO_MANY_REQUESTS);
         }
-
-        if (broadcast.getScheduledAt() != null && LocalDateTime.now().isBefore(broadcast.getScheduledAt())) {
-            throw new BusinessException(ErrorCode.INVALID_INPUT_VALUE);
-        }
-
-        validateTransition(broadcast.getStatus(), BroadcastStatus.ON_AIR);
-        broadcast.startBroadcast("session-" + broadcastId);
-        sseService.notifyBroadcastUpdate(broadcastId, "BROADCAST_STARTED", "started");
-
         try {
-            Map<String, Object> params = Map.of("role", "HOST", "sellerId", sellerId);
-            return openViduService.createToken(broadcastId, params);
-        } catch (Exception e) {
-            throw new BusinessException(ErrorCode.OPENVIDU_ERROR);
+            Broadcast broadcast = broadcastRepository.findById(broadcastId)
+                    .orElseThrow(() -> new BusinessException(ErrorCode.BROADCAST_NOT_FOUND));
+
+            if (!broadcast.getSeller().getSellerId().equals(sellerId)) {
+                throw new BusinessException(ErrorCode.FORBIDDEN_ACCESS);
+            }
+
+            if (broadcast.getScheduledAt() != null && LocalDateTime.now().isBefore(broadcast.getScheduledAt())) {
+                throw new BusinessException(ErrorCode.INVALID_INPUT_VALUE);
+            }
+
+            validateTransition(broadcast.getStatus(), BroadcastStatus.ON_AIR);
+            broadcast.startBroadcast("session-" + broadcastId);
+            sseService.notifyBroadcastUpdate(broadcastId, "BROADCAST_STARTED", "started");
+
+            try {
+                Map<String, Object> params = Map.of("role", "HOST", "sellerId", sellerId);
+                return openViduService.createToken(broadcastId, params);
+            } catch (Exception e) {
+                throw new BusinessException(ErrorCode.OPENVIDU_ERROR);
+            }
+        } finally {
+            redisService.releaseLock(lockKey);
         }
     }
 
@@ -442,17 +471,25 @@ public class BroadcastService {
 
     @Transactional
     public void endBroadcast(Long sellerId, Long broadcastId) {
-        Broadcast broadcast = broadcastRepository.findById(broadcastId)
-                .orElseThrow(() -> new BusinessException(ErrorCode.BROADCAST_NOT_FOUND));
-
-        if (!broadcast.getSeller().getSellerId().equals(sellerId)) {
-            throw new BusinessException(ErrorCode.FORBIDDEN_ACCESS);
+        String lockKey = "lock:broadcast_transition:" + broadcastId;
+        if (!Boolean.TRUE.equals(redisService.acquireLock(lockKey, 3000))) {
+            throw new BusinessException(ErrorCode.TOO_MANY_REQUESTS);
         }
+        try {
+            Broadcast broadcast = broadcastRepository.findById(broadcastId)
+                    .orElseThrow(() -> new BusinessException(ErrorCode.BROADCAST_NOT_FOUND));
 
-        validateTransition(broadcast.getStatus(), BroadcastStatus.ENDED);
-        broadcast.endBroadcast();
-        openViduService.closeSession(broadcastId);
-        sseService.notifyBroadcastUpdate(broadcastId, "BROADCAST_ENDED", "ended");
+            if (!broadcast.getSeller().getSellerId().equals(sellerId)) {
+                throw new BusinessException(ErrorCode.FORBIDDEN_ACCESS);
+            }
+
+            validateTransition(broadcast.getStatus(), BroadcastStatus.ENDED);
+            broadcast.endBroadcast();
+            openViduService.closeSession(broadcastId);
+            sseService.notifyBroadcastUpdate(broadcastId, "BROADCAST_ENDED", "ended");
+        } finally {
+            redisService.releaseLock(lockKey);
+        }
     }
 
     @Transactional
@@ -1089,14 +1126,24 @@ public class BroadcastService {
     }
 
     private void injectLiveDetails(List<BroadcastListResponse> list) {
+        List<Long> liveIds = list.stream()
+                .filter(item -> item.getStatus() == BroadcastStatus.ON_AIR)
+                .map(BroadcastListResponse::getBroadcastId)
+                .toList();
+        if (liveIds.isEmpty()) {
+            return;
+        }
+
+        var productMap = broadcastProductRepository.findAllWithProductByBroadcastIdIn(liveIds).stream()
+                .collect(Collectors.groupingBy(bp -> bp.getBroadcast().getBroadcastId()));
+
         list.forEach(item -> {
             if (item.getStatus() == BroadcastStatus.ON_AIR) {
                 item.setLiveViewerCount(redisService.getRealtimeViewerCount(item.getBroadcastId()));
                 item.setTotalLikes(redisService.getLikeCount(item.getBroadcastId()));
                 item.setReportCount(redisService.getReportCount(item.getBroadcastId()));
 
-                List<BroadcastProduct> products = broadcastProductRepository.findAllWithProductByBroadcastId(item.getBroadcastId());
-
+                List<BroadcastProduct> products = productMap.getOrDefault(item.getBroadcastId(), List.of());
                 item.setProducts(products.stream().map(bp -> {
                     Product p = bp.getProduct();
                     return BroadcastListResponse.SimpleProductInfo.builder()

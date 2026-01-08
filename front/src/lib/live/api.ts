@@ -225,6 +225,22 @@ const ensureSuccess = <T>(response: ApiResult<T>) => {
   throw apiError
 }
 
+const inflight = new Map<string, Promise<any>>()
+
+const withInFlight = async <T>(key: string, request: () => Promise<T>): Promise<T> => {
+  const existing = inflight.get(key)
+  if (existing) {
+    return existing as Promise<T>
+  }
+  const promise = request()
+  inflight.set(key, promise)
+  try {
+    return await promise
+  } finally {
+    inflight.delete(key)
+  }
+}
+
 export const fetchCategories = async (): Promise<BroadcastCategory[]> => {
   const { data } = await http.get<ApiResult<Array<{ id: number; name: string }>>>('/api/categories')
   const payload = ensureSuccess(data)
@@ -273,8 +289,10 @@ export const fetchPublicBroadcastOverview = async (): Promise<BroadcastListItem[
 }
 
 export const fetchPublicBroadcastDetail = async (broadcastId: number): Promise<BroadcastDetail> => {
-  const { data } = await http.get<ApiResult<BroadcastDetail>>(`/api/broadcasts/${broadcastId}`)
-  return ensureSuccess(data)
+  return withInFlight(`public-detail-${broadcastId}`, async () => {
+    const { data } = await http.get<ApiResult<BroadcastDetail>>(`/api/broadcasts/${broadcastId}`)
+    return ensureSuccess(data)
+  })
 }
 
 export const fetchBroadcastProducts = async (broadcastId: number): Promise<BroadcastProductItem[]> => {
@@ -293,8 +311,10 @@ export const fetchBroadcastProducts = async (broadcastId: number): Promise<Broad
 }
 
 export const fetchBroadcastStats = async (broadcastId: number): Promise<BroadcastStats> => {
-  const { data } = await http.get<ApiResult<BroadcastStats>>(`/api/broadcasts/${broadcastId}/stats`)
-  return ensureSuccess(data)
+  return withInFlight(`broadcast-stats-${broadcastId}`, async () => {
+    const { data } = await http.get<ApiResult<BroadcastStats>>(`/api/broadcasts/${broadcastId}/stats`)
+    return ensureSuccess(data)
+  })
 }
 
 export const fetchSellerBroadcastReport = async (broadcastId: number): Promise<BroadcastResult> => {
@@ -308,13 +328,17 @@ export const fetchAdminBroadcastReport = async (broadcastId: number): Promise<Br
 }
 
 export const fetchSellerBroadcastDetail = async (broadcastId: number): Promise<BroadcastDetailResponse> => {
-  const { data } = await http.get<ApiResult<BroadcastDetailResponse>>(`/api/seller/broadcasts/${broadcastId}`)
-  return ensureSuccess(data)
+  return withInFlight(`seller-detail-${broadcastId}`, async () => {
+    const { data } = await http.get<ApiResult<BroadcastDetailResponse>>(`/api/seller/broadcasts/${broadcastId}`)
+    return ensureSuccess(data)
+  })
 }
 
 export const fetchAdminBroadcastDetail = async (broadcastId: number): Promise<BroadcastDetailResponse> => {
-  const { data } = await http.get<ApiResult<BroadcastDetailResponse>>(`/api/admin/broadcasts/${broadcastId}`)
-  return ensureSuccess(data)
+  return withInFlight(`admin-detail-${broadcastId}`, async () => {
+    const { data } = await http.get<ApiResult<BroadcastDetailResponse>>(`/api/admin/broadcasts/${broadcastId}`)
+    return ensureSuccess(data)
+  })
 }
 
 export const stopAdminBroadcast = async (broadcastId: number, reason: string) => {
