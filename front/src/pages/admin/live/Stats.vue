@@ -1,18 +1,15 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { ref, watch } from 'vue'
 import PageHeader from '../../../components/PageHeader.vue'
 import StatsBarChart from '../../../components/stats/StatsBarChart.vue'
 import StatsRankList from '../../../components/stats/StatsRankList.vue'
-import {
-  getAdminProductRevenueRankings,
-  getAdminRevenueRankings,
-  revenueData,
-  revenuePerViewerData,
-  type RankGroup,
-  type StatsRange,
-} from '../../../lib/mocks/liveStats'
+import { fetchAdminStatistics } from '../../../lib/live/api'
 
 type RankView = 'best' | 'worst'
+type StatsRange = 'daily' | 'monthly' | 'yearly'
+type ChartDatum = { label: string; value: number }
+type RankItem = { rank: number; title: string; value: number }
+type RankGroup = { best: RankItem[]; worst: RankItem[] }
 
 const revenueRange = ref<StatsRange>('monthly')
 const perViewerRange = ref<StatsRange>('monthly')
@@ -21,16 +18,67 @@ const productRankView = ref<RankView>('best')
 
 const broadcastRanks = ref<RankGroup>({ best: [], worst: [] })
 const productRanks = ref<RankGroup>({ best: [], worst: [] })
+const revenueChart = ref<ChartDatum[]>([])
+const perViewerChart = ref<ChartDatum[]>([])
 
-const revenueChart = computed(() => revenueData[revenueRange.value])
-const perViewerChart = computed(() => revenuePerViewerData[perViewerRange.value])
+const periodMap: Record<StatsRange, string> = {
+  daily: 'DAILY',
+  monthly: 'MONTHLY',
+  yearly: 'YEARLY',
+}
+
+const toNumber = (value: number | string | undefined) => {
+  if (typeof value === 'number') return value
+  if (typeof value === 'string') {
+    const parsed = Number(value)
+    return Number.isNaN(parsed) ? 0 : parsed
+  }
+  return 0
+}
+
+const mapChart = (items: Array<{ label: string; value: number | string }> = []) =>
+  items.map((item) => ({
+    label: item.label,
+    value: toNumber(item.value),
+  }))
+
+const mapRankGroup = (
+  best: Array<{ title: string; totalSales: number | string }> = [],
+  worst: Array<{ title: string; totalSales: number | string }> = [],
+): RankGroup => ({
+  best: best.map((item, index) => ({ rank: index + 1, title: item.title, value: toNumber(item.totalSales) })),
+  worst: worst.map((item, index) => ({ rank: index + 1, title: item.title, value: toNumber(item.totalSales) })),
+})
+
+const mapProductRanks = (
+  best: Array<{ title: string; totalSales: number | string }> = [],
+  worst: Array<{ title: string; totalSales: number | string }> = [],
+): RankGroup => ({
+  best: best.map((item, index) => ({ rank: index + 1, title: item.title, value: toNumber(item.totalSales) })),
+  worst: worst.map((item, index) => ({ rank: index + 1, title: item.title, value: toNumber(item.totalSales) })),
+})
 
 const formatCurrency = (value: number) => `₩${value.toLocaleString('ko-KR')}`
 
-onMounted(() => {
-  broadcastRanks.value = getAdminRevenueRankings()
-  productRanks.value = getAdminProductRevenueRankings()
-})
+const loadRevenueStats = async () => {
+  const payload = await fetchAdminStatistics(periodMap[revenueRange.value])
+  revenueChart.value = mapChart(payload.salesChart)
+  broadcastRanks.value = mapRankGroup(payload.bestBroadcasts, payload.worstBroadcasts)
+  productRanks.value = mapProductRanks(payload.bestProducts ?? [], payload.worstProducts ?? [])
+}
+
+const loadViewerStats = async () => {
+  const payload = await fetchAdminStatistics(periodMap[perViewerRange.value])
+  perViewerChart.value = mapChart(payload.arpuChart)
+}
+
+watch(revenueRange, () => {
+  loadRevenueStats()
+}, { immediate: true })
+
+watch(perViewerRange, () => {
+  loadViewerStats()
+}, { immediate: true })
 </script>
 
 <template>

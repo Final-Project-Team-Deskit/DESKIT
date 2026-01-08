@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
+import { fetchCategories, type BroadcastCategory } from '../lib/live/api'
 
 type BroadcastInfo = {
   title: string
@@ -24,6 +25,15 @@ const category = ref('가구')
 const notice = ref('판매 상품 외 다른 상품 문의는 받지 않습니다.')
 const thumbnailPreview = ref('')
 const waitingPreview = ref('')
+const categories = ref<BroadcastCategory[]>([])
+
+const categoryOptions = computed(() => {
+  const names = categories.value.map((item) => item.name)
+  if (category.value && !names.includes(category.value)) {
+    return [{ id: -1, name: category.value }, ...categories.value]
+  }
+  return categories.value
+})
 
 const isOpen = computed(() => props.modelValue)
 
@@ -54,9 +64,18 @@ watch(
 
 onMounted(() => {
   if (props.broadcast) hydrateFromBroadcast()
+  void loadCategories()
 })
 
 const close = () => emit('update:modelValue', false)
+
+const loadCategories = async () => {
+  try {
+    categories.value = await fetchCategories()
+  } catch (error) {
+    console.error('Failed to load categories', error)
+  }
+}
 
 const handleFile = (event: Event, target: 'thumbnail' | 'waiting') => {
   const input = event.target as HTMLInputElement
@@ -111,11 +130,7 @@ const handleSave = () => {
         <label class="field">
           <span class="field__label">카테고리</span>
           <select v-model="category" class="field__input">
-            <option value="가구">가구</option>
-            <option value="전자기기">전자기기</option>
-            <option value="패션">패션</option>
-            <option value="뷰티">뷰티</option>
-            <option value="악세사리">악세사리</option>
+            <option v-for="item in categoryOptions" :key="item.id" :value="item.name">{{ item.name }}</option>
           </select>
         </label>
 

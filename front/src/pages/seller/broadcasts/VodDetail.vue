@@ -3,15 +3,41 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import PageContainer from '../../../components/PageContainer.vue'
 import ConfirmModal from '../../../components/ConfirmModal.vue'
-import { getSellerVodDetail } from '../../../lib/mocks/sellerVods'
+import {
+  fetchRecentLiveChats,
+  fetchSellerBroadcastDetail,
+  fetchSellerBroadcastReport,
+  type BroadcastDetailResponse,
+  type BroadcastResult,
+} from '../../../lib/live/api'
 
 const route = useRoute()
 const router = useRouter()
 
-const vodId = typeof route.params.vodId === 'string' ? route.params.vodId : ''
-const detail = ref(getSellerVodDetail(vodId))
+const vodId = computed(() => (typeof route.params.vodId === 'string' ? route.params.vodId : ''))
+
+type SellerVodDetail = {
+  id: string
+  title: string
+  startedAt: string
+  endedAt: string
+  statusLabel: string
+  stopReason?: string
+  thumb: string
+  metrics: {
+    maxViewers: number
+    reports: number
+    sanctions: number
+    likes: number
+    totalRevenue: number
+  }
+  vod: { url?: string; visibility: string }
+  productResults: Array<{ id: string; name: string; price: number; soldQty: number; revenue: number }>
+}
+
+const detail = ref<SellerVodDetail | null>(null)
 const isVodPlayable = computed(() => !!detail.value?.vod?.url)
-const isVodPublic = computed(() => detail.value.vod.visibility === '공개')
+const isVodPublic = computed(() => detail.value?.vod.visibility === '공개')
 const isPlaying = ref(false)
 const isFullscreen = ref(false)
 const showDeleteConfirm = ref(false)
@@ -25,6 +51,7 @@ const goToList = () => {
 }
 
 const toggleVisibility = () => {
+  if (!detail.value) return
   const next = detail.value.vod.visibility === '공개' ? '비공개' : '공개'
   detail.value = { ...detail.value, vod: { ...detail.value.vod, visibility: next } }
 }
@@ -43,10 +70,7 @@ const confirmDelete = () => {
 
 const showChat = ref(false)
 const chatText = ref('')
-const chatMessages = ref([
-  { id: 'c1', user: '시청자A', text: '잘 봤어요!', time: '오후 2:10' },
-  { id: 'c2', user: '관리자', text: '채팅은 보관용입니다.', time: '오후 2:12' },
-])
+const chatMessages = ref<{ id: string; user: string; text: string; time: string }[]>([])
 
 const sendChat = () => {
   if (!chatText.value.trim()) return
@@ -93,10 +117,84 @@ watch(isVodPlayable, (playable) => {
     isPlaying.value = false
   }
 })
+
+const formatDateTime = (value?: string) => (value ? value.replace('T', ' ') : '')
+
+const formatVisibility = (vodStatus?: string) => (vodStatus === 'PUBLIC' ? '공개' : '비공개')
+
+const toNumber = (value: number | string | undefined) => {
+  if (typeof value === 'number') return value
+  if (typeof value === 'string') {
+    const parsed = Number(value)
+    return Number.isNaN(parsed) ? 0 : parsed
+  }
+  return 0
+}
+
+const formatChatTime = (timestamp?: number) => {
+  if (!timestamp) return ''
+  const date = new Date(timestamp)
+  const hours = date.getHours()
+  const displayHour = hours % 12 || 12
+  const minutes = String(date.getMinutes()).padStart(2, '0')
+  return `${hours >= 12 ? '오후' : '오전'} ${displayHour}:${minutes}`
+}
+
+const buildDetail = (broadcast: BroadcastDetailResponse, report: BroadcastResult): SellerVodDetail => ({
+  id: String(report.broadcastId),
+  title: report.title ?? broadcast.title ?? '',
+  startedAt: formatDateTime(report.startAt ?? broadcast.startedAt),
+  endedAt: formatDateTime(report.endAt),
+  statusLabel: report.status ?? broadcast.status ?? '',
+  stopReason: report.stoppedReason ?? broadcast.stoppedReason ?? undefined,
+  thumb: broadcast.thumbnailUrl ?? '',
+  metrics: {
+    maxViewers: report.maxViewers ?? 0,
+    reports: report.reportCount ?? 0,
+    sanctions: report.sanctionCount ?? 0,
+    likes: report.totalLikes ?? 0,
+    totalRevenue: toNumber(report.totalSales),
+  },
+  vod: {
+    url: report.vodUrl ?? undefined,
+    visibility: formatVisibility(report.vodStatus),
+  },
+  productResults: (report.productStats ?? []).map((item) => ({
+    id: String(item.productId),
+    name: item.productName,
+    price: item.price ?? 0,
+    soldQty: item.salesQuantity ?? 0,
+    revenue: toNumber(item.salesAmount),
+  })),
+})
+
+const loadDetail = async () => {
+  const idValue = Number(vodId.value)
+  if (!vodId.value || Number.isNaN(idValue)) {
+    detail.value = null
+    return
+  }
+  const [broadcast, report, chats] = await Promise.all([
+    fetchSellerBroadcastDetail(idValue),
+    fetchSellerBroadcastReport(idValue),
+    fetchRecentLiveChats(idValue, 3600).catch(() => []),
+  ])
+  detail.value = buildDetail(broadcast, report)
+  chatMessages.value = chats.map((item) => ({
+    id: `${item.sentAt}-${item.sender}`,
+    user: item.sender || item.memberEmail || '시청자',
+    text: item.content,
+    time: formatChatTime(item.sentAt),
+  }))
+}
+
+watch(vodId, () => {
+  loadDetail()
+}, { immediate: true })
 </script>
 
 <template>
-  <PageContainer>
+  <PageContainer v-if="detail">
     <header class="detail-header">
       <button type="button" class="back-link" @click="goBack">← 뒤로 가기</button>
       <button type="button" class="btn ghost" @click="goToList">목록으로</button>
@@ -114,7 +212,7 @@ watch(isVodPlayable, (playable) => {
           <p><span>방송 시작 시간</span>{{ detail.startedAt }}</p>
           <p><span>방송 종료 시간</span>{{ detail.endedAt }}</p>
           <p><span>상태</span>{{ detail.statusLabel }}</p>
-          <p v-if="detail.statusLabel === 'STOPPED' && (detail as any).stopReason"><span>중지 사유</span>{{ (detail as any).stopReason }}</p>
+          <p v-if="detail.statusLabel === 'STOPPED' && detail.stopReason"><span>중지 사유</span>{{ detail.stopReason }}</p>
         </div>
       </div>
     </section>
