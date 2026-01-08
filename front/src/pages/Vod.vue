@@ -3,10 +3,10 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import PageContainer from '../components/PageContainer.vue'
 import PageHeader from '../components/PageHeader.vue'
-import { liveItems } from '../lib/live/data'
 import { getLiveStatus, parseLiveDate } from '../lib/live/utils'
 import { useNow } from '../lib/live/useNow'
-import { getProductsForLive, type LiveProductItem } from '../lib/live/detail'
+import { fetchBroadcastProducts, fetchPublicBroadcastDetail, type BroadcastProductItem } from '../lib/live/api'
+import type { LiveItem } from '../lib/live/types'
 
 const route = useRoute()
 const router = useRouter()
@@ -17,12 +17,7 @@ const vodId = computed(() => {
   return Array.isArray(value) ? value[0] : value
 })
 
-const vodItem = computed(() => {
-  if (!vodId.value) {
-    return undefined
-  }
-  return liveItems.find((entry) => entry.id === vodId.value)
-})
+const vodItem = ref<LiveItem | null>(null)
 
 const status = computed(() => {
   if (!vodItem.value) {
@@ -99,37 +94,10 @@ const syncChatHeight = () => {
   playerHeight.value = playerPanelRef.value.getBoundingClientRect().height
 }
 
-const products = computed<LiveProductItem[]>(() => {
-  if (!vodItem.value) {
-    return []
-  }
-  return getProductsForLive(vodItem.value.id)
-})
+const products = ref<BroadcastProductItem[]>([])
 
 const messages = ref(
-  [
-    {
-      id: 'sys-1',
-      user: 'system',
-      text: 'VOD 채팅 기록을 보고 계십니다.',
-      at: new Date(Date.now() - 1000 * 60 * 6),
-      kind: 'system',
-    },
-    {
-      id: 'msg-1',
-      user: 'desklover',
-      text: '이 라이브 제품 너무 좋았어요!',
-      at: new Date(Date.now() - 1000 * 60 * 4),
-      kind: 'user',
-    },
-    {
-      id: 'msg-2',
-      user: 'setup_master',
-      text: '배송도 빨랐습니다 👍',
-      at: new Date(Date.now() - 1000 * 60 * 2),
-      kind: 'user',
-    },
-  ] as Array<{ id: string; user: string; text: string; at: Date; kind?: 'system' | 'user' }>,
+  [] as Array<{ id: string; user: string; text: string; at: Date; kind?: 'system' | 'user' }>,
 )
 
 const chatListRef = ref<HTMLDivElement | null>(null)
@@ -151,6 +119,49 @@ const scheduledLabel = computed(() => {
   return `${month}.${date} (${day}) ${hours}:${minutes} 예정`
 })
 
+const buildVodItem = (detail: { broadcastId: number; title: string; notice?: string; thumbnailUrl?: string; scheduledAt?: string; startedAt?: string; sellerName?: string }) => {
+  const startAt = detail.startedAt ?? detail.scheduledAt ?? ''
+  const endAt = startAt ? new Date(parseLiveDate(startAt).getTime() + 60 * 60 * 1000).toISOString() : ''
+  return {
+    id: String(detail.broadcastId),
+    title: detail.title,
+    description: detail.notice ?? '',
+    thumbnailUrl: detail.thumbnailUrl ?? '',
+    startAt,
+    endAt,
+    sellerName: detail.sellerName ?? '',
+  }
+}
+
+const loadVodDetail = async () => {
+  if (!vodId.value) return
+  const numeric = Number.parseInt(String(vodId.value).replace(/[^0-9]/g, ''), 10)
+  if (!Number.isFinite(numeric)) {
+    vodItem.value = null
+    return
+  }
+  try {
+    const detail = await fetchPublicBroadcastDetail(numeric)
+    vodItem.value = buildVodItem(detail)
+    await loadProducts(numeric)
+  } catch {
+    vodItem.value = null
+  }
+}
+
+const loadProducts = async (broadcastId?: number) => {
+  const numeric = broadcastId ?? (vodItem.value ? Number.parseInt(vodItem.value.id.replace(/[^0-9]/g, ''), 10) : NaN)
+  if (!Number.isFinite(numeric)) {
+    products.value = []
+    return
+  }
+  try {
+    products.value = await fetchBroadcastProducts(numeric)
+  } catch {
+    products.value = []
+  }
+}
+
 const formatSchedule = (startAt: string, endAt: string) => {
   const dayNames = ['일', '월', '화', '수', '목', '금', '토']
   const start = parseLiveDate(startAt)
@@ -171,6 +182,14 @@ const isEmbedUrl = (url: string) => url.includes('youtube.com/embed') || url.inc
 const handleProductClick = (productId: string) => {
   router.push({ name: 'product-detail', params: { id: productId } })
 }
+
+watch(
+  vodId,
+  () => {
+    void loadVodDetail()
+  },
+  { immediate: true },
+)
 
 watch(
   [status, vodItem],
