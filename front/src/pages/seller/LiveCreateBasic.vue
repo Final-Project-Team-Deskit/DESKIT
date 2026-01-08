@@ -3,6 +3,7 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import PageContainer from '../../components/PageContainer.vue'
 import PageHeader from '../../components/PageHeader.vue'
+import LiveImageCropModal from '../../components/LiveImageCropModal.vue'
 import {
   activateDraftFlow,
   buildDraftFromReservation,
@@ -40,6 +41,14 @@ const sellerProducts = ref<LiveCreateProduct[]>([])
 const categories = ref<BroadcastCategory[]>([])
 const reservationSlots = ref<ReservationSlot[]>([])
 const activeDate = ref('')
+const cropperOpen = ref(false)
+const cropperSource = ref('')
+const cropperFileName = ref('')
+const cropTarget = ref<'thumb' | 'standby' | null>(null)
+const thumbFileName = ref('')
+const standbyFileName = ref('')
+const thumbInputRef = ref<HTMLInputElement | null>(null)
+const standbyInputRef = ref<HTMLInputElement | null>(null)
 
 const reservationId = computed(() => {
   const queryValue = route.query.reservationId
@@ -115,7 +124,7 @@ const syncDraft = () => {
   })
 }
 
-const restoreDraft = () => {
+const restoreDraft = async () => {
   const savedDraft = loadDraft()
   let baseDraft = createEmptyDraft()
   if (savedDraft && (!isEditMode.value || savedDraft.reservationId === reservationId.value)) {
@@ -137,11 +146,26 @@ const restoreDraft = () => {
   activateDraftFlow()
 
   const reservationDraft = isEditMode.value
-    ? { ...baseDraft, ...buildDraftFromReservation(reservationId.value), reservationId: reservationId.value }
+    ? {
+      ...baseDraft,
+      ...(await buildDraftFromReservation(reservationId.value)),
+      reservationId: reservationId.value,
+    }
     : baseDraft
 
   draft.value = reservationDraft
   modalProducts.value = reservationDraft.products.map((p) => ({ ...p }))
+}
+
+const openCropper = (file: File, target: 'thumb' | 'standby') => {
+  const reader = new FileReader()
+  reader.onload = () => {
+    cropperSource.value = typeof reader.result === 'string' ? reader.result : ''
+    cropperFileName.value = file.name
+    cropTarget.value = target
+    cropperOpen.value = true
+  }
+  reader.readAsDataURL(file)
 }
 
 const handleThumbUpload = (event: Event) => {
@@ -154,11 +178,7 @@ const handleThumbUpload = (event: Event) => {
     input.value = ''
     return
   }
-  const reader = new FileReader()
-  reader.onload = () => {
-    draft.value.thumb = typeof reader.result === 'string' ? reader.result : ''
-  }
-  reader.readAsDataURL(file)
+  openCropper(file, 'thumb')
 }
 
 const handleStandbyUpload = (event: Event) => {
@@ -171,11 +191,30 @@ const handleStandbyUpload = (event: Event) => {
     input.value = ''
     return
   }
-  const reader = new FileReader()
-  reader.onload = () => {
-    draft.value.standbyThumb = typeof reader.result === 'string' ? reader.result : ''
+  openCropper(file, 'standby')
+}
+
+const applyCroppedImage = (payload: { dataUrl: string; fileName: string }) => {
+  if (cropTarget.value === 'thumb') {
+    draft.value.thumb = payload.dataUrl
+    thumbFileName.value = payload.fileName
   }
-  reader.readAsDataURL(file)
+  if (cropTarget.value === 'standby') {
+    draft.value.standbyThumb = payload.dataUrl
+    standbyFileName.value = payload.fileName
+  }
+}
+
+const clearThumb = () => {
+  draft.value.thumb = ''
+  thumbFileName.value = ''
+  if (thumbInputRef.value) thumbInputRef.value.value = ''
+}
+
+const clearStandby = () => {
+  draft.value.standbyThumb = ''
+  standbyFileName.value = ''
+  if (standbyInputRef.value) standbyInputRef.value.value = ''
 }
 
 const isQuestionValid = (text: string) => {
@@ -296,7 +335,7 @@ const minDate = computed(() => {
 
 const maxDate = computed(() => {
   const date = new Date()
-  date.setDate(date.getDate() + 15)
+  date.setDate(date.getDate() + 14)
   return date.toISOString().split('T')[0]
 })
 
@@ -389,6 +428,12 @@ watch(
 <template>
     <PageContainer>
       <PageHeader :eyebrow="isEditMode ? 'DESKIT' : 'DESKIT'" :title="isEditMode ? '예약 수정 - 기본 정보' : '방송 등록 - 기본 정보'" />
+      <LiveImageCropModal
+        v-model="cropperOpen"
+        :image-src="cropperSource"
+        :file-name="cropperFileName"
+        @confirm="applyCroppedImage"
+      />
     <section class="create-card ds-surface">
       <div class="step-meta">
         <span class="step-indicator">2 / 2 단계</span>
@@ -505,19 +550,23 @@ watch(
         <div class="field-grid">
           <label class="field">
             <span class="field__label">방송 썸네일 업로드</span>
-            <input type="file" accept="image/*" @change="handleThumbUpload" />
+            <input ref="thumbInputRef" type="file" accept="image/*" @change="handleThumbUpload" />
             <span v-if="thumbError" class="error">{{ thumbError }}</span>
+            <p class="upload-filename">{{ thumbFileName || '선택된 파일 없음' }}</p>
             <div v-if="draft.thumb" class="preview">
               <img :src="draft.thumb" alt="방송 썸네일 미리보기" />
             </div>
+            <button type="button" class="btn ghost upload-clear" @click="clearThumb">이미지 삭제</button>
           </label>
           <label class="field">
             <span class="field__label">대기화면 업로드</span>
-            <input type="file" accept="image/*" @change="handleStandbyUpload" />
+            <input ref="standbyInputRef" type="file" accept="image/*" @change="handleStandbyUpload" />
             <span v-if="standbyError" class="error">{{ standbyError }}</span>
+            <p class="upload-filename">{{ standbyFileName || '선택된 파일 없음' }}</p>
             <div v-if="draft.standbyThumb" class="preview">
               <img :src="draft.standbyThumb" alt="대기화면 미리보기" />
             </div>
+            <button type="button" class="btn ghost upload-clear" @click="clearStandby">이미지 삭제</button>
           </label>
         </div>
       </div>
@@ -778,6 +827,16 @@ input[type='file'] {
   height: 140px;
   object-fit: cover;
   display: block;
+}
+
+.upload-filename {
+  margin: 6px 0 0;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.upload-clear {
+  margin-top: 6px;
 }
 
 .checkbox {
