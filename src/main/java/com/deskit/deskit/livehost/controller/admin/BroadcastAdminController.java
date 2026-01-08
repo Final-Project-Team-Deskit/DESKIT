@@ -8,6 +8,7 @@ import com.deskit.deskit.livehost.common.exception.BusinessException;
 import com.deskit.deskit.livehost.common.exception.ErrorCode;
 import com.deskit.deskit.livehost.dto.request.BroadcastSearch;
 import com.deskit.deskit.livehost.dto.request.SanctionRequest;
+import com.deskit.deskit.livehost.dto.response.BroadcastResponse;
 import com.deskit.deskit.livehost.dto.response.BroadcastResultResponse;
 import com.deskit.deskit.livehost.dto.response.SanctionStatisticsResponse;
 import com.deskit.deskit.livehost.dto.response.StatisticsResponse;
@@ -46,6 +47,15 @@ public class BroadcastAdminController {
     ) {
         return ResponseEntity.ok(ApiResult.success(
                 broadcastService.getAdminBroadcasts(searchCondition, pageable)
+        ));
+    }
+
+    @GetMapping("/broadcasts/{broadcastId}")
+    public ResponseEntity<ApiResult<BroadcastResponse>> getBroadcastDetail(
+            @PathVariable Long broadcastId
+    ) {
+        return ResponseEntity.ok(ApiResult.success(
+                broadcastService.getAdminBroadcastDetail(broadcastId)
         ));
     }
 
