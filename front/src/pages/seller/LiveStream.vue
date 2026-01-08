@@ -6,6 +6,14 @@ import ChatSanctionModal from '../../components/ChatSanctionModal.vue'
 import ConfirmModal from '../../components/ConfirmModal.vue'
 import PageContainer from '../../components/PageContainer.vue'
 import QCardModal from '../../components/QCardModal.vue'
+import {
+  fetchBroadcastStats,
+  fetchMediaConfig,
+  fetchRecentLiveChats,
+  fetchSellerBroadcastDetail,
+  pinSellerBroadcastProduct,
+} from '../../lib/live/api'
+import { parseLiveDate } from '../../lib/live/utils'
 
 type StreamProduct = {
   id: string
@@ -44,9 +52,9 @@ const router = useRouter()
 const showProducts = ref(true)
 const showChat = ref(true)
 const showSettings = ref(false)
-const viewerCount = ref(1010)
-const likeCount = ref(1574)
-const elapsed = ref('02:01:44')
+const viewerCount = ref(0)
+const likeCount = ref(0)
+const elapsed = ref('00:00:00')
 const monitorRef = ref<HTMLElement | null>(null)
 const streamGridRef = ref<HTMLElement | null>(null)
 const isFullscreen = ref(false)
@@ -89,51 +97,49 @@ const sanctionedUsers = ref<Record<string, { type: string; reason: string }>>({}
 const broadcastInfo = ref<(EditableBroadcastInfo & { qCards: string[] }) | null>(null)
 const stream = ref<StreamData | null>(null)
 const chatMessages = ref<StreamChat[]>([])
-
-const defaultChatTimes = ['오후 2:10', '오후 2:12', '오후 2:14']
+const sseSource = ref<EventSource | null>(null)
+const sseConnected = ref(false)
+const sseRetryCount = ref(0)
+const sseRetryTimer = ref<number | null>(null)
+const statsTimer = ref<number | null>(null)
+const refreshTimer = ref<number | null>(null)
+const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080'
 
 const streamId = computed(() => {
   const id = route.params.id
   return typeof id === 'string' && id.trim() ? id : null
 })
 
-const streamMap: Record<string, StreamData> = {
-  'live-1': {
-    title: '홈오피스 라이브 스냅',
-    datetime: '오늘 14:00 - 15:00',
-    category: '홈오피스',
-    notice: defaultNotice,
-    qCards: ['오늘의 대표 상품은 무엇인가요?', '배송 스케줄과 사은품 안내 부탁드립니다.'],
-    products: [
-      { id: 'lp-1', title: '모던 스탠딩 데스크', option: '1200mm · 오프화이트', status: '판매중', pinned: true },
-      { id: 'lp-2', title: '로우 프로파일 키보드', option: '무선 · 베이지', status: '판매중' },
-      { id: 'lp-3', title: '미니멀 데스크 매트', option: '900mm · 샌드', status: '품절' },
-      { id: 'lp-4', title: '알루미늄 모니터암', option: '싱글 · 블랙', status: '판매중' },
-    ],
-    chat: [
-      { id: 'c-1', name: '연두', message: '라이브 시작했나요?' },
-      { id: 'c-2', name: '민지', message: '가격 할인 언제까지인가요?' },
-      { id: 'c-3', name: '도현', message: '블랙 색상 재입고 예정 있나요?' },
-      { id: 'c-4', name: '지수', message: '오늘 배송 가능할까요?' },
-    ],
-  },
-  'live-2': {
-    title: '게이밍 데스크 셋업',
-    datetime: '오늘 16:30 - 17:10',
-    category: '주변기기',
-    notice: defaultNotice,
-    qCards: ['방송 순서와 할인 적용 시점을 안내해주세요.', '특정 색상 재입고 일정이 궁금합니다.'],
-    products: [
-      { id: 'lp-5', title: '게이밍 데스크 패드', option: 'XL · 블랙', status: '판매중', pinned: true },
-      { id: 'lp-6', title: 'RGB 데스크 램프', option: 'USB · 네온', status: '판매중' },
-      { id: 'lp-7', title: '헤드셋 스탠드', option: '알루미늄', status: '품절' },
-    ],
-    chat: [
-      { id: 'c-5', name: '지훈', message: 'LED 밝기 조절도 되나요?' },
-      { id: 'c-6', name: '소연', message: '블랙 데스크 매트 재입고 계획 있나요?' },
-      { id: 'c-7', name: '준호', message: '다음 방송 일정 알려주세요.' },
-    ],
-  },
+const formatElapsed = (startedAt?: string) => {
+  if (!startedAt) return '00:00:00'
+  const started = parseLiveDate(startedAt)
+  if (Number.isNaN(started.getTime())) return '00:00:00'
+  const diff = Math.max(0, Date.now() - started.getTime())
+  const totalSeconds = Math.floor(diff / 1000)
+  const hours = Math.floor(totalSeconds / 3600)
+  const minutes = Math.floor((totalSeconds % 3600) / 60)
+  const seconds = totalSeconds % 60
+  return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`
+}
+
+const formatScheduleWindow = (scheduledAt?: string, startedAt?: string) => {
+  const baseRaw = scheduledAt ?? startedAt
+  if (!baseRaw) return ''
+  const base = parseLiveDate(baseRaw)
+  if (Number.isNaN(base.getTime())) return ''
+  const end = new Date(base.getTime() + 60 * 60 * 1000)
+  const pad = (value: number) => String(value).padStart(2, '0')
+  const dateLabel = `${base.getFullYear()}.${pad(base.getMonth() + 1)}.${pad(base.getDate())}`
+  return `${dateLabel} ${pad(base.getHours())}:${pad(base.getMinutes())} - ${pad(end.getHours())}:${pad(end.getMinutes())}`
+}
+
+const formatChatTime = (timestamp?: number) => {
+  if (!timestamp) return ''
+  const date = new Date(timestamp)
+  const hours = date.getHours()
+  const displayHour = hours % 12 || 12
+  const minutes = String(date.getMinutes()).padStart(2, '0')
+  return `${hours >= 12 ? '오후' : '오전'} ${displayHour}:${minutes}`
 }
 
 const productItems = computed(() => stream.value?.products ?? [])
@@ -210,41 +216,295 @@ const scrollChatToBottom = () => {
   })
 }
 
-const hydrateStream = () => {
+const hydrateStream = async () => {
   isLoadingStream.value = true
   const id = streamId.value
-  const next = id ? streamMap[id] ?? null : null
-  stream.value = next
-
-  if (!next) {
+  if (!id) {
+    stream.value = null
     pinnedProductId.value = null
     broadcastInfo.value = null
     chatMessages.value = []
+    viewerCount.value = 0
+    likeCount.value = 0
+    elapsed.value = '00:00:00'
     isLoadingStream.value = false
     return
   }
 
-  pinnedProductId.value = next.products.find((item) => item.pinned)?.id ?? null
-  broadcastInfo.value = {
-    title: next.title,
-    category: next.category,
-    notice: next.notice ?? defaultNotice,
-    thumbnail: next.thumbnail,
-    waitingScreen: next.waitingScreen,
-    qCards: next.qCards,
+  const idValue = Number(id)
+  if (Number.isNaN(idValue)) {
+    stream.value = null
+    viewerCount.value = 0
+    likeCount.value = 0
+    elapsed.value = '00:00:00'
+    isLoadingStream.value = false
+    return
   }
-  chatMessages.value = (next.chat ?? []).map((item, index) => ({
-    ...item,
-    time: item.time ?? defaultChatTimes[index % defaultChatTimes.length],
-  }))
-  isLoadingStream.value = false
-  scrollChatToBottom()
+
+  try {
+    const [detail, stats, chats, mediaConfig] = await Promise.all([
+      fetchSellerBroadcastDetail(idValue),
+      fetchBroadcastStats(idValue).catch(() => null),
+      fetchRecentLiveChats(idValue, 300).catch(() => []),
+      fetchMediaConfig(idValue).catch(() => null),
+    ])
+
+    const products = (detail.products ?? []).map((product) => ({
+      id: String(product.productId),
+      title: product.name,
+      option: product.name,
+      status: product.status === 'SOLDOUT' ? '품절' : '판매중',
+      pinned: product.pinned,
+    }))
+
+    stream.value = {
+      title: detail.title ?? '',
+      datetime: formatScheduleWindow(detail.scheduledAt, detail.startedAt),
+      category: detail.categoryName ?? '',
+      notice: detail.notice ?? defaultNotice,
+      products,
+      chat: [],
+      qCards: (detail.qcards ?? []).map((card) => card.question),
+      thumbnail: detail.thumbnailUrl,
+      waitingScreen: detail.waitScreenUrl,
+    }
+
+    pinnedProductId.value = products.find((item) => item.pinned)?.id ?? null
+    broadcastInfo.value = {
+      title: detail.title ?? '',
+      category: detail.categoryName ?? '',
+      notice: detail.notice ?? defaultNotice,
+      thumbnail: detail.thumbnailUrl,
+      waitingScreen: detail.waitScreenUrl,
+      qCards: (detail.qcards ?? []).map((card) => card.question),
+    }
+
+    viewerCount.value = stats?.viewerCount ?? detail.totalViews ?? 0
+    likeCount.value = stats?.likeCount ?? detail.totalLikes ?? 0
+    elapsed.value = formatElapsed(detail.startedAt)
+
+    if (mediaConfig) {
+      selectedMic.value = mediaConfig.microphoneId?.trim() ? mediaConfig.microphoneId : '기본 마이크'
+      selectedCamera.value = mediaConfig.cameraId?.trim() ? mediaConfig.cameraId : '기본 카메라'
+      micEnabled.value = mediaConfig.microphoneOn
+      videoEnabled.value = mediaConfig.cameraOn
+      volume.value = mediaConfig.volume
+    }
+
+    chatMessages.value = chats.map((item) => ({
+      id: `${item.sentAt}-${item.sender}`,
+      name: item.sender || item.memberEmail || '시청자',
+      message: item.content,
+      time: formatChatTime(item.sentAt),
+    }))
+    isLoadingStream.value = false
+    scrollChatToBottom()
+  } catch {
+    stream.value = null
+    chatMessages.value = []
+    viewerCount.value = 0
+    likeCount.value = 0
+    elapsed.value = '00:00:00'
+    isLoadingStream.value = false
+  }
+}
+
+const refreshStats = async (broadcastId: number) => {
+  try {
+    const stats = await fetchBroadcastStats(broadcastId)
+    viewerCount.value = stats.viewerCount ?? 0
+    likeCount.value = stats.likeCount ?? 0
+  } catch {
+    return
+  }
+}
+
+const refreshProducts = async (broadcastId: number) => {
+  try {
+    const detail = await fetchSellerBroadcastDetail(broadcastId)
+    const products = (detail.products ?? []).map((product) => ({
+      id: String(product.productId),
+      title: product.name,
+      option: product.name,
+      status: product.status === 'SOLDOUT' ? '품절' : '판매중',
+      pinned: product.pinned,
+    }))
+    pinnedProductId.value = products.find((item) => item.pinned)?.id ?? null
+    if (stream.value) {
+      stream.value = { ...stream.value, products }
+    }
+  } catch {
+    return
+  }
+}
+
+const refreshInfo = async (broadcastId: number) => {
+  try {
+    const detail = await fetchSellerBroadcastDetail(broadcastId)
+    if (stream.value) {
+      stream.value = {
+        ...stream.value,
+        title: detail.title ?? '',
+        datetime: formatScheduleWindow(detail.scheduledAt, detail.startedAt),
+        category: detail.categoryName ?? '',
+        notice: detail.notice ?? defaultNotice,
+        thumbnail: detail.thumbnailUrl,
+        waitingScreen: detail.waitScreenUrl,
+        qCards: (detail.qcards ?? []).map((card) => card.question),
+      }
+    }
+    if (broadcastInfo.value) {
+      broadcastInfo.value = {
+        ...broadcastInfo.value,
+        title: detail.title ?? '',
+        category: detail.categoryName ?? '',
+        notice: detail.notice ?? defaultNotice,
+        thumbnail: detail.thumbnailUrl,
+        waitingScreen: detail.waitScreenUrl,
+        qCards: (detail.qcards ?? []).map((card) => card.question),
+      }
+    }
+  } catch {
+    return
+  }
+}
+
+const parseSseData = (event: MessageEvent) => {
+  if (!event.data) return null
+  try {
+    return JSON.parse(event.data)
+  } catch {
+    return event.data
+  }
+}
+
+const scheduleRefresh = (broadcastId: number) => {
+  if (refreshTimer.value) window.clearTimeout(refreshTimer.value)
+  refreshTimer.value = window.setTimeout(() => {
+    void refreshInfo(broadcastId)
+    void refreshStats(broadcastId)
+    void refreshProducts(broadcastId)
+  }, 500)
+}
+
+const handleSseEvent = (event: MessageEvent) => {
+  const id = streamId.value ? Number(streamId.value) : NaN
+  if (Number.isNaN(id)) return
+  const data = parseSseData(event)
+  switch (event.type) {
+    case 'BROADCAST_READY':
+    case 'BROADCAST_UPDATED':
+      scheduleRefresh(id)
+      break
+    case 'PRODUCT_PINNED':
+      pinnedProductId.value = typeof data === 'number' ? String(data) : pinnedProductId.value
+      scheduleRefresh(id)
+      break
+    case 'SANCTION_UPDATED':
+      scheduleRefresh(id)
+      break
+    case 'BROADCAST_ENDING_SOON':
+      alert('방송 종료 1분 전입니다.')
+      break
+    case 'BROADCAST_CANCELED':
+      alert('방송이 자동 취소되었습니다.')
+      handleGoToList()
+      break
+    case 'BROADCAST_ENDED':
+    case 'BROADCAST_SCHEDULED_END':
+      alert('방송이 종료되었습니다.')
+      handleEndBroadcast()
+      break
+    case 'BROADCAST_STOPPED':
+      alert('관리자에 의해 방송이 중지되었습니다.')
+      handleEndBroadcast()
+      break
+    default:
+      break
+  }
+}
+
+const scheduleReconnect = (broadcastId: number) => {
+  if (sseRetryTimer.value) window.clearTimeout(sseRetryTimer.value)
+  const delay = Math.min(30000, 1000 * 2 ** sseRetryCount.value)
+  const jitter = Math.floor(Math.random() * 500)
+  sseRetryTimer.value = window.setTimeout(() => {
+    connectSse(broadcastId)
+  }, delay + jitter)
+  sseRetryCount.value += 1
+}
+
+const connectSse = (broadcastId: number) => {
+  if (sseSource.value) {
+    sseSource.value.close()
+  }
+  const source = new EventSource(`${apiBase}/api/broadcasts/${broadcastId}/subscribe`)
+  const events = [
+    'BROADCAST_READY',
+    'BROADCAST_UPDATED',
+    'PRODUCT_PINNED',
+    'SANCTION_UPDATED',
+    'BROADCAST_ENDING_SOON',
+    'BROADCAST_CANCELED',
+    'BROADCAST_ENDED',
+    'BROADCAST_SCHEDULED_END',
+    'BROADCAST_STOPPED',
+  ]
+  events.forEach((name) => {
+    source.addEventListener(name, handleSseEvent)
+  })
+  source.onopen = () => {
+    sseConnected.value = true
+    sseRetryCount.value = 0
+    scheduleRefresh(broadcastId)
+  }
+  source.onerror = () => {
+    sseConnected.value = false
+    source.close()
+    if (document.visibilityState === 'visible') {
+      scheduleReconnect(broadcastId)
+    }
+  }
+  sseSource.value = source
+}
+
+const startStatsPolling = (broadcastId: number) => {
+  if (statsTimer.value) window.clearInterval(statsTimer.value)
+  statsTimer.value = window.setInterval(() => {
+    if (!sseConnected.value) {
+      void refreshStats(broadcastId)
+      void refreshProducts(broadcastId)
+    }
+  }, 30000)
 }
 
 watch(
   () => route.params.id,
   () => {
     hydrateStream()
+  },
+  { immediate: true },
+)
+
+watch(
+  () => streamId.value,
+  (value) => {
+    if (!value) {
+      sseSource.value?.close()
+      sseSource.value = null
+      sseConnected.value = false
+      if (sseRetryTimer.value) window.clearTimeout(sseRetryTimer.value)
+      sseRetryTimer.value = null
+      if (statsTimer.value) window.clearInterval(statsTimer.value)
+      statsTimer.value = null
+      if (refreshTimer.value) window.clearTimeout(refreshTimer.value)
+      refreshTimer.value = null
+      return
+    }
+    const idValue = Number(value)
+    if (Number.isNaN(idValue)) return
+    connectSse(idValue)
+    startStatsPolling(idValue)
   },
   { immediate: true },
 )
@@ -279,6 +539,15 @@ onBeforeUnmount(() => {
   document.removeEventListener('fullscreenchange', handleFullscreenChange)
   window.removeEventListener('resize', handleResize)
   gridObserver?.disconnect()
+  sseSource.value?.close()
+  sseSource.value = null
+  sseConnected.value = false
+  if (sseRetryTimer.value) window.clearTimeout(sseRetryTimer.value)
+  sseRetryTimer.value = null
+  if (statsTimer.value) window.clearInterval(statsTimer.value)
+  statsTimer.value = null
+  if (refreshTimer.value) window.clearTimeout(refreshTimer.value)
+  refreshTimer.value = null
 })
 
 const openConfirm = (options: Partial<typeof confirmState>, onConfirm: () => void) => {
@@ -295,8 +564,13 @@ const handleConfirmAction = () => {
   confirmAction.value = () => {}
 }
 
-const setPinnedProduct = (productId: string | null) => {
+const setPinnedProduct = async (productId: string | null) => {
   pinnedProductId.value = productId
+  if (!productId) return
+  const broadcastValue = streamId.value ? Number(streamId.value) : NaN
+  const productValue = Number(productId)
+  if (Number.isNaN(broadcastValue) || Number.isNaN(productValue)) return
+  await pinSellerBroadcastProduct(broadcastValue, productValue).catch(() => {})
 }
 
 const handlePinProduct = (productId: string) => {

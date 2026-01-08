@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
+import LiveImageCropModal from './LiveImageCropModal.vue'
+import { fetchCategories, type BroadcastCategory } from '../lib/live/api'
 
 type BroadcastInfo = {
   title: string
@@ -24,6 +26,23 @@ const category = ref('가구')
 const notice = ref('판매 상품 외 다른 상품 문의는 받지 않습니다.')
 const thumbnailPreview = ref('')
 const waitingPreview = ref('')
+const categories = ref<BroadcastCategory[]>([])
+const cropperOpen = ref(false)
+const cropperSource = ref('')
+const cropperFileName = ref('')
+const cropTarget = ref<'thumbnail' | 'waiting' | null>(null)
+const thumbnailName = ref('')
+const waitingName = ref('')
+const thumbInputRef = ref<HTMLInputElement | null>(null)
+const waitingInputRef = ref<HTMLInputElement | null>(null)
+
+const categoryOptions = computed(() => {
+  const names = categories.value.map((item) => item.name)
+  if (category.value && !names.includes(category.value)) {
+    return [{ id: -1, name: category.value }, ...categories.value]
+  }
+  return categories.value
+})
 
 const isOpen = computed(() => props.modelValue)
 
@@ -54,24 +73,70 @@ watch(
 
 onMounted(() => {
   if (props.broadcast) hydrateFromBroadcast()
+  void loadCategories()
 })
 
 const close = () => emit('update:modelValue', false)
+
+const loadCategories = async () => {
+  try {
+    categories.value = await fetchCategories()
+  } catch (error) {
+    console.error('Failed to load categories', error)
+  }
+}
+
+const openCropper = (file: File, target: 'thumbnail' | 'waiting') => {
+  const reader = new FileReader()
+  reader.onloadend = () => {
+    cropperSource.value = typeof reader.result === 'string' ? reader.result : ''
+    cropperFileName.value = file.name
+    cropTarget.value = target
+    cropperOpen.value = true
+  }
+  reader.readAsDataURL(file)
+}
 
 const handleFile = (event: Event, target: 'thumbnail' | 'waiting') => {
   const input = event.target as HTMLInputElement
   const file = input.files?.[0]
   if (!file) return
-  const reader = new FileReader()
-  reader.onloadend = () => {
-    const result = reader.result as string
-    if (target === 'thumbnail') {
-      thumbnailPreview.value = result
-    } else {
-      waitingPreview.value = result
-    }
+  if (!file.type.startsWith('image/')) {
+    input.value = ''
+    return
   }
-  reader.readAsDataURL(file)
+  openCropper(file, target)
+}
+
+const applyCroppedImage = (payload: { dataUrl: string; fileName: string }) => {
+  if (cropTarget.value === 'thumbnail') {
+    thumbnailPreview.value = payload.dataUrl
+    thumbnailName.value = payload.fileName
+  }
+  if (cropTarget.value === 'waiting') {
+    waitingPreview.value = payload.dataUrl
+    waitingName.value = payload.fileName
+  }
+}
+
+const clearThumbnail = () => {
+  thumbnailPreview.value = ''
+  thumbnailName.value = ''
+  if (thumbInputRef.value) thumbInputRef.value.value = ''
+}
+
+const clearWaiting = () => {
+  waitingPreview.value = ''
+  waitingName.value = ''
+  if (waitingInputRef.value) waitingInputRef.value.value = ''
+}
+
+const handleThumbnailError = () => {
+  clearThumbnail()
+}
+
+const handleWaitingError = () => {
+  clearWaiting()
 }
 
 const handleSave = () => {
@@ -93,6 +158,12 @@ const handleSave = () => {
   <div v-if="modelValue" class="ds-modal" role="dialog" aria-modal="true">
     <div class="ds-modal__backdrop" @click="close"></div>
     <div class="ds-modal__card ds-surface">
+      <LiveImageCropModal
+        v-model="cropperOpen"
+        :image-src="cropperSource"
+        :file-name="cropperFileName"
+        @confirm="applyCroppedImage"
+      />
       <header class="ds-modal__head">
         <div>
           <p class="ds-modal__eyebrow">방송 관리</p>
@@ -111,11 +182,7 @@ const handleSave = () => {
         <label class="field">
           <span class="field__label">카테고리</span>
           <select v-model="category" class="field__input">
-            <option value="가구">가구</option>
-            <option value="전자기기">전자기기</option>
-            <option value="패션">패션</option>
-            <option value="뷰티">뷰티</option>
-            <option value="악세사리">악세사리</option>
+            <option v-for="item in categoryOptions" :key="item.id" :value="item.name">{{ item.name }}</option>
           </select>
         </label>
 
@@ -135,29 +202,45 @@ const handleSave = () => {
           <label class="field">
             <span class="field__label">썸네일</span>
             <label class="upload-tile">
-              <input type="file" accept="image/*" class="upload-input" @change="(event) => handleFile(event, 'thumbnail')" />
+              <input
+                ref="thumbInputRef"
+                type="file"
+                accept="image/*"
+                class="upload-input"
+                @change="(event) => handleFile(event, 'thumbnail')"
+              />
               <div class="upload-preview">
-                <img v-if="thumbnailPreview" :src="thumbnailPreview" alt="썸네일" />
+                <img v-if="thumbnailPreview" :src="thumbnailPreview" alt="썸네일" @error="handleThumbnailError" />
                 <div v-else class="upload-placeholder">
                   <span class="upload-icon">⬆</span>
                   <p class="upload-label">클릭하여 업로드</p>
                 </div>
               </div>
             </label>
+            <p class="upload-filename">{{ thumbnailName || '선택된 파일 없음' }}</p>
+            <button type="button" class="ds-btn ghost upload-clear" @click="clearThumbnail">이미지 삭제</button>
           </label>
 
           <label class="field">
             <span class="field__label">대기화면</span>
             <label class="upload-tile">
-              <input type="file" accept="image/*" class="upload-input" @change="(event) => handleFile(event, 'waiting')" />
+              <input
+                ref="waitingInputRef"
+                type="file"
+                accept="image/*"
+                class="upload-input"
+                @change="(event) => handleFile(event, 'waiting')"
+              />
               <div class="upload-preview">
-                <img v-if="waitingPreview" :src="waitingPreview" alt="대기화면" />
+                <img v-if="waitingPreview" :src="waitingPreview" alt="대기화면" @error="handleWaitingError" />
                 <div v-else class="upload-placeholder">
                   <span class="upload-icon">⬆</span>
                   <p class="upload-label">클릭하여 업로드</p>
                 </div>
               </div>
             </label>
+            <p class="upload-filename">{{ waitingName || '선택된 파일 없음' }}</p>
+            <button type="button" class="ds-btn ghost upload-clear" @click="clearWaiting">이미지 삭제</button>
           </label>
         </div>
       </div>
@@ -325,6 +408,17 @@ const handleSave = () => {
 .upload-label {
   margin: 0;
   font-weight: 800;
+}
+
+.upload-filename {
+  margin: 6px 0 0;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.upload-clear {
+  margin-top: 6px;
 }
 
 .ds-modal__actions {

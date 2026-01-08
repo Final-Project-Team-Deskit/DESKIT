@@ -15,8 +15,10 @@ import { parseLiveDate } from '../../lib/live/utils'
 import {
   fetchBroadcastProducts,
   fetchBroadcastStats,
+  fetchCategories,
   fetchSellerBroadcastReport,
   fetchSellerBroadcasts,
+  type BroadcastCategory,
 } from '../../lib/live/api'
 
 const router = useRouter()
@@ -97,10 +99,11 @@ const liveProducts = ref<
   }>
 >([])
 
-const liveStats = ref<{ status: string; viewers: string; likes: string; revenue: string } | null>(null)
+const liveStats = ref<{ status: string; viewers: string; likes: string; revenue: string; hasData: boolean } | null>(null)
 
 const scheduledItems = ref<LiveItem[]>([])
 const vodItems = ref<LiveItem[]>([])
+const categories = ref<BroadcastCategory[]>([])
 
 const loopGap = 14
 const carouselRefs = ref<Record<LoopKind, HTMLElement | null>>({
@@ -182,6 +185,42 @@ const formatDateLabel = (ms?: number, prefix: string = '업로드'): string => {
   const date = `${d.getFullYear()}.${String(d.getMonth() + 1).padStart(2, '0')}.${String(d.getDate()).padStart(2, '0')}`
   const time = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
   return `${prefix}: ${date} ${time}`
+}
+
+const resolveCategoryId = (categoryName: string) => {
+  if (categoryName === 'all') return undefined
+  return categories.value.find((category) => category.name === categoryName)?.id
+}
+
+const mapScheduledSortType = () => {
+  if (scheduledSort.value === 'nearest') return 'START_ASC'
+  if (scheduledSort.value === 'latest') return 'LATEST'
+  if (scheduledSort.value === 'oldest') return 'OLDEST'
+  return undefined
+}
+
+const mapScheduledStatusFilter = () => {
+  if (scheduledStatus.value === 'reserved') return 'RESERVED'
+  if (scheduledStatus.value === 'canceled') return 'CANCELED'
+  return undefined
+}
+
+const mapVodSortType = () => {
+  if (vodSort.value === 'latest') return 'LATEST'
+  if (vodSort.value === 'oldest') return 'OLDEST'
+  if (vodSort.value === 'likes_desc') return 'LIKE_DESC'
+  if (vodSort.value === 'likes_asc') return 'LIKE_ASC'
+  if (vodSort.value === 'viewers_desc') return 'VIEWER_DESC'
+  if (vodSort.value === 'viewers_asc') return 'VIEWER_ASC'
+  if (vodSort.value === 'revenue_desc') return 'SALES'
+  if (vodSort.value === 'revenue_asc') return 'SALES_ASC'
+  return undefined
+}
+
+const mapVodVisibility = () => {
+  if (vodVisibility.value === 'public') return true
+  if (vodVisibility.value === 'private') return false
+  return undefined
 }
 
 const getLifecycleStatus = (item: LiveItem): BroadcastStatus => normalizeBroadcastStatus(item.lifecycleStatus ?? item.status)
@@ -286,10 +325,26 @@ const currentLive = computed(() => liveItemsSorted.value[0] ?? null)
 
 const loadSellerData = async () => {
   try {
+    const scheduledCategoryId = resolveCategoryId(scheduledCategory.value)
+    const vodCategoryId = resolveCategoryId(vodCategory.value)
     const [liveList, scheduledList, vodList] = await Promise.all([
       fetchSellerBroadcasts({ tab: 'LIVE', size: 200 }),
-      fetchSellerBroadcasts({ tab: 'RESERVED', size: 200 }),
-      fetchSellerBroadcasts({ tab: 'VOD', size: 200 }),
+      fetchSellerBroadcasts({
+        tab: 'RESERVED',
+        size: 200,
+        sortType: mapScheduledSortType(),
+        statusFilter: mapScheduledStatusFilter(),
+        categoryId: scheduledCategoryId,
+      }),
+      fetchSellerBroadcasts({
+        tab: 'VOD',
+        size: 200,
+        sortType: mapVodSortType(),
+        categoryId: vodCategoryId,
+        isPublic: mapVodVisibility(),
+        startDate: vodStartDate.value || undefined,
+        endDate: vodEndDate.value || undefined,
+      }),
     ])
     liveItems.value = liveList.map((item) => mapBroadcastItem(item, 'live'))
     scheduledItems.value = scheduledList.map((item) => mapBroadcastItem(item, 'scheduled'))
@@ -298,6 +353,14 @@ const loadSellerData = async () => {
     liveItems.value = []
     scheduledItems.value = []
     vodItems.value = []
+  }
+}
+
+const loadCategories = async () => {
+  try {
+    categories.value = await fetchCategories()
+  } catch {
+    categories.value = []
   }
 }
 
@@ -574,6 +637,7 @@ watch(
   () => [scheduledStatus.value, scheduledCategory.value, scheduledSort.value],
   () => {
     scheduledPage.value = 1
+    void loadSellerData()
   },
 )
 
@@ -581,6 +645,7 @@ watch(
   () => [vodStartDate.value, vodEndDate.value, vodVisibility.value, vodCategory.value, vodSort.value],
   () => {
     vodPage.value = 1
+    void loadSellerData()
   },
 )
 
@@ -643,12 +708,16 @@ const loadCurrentLiveDetails = async (item: LiveItem | null) => {
       fetchBroadcastProducts(id),
     ])
     const revenue = report ? parseAmount(report.totalSales) : 0
-    liveStats.value = {
-      status: getLifecycleStatus(item),
-      viewers: `${stats.viewerCount.toLocaleString()}명`,
-      likes: stats.likeCount.toLocaleString(),
-      revenue: `₩${Math.round(revenue).toLocaleString()}`,
-    }
+    const hasData = stats.viewerCount > 0 || stats.likeCount > 0 || revenue > 0
+    liveStats.value = hasData
+      ? {
+        status: getLifecycleStatus(item),
+        viewers: `${stats.viewerCount.toLocaleString()}명`,
+        likes: stats.likeCount.toLocaleString(),
+        revenue: `₩${Math.round(revenue).toLocaleString()}`,
+        hasData,
+      }
+      : null
     liveProducts.value = products.map((product) => ({
       id: product.id,
       title: product.name,
@@ -668,6 +737,7 @@ const loadCurrentLiveDetails = async (item: LiveItem | null) => {
 }
 
 onMounted(() => {
+  void loadCategories()
   loadSellerData()
   syncTabFromRoute()
   nextTick(() => {

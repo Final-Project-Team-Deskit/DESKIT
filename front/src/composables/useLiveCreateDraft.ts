@@ -1,5 +1,5 @@
 import { getAuthUser } from '../lib/auth'
-import { getSellerReservationDetail, type SellerReservationDetail } from '../lib/mocks/sellerReservations'
+import { fetchSellerBroadcastDetail, type BroadcastDetailResponse } from '../lib/live/api'
 
 export type LiveCreateProduct = {
   id: string
@@ -152,33 +152,52 @@ const parseCurrency = (value: string) => {
   return Number.isNaN(parsed) ? 0 : parsed
 }
 
-export const buildDraftFromReservation = (reservationId: string): LiveCreateDraft => {
-  const detail: SellerReservationDetail = getSellerReservationDetail(reservationId)
-  const [datePart, timePart] = detail.datetime.split(' ')
-  const mappedDate = datePart?.replace(/\./g, '-') ?? ''
-  const mappedTime = timePart ?? ''
-
+const formatReservationDate = (scheduledAt?: string) => {
+  if (!scheduledAt) return { date: '', time: '' }
+  const normalized = scheduledAt.replace('T', ' ')
+  const [datePart, timePart] = normalized.split(' ')
   return {
-    ...createEmptyDraft(),
-    title: detail.title,
-    subtitle: detail.subtitle,
-    category: detail.category,
-    notice: detail.notice,
-    date: mappedDate,
-    time: mappedTime,
-    thumb: detail.thumb,
-    standbyThumb: (detail as any).standbyThumb ?? '',
-    products: detail.products.map((item) => ({
-      id: item.id,
-      name: item.name,
-      option: item.option ?? item.name,
-      price: parseCurrency(item.price),
-      broadcastPrice: parseCurrency(item.salePrice),
-      stock: parseCurrency(item.stock),
-      quantity: parseCurrency(item.qty) || 1,
-      thumb: item.thumb,
-    })),
-    questions: mapQuestions(detail.cueQuestions ?? []),
-    reservationId,
+    date: datePart?.replace(/\./g, '-') ?? '',
+    time: timePart?.slice(0, 5) ?? '',
+  }
+}
+
+const mapReservationProducts = (detail: BroadcastDetailResponse) =>
+  (detail.products ?? []).map((item) => ({
+    id: `prod-${item.productId}`,
+    name: item.name,
+    option: item.name,
+    price: item.originalPrice ?? 0,
+    broadcastPrice: item.bpPrice ?? item.originalPrice ?? 0,
+    stock: item.stockQty ?? item.bpQuantity ?? 0,
+    quantity: item.bpQuantity ?? 1,
+    thumb: item.imageUrl ?? '',
+  }))
+
+const mapReservationQuestions = (detail: BroadcastDetailResponse) =>
+  mapQuestions((detail.qcards ?? []).map((card) => card.question))
+
+export const buildDraftFromReservation = async (reservationId: string): Promise<LiveCreateDraft> => {
+  try {
+    const detail = await fetchSellerBroadcastDetail(Number(reservationId))
+    const { date, time } = formatReservationDate(detail.scheduledAt)
+
+    return {
+      ...createEmptyDraft(),
+      title: detail.title ?? '',
+      subtitle: detail.sellerName ?? '',
+      category: detail.categoryId ? String(detail.categoryId) : '',
+      notice: detail.notice ?? '',
+      date,
+      time,
+      thumb: detail.thumbnailUrl ?? '',
+      standbyThumb: detail.waitScreenUrl ?? '',
+      products: mapReservationProducts(detail),
+      questions: mapReservationQuestions(detail),
+      reservationId,
+    }
+  } catch (error) {
+    console.error('Failed to load reservation draft', error)
+    return createEmptyDraft()
   }
 }
