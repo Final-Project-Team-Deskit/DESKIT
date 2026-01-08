@@ -1,14 +1,22 @@
 package com.deskit.deskit.ai.evaluate.service;
 
 import com.deskit.deskit.account.enums.SellerGradeEnum;
+import com.deskit.deskit.account.oauth.CustomOAuth2User;
+import com.deskit.deskit.admin.entity.Admin;
+import com.deskit.deskit.admin.repository.AdminRepository;
 import com.sendgrid.Method;
 import com.sendgrid.Request;
+import com.sendgrid.Response;
 import com.sendgrid.SendGrid;
 import com.sendgrid.helpers.mail.Mail;
 import com.sendgrid.helpers.mail.objects.Content;
 import com.sendgrid.helpers.mail.objects.Email;
 import com.sendgrid.helpers.mail.objects.Personalization;
+import lombok.extern.log4j.Log4j2;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.io.ClassPathResource;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
@@ -20,23 +28,32 @@ import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+@Log4j2
 @Service
 public class SellerEvaluationEmailService {
 
-	private static final String SENDER_EMAIL = "dyniiyeyo@naver.com";
-	private static final String ADMITTED_TEMPLATE_PATH = "admin/doc/eval_result_admitted.html";
-	private static final String REJECTED_TEMPLATE_PATH = "admin/doc/eval_result_rejected.html";
+	private static final String ADMITTED_TEMPLATE_PATH = "com/deskit/deskit/admin/doc/eval_result_admitted.html";
+	private static final String REJECTED_TEMPLATE_PATH = "com/deskit/deskit/admin/doc/eval_result_rejected.html";
 	private static final Pattern TITLE_PATTERN = Pattern.compile("(?is)<title>\\s*(.*?)\\s*</title>");
 	private static final Pattern BODY_PATTERN = Pattern.compile("(?is)<body[^>]*>(.*)</body>");
 	private static final Pattern FIRST_NON_EMPTY_LINE = Pattern.compile("(?m)^\\s*\\S.*$");
 	private final SendGrid sendGrid;
+	private final AdminRepository adminRepository;
+	private final String verifiedSenderEmail;
 
-	public SellerEvaluationEmailService(@Value("${spring.sendgrid.api-key}") String apiKey) {
+	public SellerEvaluationEmailService(
+			@Value("${spring.sendgrid.api-key}") String apiKey,
+			@Value("${spring.sendgrid.sender-email:dyniiyeyo@naver.com}") String verifiedSenderEmail,
+			AdminRepository adminRepository
+	) {
 		this.sendGrid = new SendGrid(apiKey);
+		this.adminRepository = adminRepository;
+		this.verifiedSenderEmail = verifiedSenderEmail;
 	}
 
 	public void sendFinalResult(String toEmail, SellerGradeEnum grade, String adminComment, String sellerName, Integer totalScore) throws IOException {
-		Email from = new Email(SENDER_EMAIL);
+		String senderEmail = resolveSenderEmail();
+		Email from = new Email(verifiedSenderEmail);
 		Email to = new Email(toEmail);
 
 		EmailTemplate template = loadTemplate(grade);
@@ -48,6 +65,7 @@ public class SellerEvaluationEmailService {
 
 		Mail mail = new Mail();
 		mail.setFrom(from);
+		mail.setReplyTo(new Email(senderEmail));
 		mail.setSubject(subject);
 
 		Personalization personalization = new Personalization();
@@ -62,7 +80,38 @@ public class SellerEvaluationEmailService {
 		request.setEndpoint("mail/send");
 		request.setBody(mail.build());
 
-		sendGrid.api(request);
+		Response response;
+		try {
+			response = sendGrid.api(request);
+		} catch (IOException ex) {
+			log.error("SendGrid request failed", ex);
+			throw ex;
+		}
+		if (response.getStatusCode() >= 400) {
+			log.warn("SendGrid send failed: status={}, body={}", response.getStatusCode(), response.getBody());
+			throw new IOException("sendgrid mail send failed");
+		}
+	}
+
+	private String resolveSenderEmail() {
+		Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+
+		if (authentication == null || !authentication.isAuthenticated()) {
+			throw new IllegalStateException("admin authentication required");
+		}
+		Object principal = authentication.getPrincipal();
+		if (!(principal instanceof CustomOAuth2User user)) {
+			throw new IllegalStateException("admin principal not found");
+		}
+		String loginId = user.getUsername();
+		if (loginId == null || loginId.isBlank()) {
+			throw new IllegalStateException("admin login id not found");
+		}
+		Admin admin = adminRepository.findByLoginId(loginId);
+		if (admin == null || admin.getLoginId() == null || admin.getLoginId().isBlank()) {
+			throw new IllegalStateException("admin login id not found");
+		}
+		return admin.getLoginId();
 	}
 
 	private String toPlainText(String html) {
@@ -78,9 +127,24 @@ public class SellerEvaluationEmailService {
 
 	private EmailTemplate loadTemplate(SellerGradeEnum grade) throws IOException {
 		String path = grade == SellerGradeEnum.REJECTED ? REJECTED_TEMPLATE_PATH : ADMITTED_TEMPLATE_PATH;
-		String raw = Files.readString(Path.of(path), StandardCharsets.UTF_8);
+		String raw = readTemplate(path);
 		String normalized = normalizeNewlines(stripBom(raw));
 		return parseTemplate(normalized);
+	}
+
+	private String readTemplate(String path) throws IOException {
+		ClassPathResource resource = new ClassPathResource(path);
+		if (resource.exists()) {
+			return new String(resource.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+		}
+		Path filePath = Path.of(path);
+		if (!filePath.isAbsolute()) {
+			Path projectPath = Path.of("src/main/java").resolve(path);
+			if (Files.exists(projectPath)) {
+				return Files.readString(projectPath, StandardCharsets.UTF_8);
+			}
+		}
+		return Files.readString(filePath, StandardCharsets.UTF_8);
 	}
 
 	private Map<String, String> buildReplacements(SellerGradeEnum grade, String adminComment, String sellerName, Integer totalScore) {
