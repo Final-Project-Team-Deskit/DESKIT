@@ -29,6 +29,7 @@ public class AdminCompanyController {
 			@RequestParam(required = false) String keyword,
 			@RequestParam(required = false) String companyName,
 			@RequestParam(required = false) String businessNumber,
+			@RequestParam(required = false) String grade,
 			@RequestParam(required = false) String status,
 			@RequestParam(required = false) String fromDate,
 			@RequestParam(required = false) String toDate
@@ -42,6 +43,7 @@ public class AdminCompanyController {
 				keyword,
 				companyName,
 				businessNumber,
+				grade,
 				status,
 				fromDate,
 				toDate

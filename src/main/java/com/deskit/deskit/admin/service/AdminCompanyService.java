@@ -21,6 +21,7 @@ public class AdminCompanyService {
 			String keyword,
 			String companyName,
 			String businessNumber,
+			String grade,
 			String status,
 			String fromDate,
 			String toDate
@@ -31,27 +32,39 @@ public class AdminCompanyService {
 
 		String baseQuery = """
 				FROM (
-					SELECT company_id,
+					SELECT cr.company_id,
 					       company_name,
 					       business_number,
 					       COALESCE(s.name, '-') AS owner_name,
+					       sg.grade AS grade,
+					       DATE_FORMAT(sg.expired_at, '%Y-%m-%d') AS grade_expired_at,
 					       CASE cr.status WHEN 'ACTIVE' THEN '활성화' ELSE '삭제' END AS status,
 					       DATE_FORMAT(cr.created_at, '%Y-%m-%d') AS joined_at,
 					       cr.created_at
 					FROM company_registered cr
 					LEFT JOIN seller s ON cr.seller_id = s.seller_id
+					LEFT JOIN (
+						SELECT sg1.company_id,
+						       sg1.grade,
+						       sg1.expired_at,
+						       sg1.updated_at
+						FROM seller_grade sg1
+						JOIN (\n\t\t\t\t\tSELECT sg2.company_id, MAX(sg2.updated_at) AS max_updated\n\t\t\t\t\tFROM seller_grade sg2\n\t\t\t\t\tGROUP BY sg2.company_id\n\t\t\t\t) latest ON sg1.company_id = latest.company_id AND sg1.updated_at = latest.max_updated
+					) sg ON cr.company_id = sg.company_id
 				) AS companies
 				""";
 
 		StringBuilder whereClause = new StringBuilder(" WHERE 1=1");
 		List<Object> params = new ArrayList<>();
-		appendFilters(whereClause, params, keyword, companyName, businessNumber, status, fromDate, toDate);
+		appendFilters(whereClause, params, keyword, companyName, businessNumber, grade, status, fromDate, toDate);
 
 		String dataSql = """
 				SELECT CONCAT('company-', company_id) AS id,
 				       company_name,
 				       owner_name,
 				       business_number,
+				       grade,
+				       grade_expired_at,
 				       status,
 				       joined_at
 				"""
@@ -66,6 +79,8 @@ public class AdminCompanyService {
 						rs.getString("company_name"),
 						rs.getString("owner_name"),
 						rs.getString("business_number"),
+						rs.getString("grade"),
+						rs.getString("grade_expired_at"),
 						rs.getString("status"),
 						rs.getString("joined_at")
 				),
@@ -86,6 +101,7 @@ public class AdminCompanyService {
 			String keyword,
 			String companyName,
 			String businessNumber,
+			String grade,
 			String status,
 			String fromDate,
 			String toDate
@@ -104,6 +120,10 @@ public class AdminCompanyService {
 		if (businessNumber != null && !businessNumber.trim().isEmpty()) {
 			whereClause.append(" AND business_number LIKE ?");
 			params.add("%" + businessNumber.trim() + "%");
+		}
+		if (grade != null && !grade.isBlank() && !"전체".equals(grade)) {
+			whereClause.append(" AND grade = ?");
+			params.add(grade);
 		}
 		if (status != null && !status.isBlank() && !"전체".equals(status)) {
 			whereClause.append(" AND status = ?");
@@ -126,3 +146,4 @@ public class AdminCompanyService {
 		return allParams.toArray();
 	}
 }
+
