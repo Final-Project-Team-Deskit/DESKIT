@@ -84,35 +84,14 @@ dependencies {
 	// Validation (유효성 검사)
 	implementation 'org.springframework.boot:spring-boot-starter-validation'
 
-	// [QueryDSL 추가]
-	implementation 'com.querydsl:querydsl-jpa:5.0.0:jakarta'
-	annotationProcessor "com.querydsl:querydsl-apt:5.0.0:jakarta"
-	annotationProcessor "jakarta.annotation:jakarta.annotation-api"
-	annotationProcessor "jakarta.persistence:jakarta.persistence-api"
+	// jOOQ
+	implementation 'org.springframework.boot:spring-boot-starter-jooq'
 
 	// WebSocket
-	implementation 'org.springframework.boot:spring-boot-starter-websocket'
-
-	//websocket
 	implementation 'org.springframework.boot:spring-boot-starter-websocket'
 
 }
 
 tasks.named('test') {
 	useJUnitPlatform()
-}
-
-// [QueryDSL 빌드 설정]
-def querydslDir = "$buildDir/generated/querydsl"
-
-sourceSets {
-	main.java.srcDirs += [ querydslDir ]
-}
-
-tasks.withType(JavaCompile) {
-	options.annotationProcessorGeneratedSourcesDirectory = file(querydslDir)
-}
-
-clean.doLast {
-	file(querydslDir).deleteDir()
 }
