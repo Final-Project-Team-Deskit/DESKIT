@@ -78,4 +78,17 @@ public class Product extends BaseEntity {
     this.stockQty = stockQty;
     this.safetyStock = safetyStock;
   }
+
+  public void decreaseStock(int quantity) {
+    if (quantity <= 0) {
+      throw new IllegalArgumentException("quantity must be > 0");
+    }
+    if (this.stockQty == null) {
+      this.stockQty = 0;
+    }
+    if (this.stockQty < quantity) {
+      throw new IllegalStateException("insufficient stock");
+    }
+    this.stockQty -= quantity;
+  }
 }

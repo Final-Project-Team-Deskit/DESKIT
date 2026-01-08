@@ -115,7 +115,13 @@ public class AdminEvaluationService {
 		adminEvaluationRepository.save(adminEvaluation);
 
 		updateSellerStatusAndGrade(seller, finalGrade);
-		sellerEvaluationEmailService.sendFinalResult(seller.getLoginId(), finalGrade, request.adminComment());
+		sellerEvaluationEmailService.sendFinalResult(
+				seller.getLoginId(),
+				finalGrade,
+				request.adminComment(),
+				nullSafe(seller.getName()),
+				evaluation.getTotalScore()
+		);
 
 		return new AdminEvaluationResultResponse(adminEvaluation.getAdminEvalId(), finalGrade, seller.getLoginId());
 	}
