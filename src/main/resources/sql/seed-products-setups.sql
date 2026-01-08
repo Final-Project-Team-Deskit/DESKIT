@@ -1,3 +1,12 @@
+INSERT INTO admin(login_id, phone, name, role)
+VALUES ('dyniiyeyo@naver.com', '010-4255-1027', '김도윤', 'ROLE_ADMIN');
+INSERT INTO admin(login_id, phone, name, role)
+VALUES ('hawon2k2k@naver.com', '010-2775-9804', '고하원', 'ROLE_ADMIN');
+INSERT INTO admin(login_id, phone, name, role)
+VALUES ('00parkyh@naver.com', '010-8318-8176', '박용헌', 'ROLE_ADMIN');
+INSERT INTO admin(login_id, phone, name, role)
+VALUES ('jwscape@naver.com', '010-9258-2658', '주장우', 'ROLE_ADMIN');
+
 -- 상품/셋업 더미 데이터 (한국어 버전)
 -- 실행 방법 (MySQL):
 --   SOURCE src/main/resources/sql/livecommerce_create_table.sql;
@@ -91,3 +100,7 @@ FROM setup_product sp
          JOIN product p ON p.product_id = sp.product_id
 ORDER BY sp.setup_id, sp.product_id
 LIMIT 10;
+
+SELECT * FROM seller WHERE seller_id = 3;
+
+UPDATE seller SET status = 'ACTIVE' WHERE seller_id=3;
