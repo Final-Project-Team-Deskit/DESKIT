@@ -115,7 +115,7 @@ const syncDraft = () => {
   })
 }
 
-const restoreDraft = () => {
+const restoreDraft = async () => {
   const savedDraft = loadDraft()
   let baseDraft = createEmptyDraft()
   if (savedDraft && (!isEditMode.value || savedDraft.reservationId === reservationId.value)) {
@@ -137,7 +137,11 @@ const restoreDraft = () => {
   activateDraftFlow()
 
   const reservationDraft = isEditMode.value
-    ? { ...baseDraft, ...buildDraftFromReservation(reservationId.value), reservationId: reservationId.value }
+    ? {
+      ...baseDraft,
+      ...(await buildDraftFromReservation(reservationId.value)),
+      reservationId: reservationId.value,
+    }
     : baseDraft
 
   draft.value = reservationDraft
@@ -296,7 +300,7 @@ const minDate = computed(() => {
 
 const maxDate = computed(() => {
   const date = new Date()
-  date.setDate(date.getDate() + 15)
+  date.setDate(date.getDate() + 14)
   return date.toISOString().split('T')[0]
 })
 
