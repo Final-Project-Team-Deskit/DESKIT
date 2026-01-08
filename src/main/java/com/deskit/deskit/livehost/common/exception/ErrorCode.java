@@ -33,6 +33,8 @@ public enum ErrorCode {
     BROADCAST_NOT_FOUND(HttpStatus.NOT_FOUND, "B001", "방송을 찾을 수 없습니다."),
     BROADCAST_NOT_ON_AIR(HttpStatus.BAD_REQUEST, "B002", "방송 중인 상태가 아닙니다."),
     BROADCAST_STOPPED_BY_ADMIN(HttpStatus.FORBIDDEN, "B003", "관리자에 의해 중단된 방송입니다."),
+    BROADCAST_INVALID_TRANSITION(HttpStatus.BAD_REQUEST, "B006", "방송 상태 전환이 올바르지 않습니다."),
+    BROADCAST_ALREADY_SANCTIONED(HttpStatus.FORBIDDEN, "B007", "제재된 시청자는 이용할 수 없습니다."),
 
     // 예약 관련
     RESERVATION_LIMIT_EXCEEDED(HttpStatus.BAD_REQUEST, "B004", "예약은 최대 7개까지만 가능합니다."),

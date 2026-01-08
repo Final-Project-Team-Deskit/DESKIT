@@ -34,7 +34,7 @@ public class SanctionStatisticsResponse {
     @Getter @Builder
     public static class ViewerRank {
         private String viewerId;   // 회원ID 또는 UUID
-        private String nickname;   // (회원인 경우)
+        private String name;   // (회원인 경우)
         private Long sanctionCount;
     }
 }

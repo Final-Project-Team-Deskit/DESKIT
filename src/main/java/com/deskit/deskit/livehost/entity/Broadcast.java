@@ -2,6 +2,8 @@ package com.deskit.deskit.livehost.entity;
 
 import com.deskit.deskit.livehost.common.enums.BroadcastLayout;
 import com.deskit.deskit.livehost.common.enums.BroadcastStatus;
+import com.deskit.deskit.livehost.common.exception.BusinessException;
+import com.deskit.deskit.livehost.common.exception.ErrorCode;
 import com.deskit.deskit.account.entity.Seller;
 import com.deskit.deskit.tag.entity.TagCategory;
 import jakarta.persistence.*;
@@ -118,25 +120,29 @@ public class Broadcast {
 
     // VOD 상태 변경용 (AdminService에서 호출)
     public void changeStatus(BroadcastStatus status) {
-        this.status = status;
+        transitionTo(status, null);
     }
 
     // 방송 시작
     public void startBroadcast(String streamKey) {
-        this.status = BroadcastStatus.ON_AIR;
+        transitionTo(BroadcastStatus.ON_AIR, null);
         this.streamKey = streamKey;
         this.startedAt = LocalDateTime.now();
     }
 
     // 방송 종료 (정상 종료)
     public void endBroadcast() {
-        this.status = BroadcastStatus.ENDED;
+        transitionTo(BroadcastStatus.ENDED, null);
         this.endedAt = LocalDateTime.now();
     }
 
     // 예약 취소
     public void cancelBroadcast() {
-        this.status = BroadcastStatus.CANCELED;
+        cancelBroadcast(null);
+    }
+
+    public void cancelBroadcast(String reason) {
+        transitionTo(BroadcastStatus.CANCELED, reason);
     }
 
     // 삭제 (Soft Delete)
@@ -147,8 +153,39 @@ public class Broadcast {
     // [핵심] 관리자 강제 종료
     // 상태를 STOPPED로 변경하고, 사유를 기록하며, 종료 시간을 찍습니다.
     public void forceStopByAdmin(String reason) {
-        this.status = BroadcastStatus.STOPPED;
-        this.broadcastStoppedReason = reason;
+        transitionTo(BroadcastStatus.STOPPED, reason);
         this.endedAt = LocalDateTime.now();
+    }
+
+    public void readyBroadcast() {
+        transitionTo(BroadcastStatus.READY, null);
+    }
+
+    public void markNoShow(String reason) {
+        transitionTo(BroadcastStatus.CANCELED, reason);
+    }
+
+    public void transitionTo(BroadcastStatus targetStatus, String reason) {
+        if (!isTransitionAllowed(this.status, targetStatus)) {
+            throw new BusinessException(ErrorCode.BROADCAST_INVALID_TRANSITION);
+        }
+        this.status = targetStatus;
+        if (targetStatus == BroadcastStatus.STOPPED || targetStatus == BroadcastStatus.CANCELED) {
+            this.broadcastStoppedReason = reason;
+        }
+    }
+
+    private boolean isTransitionAllowed(BroadcastStatus from, BroadcastStatus to) {
+        if (from == null || to == null || from == to) {
+            return false;
+        }
+        return switch (from) {
+            case RESERVED -> to == BroadcastStatus.READY || to == BroadcastStatus.CANCELED;
+            case READY -> to == BroadcastStatus.ON_AIR || to == BroadcastStatus.CANCELED;
+            case ON_AIR -> to == BroadcastStatus.ENDED || to == BroadcastStatus.STOPPED;
+            case ENDED -> to == BroadcastStatus.VOD;
+            case STOPPED -> to == BroadcastStatus.VOD;
+            default -> false;
+        };
     }
 }

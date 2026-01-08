@@ -1,7 +1,8 @@
 package com.deskit.deskit.livehost.dto.request;
 
 import com.deskit.deskit.livehost.common.enums.ActorType;
-import com.deskit.deskit.livehost.common.enums.SanctionType;import jakarta.validation.constraints.NotNull;
+import com.deskit.deskit.livehost.common.enums.SanctionType;
+import jakarta.validation.constraints.NotNull;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
