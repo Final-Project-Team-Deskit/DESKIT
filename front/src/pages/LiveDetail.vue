@@ -11,6 +11,7 @@ import { useNow } from '../lib/live/useNow'
 import { getAuthUser } from '../lib/auth'
 import { fetchBroadcastProducts, fetchBroadcastStats, fetchPublicBroadcastDetail, type BroadcastProductItem } from '../lib/live/api'
 import type { LiveItem } from '../lib/live/types'
+import { computeLifecycleStatus, getScheduledEndMs, normalizeBroadcastStatus } from '../lib/broadcastStatus'
 
 const route = useRoute()
 const router = useRouter()
@@ -37,6 +38,34 @@ const status = computed(() => {
   return getLiveStatus(liveItem.value, now.value)
 })
 
+const lifecycleStatus = computed(() => {
+  if (!liveItem.value) {
+    return 'RESERVED'
+  }
+  const startAtMs = parseLiveDate(liveItem.value.startAt).getTime()
+  const endAtMs = parseLiveDate(liveItem.value.endAt).getTime()
+  return computeLifecycleStatus({
+    status: normalizeBroadcastStatus(liveItem.value.status),
+    startAtMs: Number.isNaN(startAtMs) ? undefined : startAtMs,
+    endAtMs: Number.isNaN(endAtMs) ? undefined : endAtMs,
+  })
+})
+
+const scheduledEndMs = computed(() => {
+  if (!liveItem.value) return undefined
+  const startAtMs = parseLiveDate(liveItem.value.startAt).getTime()
+  return Number.isNaN(startAtMs) ? undefined : getScheduledEndMs(startAtMs)
+})
+
+const isChatEnabled = computed(() => lifecycleStatus.value === 'ON_AIR')
+const isProductEnabled = computed(() => {
+  if (lifecycleStatus.value === 'ON_AIR') return true
+  if (lifecycleStatus.value === 'ENDED') {
+    return scheduledEndMs.value ? Date.now() <= scheduledEndMs.value : false
+  }
+  return false
+})
+
 const statusLabel = computed(() => {
   if (status.value === 'LIVE') {
     return 'LIVE'
@@ -61,9 +90,11 @@ const scheduledLabel = computed(() => {
   return `${month}.${date} (${day}) ${hours}:${minutes} 예정`
 })
 
-const buildLiveItem = (detail: { broadcastId: number; title: string; notice?: string; thumbnailUrl?: string; scheduledAt?: string; startedAt?: string; sellerName?: string }) => {
+const buildLiveItem = (detail: { broadcastId: number; title: string; notice?: string; thumbnailUrl?: string; scheduledAt?: string; startedAt?: string; sellerName?: string; status?: string }) => {
   const startAt = detail.startedAt ?? detail.scheduledAt ?? ''
-  const endAt = startAt ? new Date(parseLiveDate(startAt).getTime() + 60 * 60 * 1000).toISOString() : ''
+  const startAtMs = startAt ? parseLiveDate(startAt).getTime() : NaN
+  const endAtMs = Number.isNaN(startAtMs) ? undefined : getScheduledEndMs(startAtMs)
+  const endAt = endAtMs ? new Date(endAtMs).toISOString() : ''
   return {
     id: String(detail.broadcastId),
     title: detail.title,
@@ -71,6 +102,7 @@ const buildLiveItem = (detail: { broadcastId: number; title: string; notice?: st
     thumbnailUrl: detail.thumbnailUrl ?? '',
     startAt,
     endAt,
+    status: detail.status,
     sellerName: detail.sellerName ?? '',
   }
 }
@@ -131,6 +163,7 @@ const formatPrice = (price: number) => {
 }
 
 const handleProductClick = (productId: string) => {
+  if (!isProductEnabled.value) return
   router.push({ name: 'product-detail', params: { id: productId } })
 }
 
@@ -264,6 +297,7 @@ const handleSseEvent = (event: MessageEvent) => {
   switch (event.type) {
     case 'BROADCAST_READY':
     case 'BROADCAST_UPDATED':
+    case 'BROADCAST_STARTED':
       scheduleRefresh()
       break
     case 'PRODUCT_PINNED':
@@ -273,21 +307,23 @@ const handleSseEvent = (event: MessageEvent) => {
       alert(typeof data === 'object' && data ? `${data.type} 제재가 적용되었습니다.` : '제재가 적용되었습니다.')
       router.push({ name: 'live' }).catch(() => {})
       break
-    case 'BROADCAST_ENDING_SOON':
-      alert('방송 종료 1분 전입니다.')
-      break
     case 'BROADCAST_CANCELED':
       alert('방송이 자동 취소되었습니다.')
       router.push({ name: 'live' }).catch(() => {})
       break
     case 'BROADCAST_ENDED':
-    case 'BROADCAST_SCHEDULED_END':
       alert('방송이 종료되었습니다.')
-      router.push({ name: 'live' }).catch(() => {})
+      scheduleRefresh()
+      break
+    case 'BROADCAST_SCHEDULED_END':
+      if (window.confirm('방송이 종료되었습니다.')) {
+        router.push({ name: 'live' }).catch(() => {})
+      }
       break
     case 'BROADCAST_STOPPED':
-      alert(typeof data === 'string' ? data : '관리자에 의해 방송이 중지되었습니다.')
-      router.push({ name: 'live' }).catch(() => {})
+      if (window.confirm(typeof data === 'string' ? data : '관리자에 의해 방송이 중지되었습니다.')) {
+        router.push({ name: 'live' }).catch(() => {})
+      }
       break
     default:
       break
@@ -313,6 +349,7 @@ const connectSse = (id: number) => {
   const events = [
     'BROADCAST_READY',
     'BROADCAST_UPDATED',
+    'BROADCAST_STARTED',
     'PRODUCT_PINNED',
     'SANCTION_ALERT',
     'BROADCAST_ENDING_SOON',
@@ -520,7 +557,7 @@ const markEnterMessageSent = () => {
 }
 
 const sendMessage = () => {
-  if (!isLoggedIn.value || !isChatConnected.value) {
+  if (!isChatEnabled.value || !isLoggedIn.value || !isChatConnected.value) {
     return
   }
   const trimmed = input.value.trim()
@@ -653,13 +690,28 @@ watch(
     if (refreshTimer.value) window.clearTimeout(refreshTimer.value)
     refreshTimer.value = null
     if (value) {
-      fetchRecentMessages()
-      connectChat()
+      if (isChatEnabled.value) {
+        fetchRecentMessages()
+        connectChat()
+      }
       connectSse(value)
       startStatsPolling(value)
     }
   },
   { immediate: true }
+)
+
+watch(
+  isChatEnabled,
+  (enabled) => {
+    if (!broadcastId.value) return
+    if (enabled) {
+      fetchRecentMessages()
+      connectChat()
+    } else {
+      disconnectChat()
+    }
+  },
 )
 
 onBeforeUnmount(() => {

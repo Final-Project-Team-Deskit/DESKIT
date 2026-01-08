@@ -14,6 +14,8 @@ import {
   pinSellerBroadcastProduct,
 } from '../../lib/live/api'
 import { parseLiveDate } from '../../lib/live/utils'
+import { getAuthUser } from '../../lib/auth'
+import { computeLifecycleStatus, getScheduledEndMs, normalizeBroadcastStatus, type BroadcastStatus } from '../../lib/broadcastStatus'
 
 type StreamProduct = {
   id: string
@@ -97,6 +99,9 @@ const sanctionedUsers = ref<Record<string, { type: string; reason: string }>>({}
 const broadcastInfo = ref<(EditableBroadcastInfo & { qCards: string[] }) | null>(null)
 const stream = ref<StreamData | null>(null)
 const chatMessages = ref<StreamChat[]>([])
+const streamStatus = ref<BroadcastStatus>('RESERVED')
+const scheduleStartAtMs = ref<number | null>(null)
+const scheduleEndAtMs = ref<number | null>(null)
 const sseSource = ref<EventSource | null>(null)
 const sseConnected = ref(false)
 const sseRetryCount = ref(0)
@@ -127,7 +132,7 @@ const formatScheduleWindow = (scheduledAt?: string, startedAt?: string) => {
   if (!baseRaw) return ''
   const base = parseLiveDate(baseRaw)
   if (Number.isNaN(base.getTime())) return ''
-  const end = new Date(base.getTime() + 60 * 60 * 1000)
+  const end = new Date(base.getTime() + 30 * 60 * 1000)
   const pad = (value: number) => String(value).padStart(2, '0')
   const dateLabel = `${base.getFullYear()}.${pad(base.getMonth() + 1)}.${pad(base.getDate())}`
   return `${dateLabel} ${pad(base.getHours())}:${pad(base.getMinutes())} - ${pad(end.getHours())}:${pad(end.getMinutes())}`
@@ -194,6 +199,14 @@ const displayTitle = computed(() => broadcastInfo.value?.title ?? stream.value?.
 const displayDatetime = computed(
   () => stream.value?.datetime ?? '실시간 송출 화면과 판매 상품, 채팅을 관리합니다.',
 )
+const lifecycleStatus = computed(() =>
+  computeLifecycleStatus({
+    status: streamStatus.value,
+    startAtMs: scheduleStartAtMs.value ?? undefined,
+    endAtMs: scheduleEndAtMs.value ?? undefined,
+  }),
+)
+const isInteractive = computed(() => lifecycleStatus.value === 'ON_AIR')
 
 const updateGridWidth = (width?: number) => {
   if (typeof width === 'number') {
@@ -227,6 +240,9 @@ const hydrateStream = async () => {
     viewerCount.value = 0
     likeCount.value = 0
     elapsed.value = '00:00:00'
+    streamStatus.value = 'RESERVED'
+    scheduleStartAtMs.value = null
+    scheduleEndAtMs.value = null
     isLoadingStream.value = false
     return
   }
@@ -237,6 +253,9 @@ const hydrateStream = async () => {
     viewerCount.value = 0
     likeCount.value = 0
     elapsed.value = '00:00:00'
+    streamStatus.value = 'RESERVED'
+    scheduleStartAtMs.value = null
+    scheduleEndAtMs.value = null
     isLoadingStream.value = false
     return
   }
@@ -248,6 +267,11 @@ const hydrateStream = async () => {
       fetchRecentLiveChats(idValue, 300).catch(() => []),
       fetchMediaConfig(idValue).catch(() => null),
     ])
+    const baseTime = detail.scheduledAt ?? detail.startedAt ?? ''
+    const startAtMs = baseTime ? parseLiveDate(baseTime).getTime() : NaN
+    scheduleStartAtMs.value = Number.isNaN(startAtMs) ? null : startAtMs
+    scheduleEndAtMs.value = scheduleStartAtMs.value ? getScheduledEndMs(scheduleStartAtMs.value) : null
+    streamStatus.value = normalizeBroadcastStatus(detail.status)
 
     const products = (detail.products ?? []).map((product) => ({
       id: String(product.productId),
@@ -305,6 +329,9 @@ const hydrateStream = async () => {
     viewerCount.value = 0
     likeCount.value = 0
     elapsed.value = '00:00:00'
+    streamStatus.value = 'RESERVED'
+    scheduleStartAtMs.value = null
+    scheduleEndAtMs.value = null
     isLoadingStream.value = false
   }
 }
@@ -341,6 +368,11 @@ const refreshProducts = async (broadcastId: number) => {
 const refreshInfo = async (broadcastId: number) => {
   try {
     const detail = await fetchSellerBroadcastDetail(broadcastId)
+    const baseTime = detail.scheduledAt ?? detail.startedAt ?? ''
+    const startAtMs = baseTime ? parseLiveDate(baseTime).getTime() : NaN
+    scheduleStartAtMs.value = Number.isNaN(startAtMs) ? null : startAtMs
+    scheduleEndAtMs.value = scheduleStartAtMs.value ? getScheduledEndMs(scheduleStartAtMs.value) : null
+    streamStatus.value = normalizeBroadcastStatus(detail.status)
     if (stream.value) {
       stream.value = {
         ...stream.value,
@@ -394,6 +426,7 @@ const handleSseEvent = (event: MessageEvent) => {
   switch (event.type) {
     case 'BROADCAST_READY':
     case 'BROADCAST_UPDATED':
+    case 'BROADCAST_STARTED':
       scheduleRefresh(id)
       break
     case 'PRODUCT_PINNED':
@@ -411,13 +444,18 @@ const handleSseEvent = (event: MessageEvent) => {
       handleGoToList()
       break
     case 'BROADCAST_ENDED':
-    case 'BROADCAST_SCHEDULED_END':
       alert('방송이 종료되었습니다.')
-      handleEndBroadcast()
+      scheduleRefresh(id)
+      break
+    case 'BROADCAST_SCHEDULED_END':
+      if (window.confirm('방송이 종료되었습니다.')) {
+        handleGoToList()
+      }
       break
     case 'BROADCAST_STOPPED':
-      alert('관리자에 의해 방송이 중지되었습니다.')
-      handleEndBroadcast()
+      if (window.confirm('관리자에 의해 방송이 중지되었습니다.')) {
+        handleGoToList()
+      }
       break
     default:
       break
@@ -438,10 +476,14 @@ const connectSse = (broadcastId: number) => {
   if (sseSource.value) {
     sseSource.value.close()
   }
-  const source = new EventSource(`${apiBase}/api/broadcasts/${broadcastId}/subscribe`)
+  const user = getAuthUser()
+  const viewerId = user?.id ?? user?.userId ?? user?.user_id ?? user?.sellerId
+  const query = viewerId ? `?viewerId=${encodeURIComponent(String(viewerId))}` : ''
+  const source = new EventSource(`${apiBase}/api/broadcasts/${broadcastId}/subscribe${query}`)
   const events = [
     'BROADCAST_READY',
     'BROADCAST_UPDATED',
+    'BROADCAST_STARTED',
     'PRODUCT_PINNED',
     'SANCTION_UPDATED',
     'BROADCAST_ENDING_SOON',
@@ -565,6 +607,7 @@ const handleConfirmAction = () => {
 }
 
 const setPinnedProduct = async (productId: string | null) => {
+  if (!isInteractive.value) return
   pinnedProductId.value = productId
   if (!productId) return
   const broadcastValue = streamId.value ? Number(streamId.value) : NaN
@@ -574,6 +617,7 @@ const setPinnedProduct = async (productId: string | null) => {
 }
 
 const handlePinProduct = (productId: string) => {
+  if (!isInteractive.value) return
   if (pinnedProductId.value && pinnedProductId.value !== productId) {
     openConfirm(
       {
@@ -631,6 +675,7 @@ const formatChatTime = () => {
 }
 
 const handleSendChat = () => {
+  if (!isInteractive.value) return
   if (!chatText.value.trim()) return
   chatMessages.value = [
     ...chatMessages.value,
@@ -662,10 +707,10 @@ const handleGoToList = () => {
 
 const handleEndBroadcast = () => {
   alert('방송이 종료되었습니다.')
-  router.push({ name: 'seller-live' })
 }
 
 const requestEndBroadcast = () => {
+  if (!isInteractive.value) return
   openConfirm(
     {
       title: '방송 종료',

@@ -200,6 +200,7 @@ public class BroadcastService {
             throw new BusinessException(ErrorCode.INVALID_INPUT_VALUE);
         }
 
+        validateTransition(broadcast.getStatus(), BroadcastStatus.CANCELED);
         broadcast.cancelBroadcast("판매자 예약 취소");
         log.info("방송 취소 처리 완료: id={}, status={}", broadcastId, broadcast.getStatus());
     }
@@ -400,7 +401,9 @@ public class BroadcastService {
             throw new BusinessException(ErrorCode.INVALID_INPUT_VALUE);
         }
 
+        validateTransition(broadcast.getStatus(), BroadcastStatus.ON_AIR);
         broadcast.startBroadcast("session-" + broadcastId);
+        sseService.notifyBroadcastUpdate(broadcastId, "BROADCAST_STARTED", "started");
 
         try {
             Map<String, Object> params = Map.of("role", "HOST", "sellerId", sellerId);
@@ -446,6 +449,7 @@ public class BroadcastService {
             throw new BusinessException(ErrorCode.FORBIDDEN_ACCESS);
         }
 
+        validateTransition(broadcast.getStatus(), BroadcastStatus.ENDED);
         broadcast.endBroadcast();
         openViduService.closeSession(broadcastId);
         sseService.notifyBroadcastUpdate(broadcastId, "BROADCAST_ENDED", "ended");
@@ -553,6 +557,7 @@ public class BroadcastService {
 
         redisService.deleteBroadcastKeys(broadcastId);
         if (isStopped || broadcast.getStatus() == BroadcastStatus.ENDED) {
+            validateTransition(broadcast.getStatus(), BroadcastStatus.VOD);
             broadcast.changeStatus(BroadcastStatus.VOD);
         }
     }
@@ -833,6 +838,7 @@ public class BroadcastService {
         for (Long broadcastId : readyTargets) {
             Broadcast broadcast = broadcastRepository.findById(broadcastId).orElse(null);
             if (broadcast != null && broadcast.getStatus() == BroadcastStatus.RESERVED) {
+                validateTransition(broadcast.getStatus(), BroadcastStatus.READY);
                 broadcast.readyBroadcast();
                 sseService.notifyBroadcastUpdate(broadcastId, "BROADCAST_READY", "ready");
             }
@@ -842,7 +848,8 @@ public class BroadcastService {
         for (Long broadcastId : noShowTargets) {
             Broadcast broadcast = broadcastRepository.findById(broadcastId).orElse(null);
             if (broadcast != null && (broadcast.getStatus() == BroadcastStatus.RESERVED || broadcast.getStatus() == BroadcastStatus.READY)) {
-                broadcast.markNoShow("방송 시작 시간 초과");
+                validateTransition(broadcast.getStatus(), BroadcastStatus.CANCELED);
+                broadcast.markNoShow("broadcast start time violation");
                 sseService.notifyBroadcastUpdate(broadcastId, "BROADCAST_CANCELED", "no_show");
             }
         }
@@ -857,14 +864,19 @@ public class BroadcastService {
             if (schedule.scheduledAt() == null) {
                 continue;
             }
-            LocalDateTime scheduledEnd = schedule.scheduledAt().plusMinutes(60);
+            LocalDateTime scheduledEnd = schedule.scheduledAt().plusMinutes(30);
             if (!scheduledEnd.isAfter(now)) {
                 String noticeKey = redisService.getScheduleNoticeKey(schedule.broadcastId(), "ended");
                 if (redisService.setIfAbsent(noticeKey, "sent", java.time.Duration.ofHours(2))) {
                     Broadcast broadcast = broadcastRepository.findById(schedule.broadcastId()).orElse(null);
                     if (broadcast != null && broadcast.getStatus() == BroadcastStatus.ON_AIR) {
+                        validateTransition(broadcast.getStatus(), BroadcastStatus.ENDED);
                         broadcast.endBroadcast();
                         openViduService.closeSession(schedule.broadcastId());
+                    }
+                    if (broadcast != null && (broadcast.getStatus() == BroadcastStatus.ENDED || broadcast.getStatus() == BroadcastStatus.STOPPED)) {
+                        validateTransition(broadcast.getStatus(), BroadcastStatus.VOD);
+                        broadcast.changeStatus(BroadcastStatus.VOD);
                     }
                     sseService.notifyBroadcastUpdate(schedule.broadcastId(), "BROADCAST_SCHEDULED_END", "ended");
                 }
@@ -875,7 +887,10 @@ public class BroadcastService {
             if (!noticeAt.isAfter(now)) {
                 String noticeKey = redisService.getScheduleNoticeKey(schedule.broadcastId(), "ending_soon");
                 if (redisService.setIfAbsent(noticeKey, "sent", java.time.Duration.ofHours(2))) {
-                    sseService.notifyBroadcastUpdate(schedule.broadcastId(), "BROADCAST_ENDING_SOON", "1m");
+                    Broadcast broadcast = broadcastRepository.findById(schedule.broadcastId()).orElse(null);
+                    if (broadcast != null) {
+                        sseService.notifyTargetUser(schedule.broadcastId(), broadcast.getSeller().getSellerId(), "BROADCAST_ENDING_SOON", "1m");
+                    }
                 }
             }
         }
@@ -933,6 +948,26 @@ public class BroadcastService {
     private void updateQcards(Broadcast broadcast, List<QcardRequest> qcards) {
         qcardRepository.deleteByBroadcast(broadcast);
         saveQcards(broadcast, qcards);
+    }
+
+    private void validateTransition(BroadcastStatus from, BroadcastStatus to) {
+        if (!isTransitionAllowed(from, to)) {
+            throw new BusinessException(ErrorCode.BROADCAST_INVALID_TRANSITION);
+        }
+    }
+
+    private boolean isTransitionAllowed(BroadcastStatus from, BroadcastStatus to) {
+        if (from == null || to == null || from == to) {
+            return false;
+        }
+        return switch (from) {
+            case RESERVED -> to == BroadcastStatus.READY || to == BroadcastStatus.CANCELED;
+            case READY -> to == BroadcastStatus.ON_AIR || to == BroadcastStatus.CANCELED || to == BroadcastStatus.STOPPED;
+            case ON_AIR -> to == BroadcastStatus.ENDED || to == BroadcastStatus.STOPPED;
+            case ENDED -> to == BroadcastStatus.VOD || to == BroadcastStatus.STOPPED;
+            case STOPPED -> to == BroadcastStatus.VOD;
+            default -> false;
+        };
     }
 
     private List<BroadcastProductResponse> getProductListResponse(Broadcast broadcast) {

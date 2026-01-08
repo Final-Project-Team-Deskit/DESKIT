@@ -9,6 +9,7 @@ import {
   stopAdminBroadcast,
 } from '../../../lib/live/api'
 import { parseLiveDate } from '../../../lib/live/utils'
+import { computeLifecycleStatus, getScheduledEndMs, normalizeBroadcastStatus } from '../../../lib/broadcastStatus'
 
 const route = useRoute()
 const router = useRouter()
@@ -20,6 +21,7 @@ type AdminDetail = {
   title: string
   sellerName: string
   startedAt: string
+  scheduledAt?: string
   status: string
   viewers: number
   reports: number
@@ -131,12 +133,14 @@ const loadDetail = async () => {
     const likes = statsResponse?.likeCount ?? detailResponse.totalLikes ?? 0
     const reports = statsResponse?.reportCount ?? detailResponse.totalReports ?? 0
     const startedAt = detailResponse.startedAt ?? detailResponse.scheduledAt ?? ''
+    const scheduledAt = detailResponse.scheduledAt ?? ''
 
     detail.value = {
       id: String(detailResponse.broadcastId),
       title: detailResponse.title,
       sellerName: detailResponse.sellerName ?? '',
       startedAt,
+      scheduledAt,
       status: detailResponse.status ?? '',
       viewers,
       reports,
@@ -213,11 +217,13 @@ const refreshDetail = async (broadcastId: number) => {
     const detailResponse = await fetchAdminBroadcastDetail(broadcastId)
     if (!detail.value) return
     const startedAt = detailResponse.startedAt ?? detailResponse.scheduledAt ?? ''
+    const scheduledAt = detailResponse.scheduledAt ?? ''
     detail.value = {
       ...detail.value,
       title: detailResponse.title,
       sellerName: detailResponse.sellerName ?? detail.value.sellerName,
       startedAt,
+      scheduledAt,
       status: detailResponse.status ?? detail.value.status,
       elapsed: formatElapsed(startedAt),
     }
@@ -225,6 +231,20 @@ const refreshDetail = async (broadcastId: number) => {
     return
   }
 }
+
+const lifecycleStatus = computed(() => {
+  if (!detail.value) return 'RESERVED'
+  const baseTime = detail.value.startedAt || detail.value.scheduledAt
+  const startAtMs = baseTime ? parseLiveDate(baseTime).getTime() : NaN
+  const endAtMs = Number.isNaN(startAtMs) ? undefined : getScheduledEndMs(startAtMs)
+  return computeLifecycleStatus({
+    status: normalizeBroadcastStatus(detail.value.status),
+    startAtMs: Number.isNaN(startAtMs) ? undefined : startAtMs,
+    endAtMs,
+  })
+})
+
+const isInteractive = computed(() => lifecycleStatus.value === 'ON_AIR')
 
 const parseSseData = (event: MessageEvent) => {
   if (!event.data) return null
@@ -251,6 +271,7 @@ const handleSseEvent = (event: MessageEvent) => {
   switch (event.type) {
     case 'BROADCAST_READY':
     case 'BROADCAST_UPDATED':
+    case 'BROADCAST_STARTED':
       scheduleRefresh(idValue)
       break
     case 'PRODUCT_PINNED':
@@ -259,23 +280,26 @@ const handleSseEvent = (event: MessageEvent) => {
     case 'SANCTION_UPDATED':
       scheduleRefresh(idValue)
       break
-    case 'BROADCAST_ENDING_SOON':
-      alert('방송 종료 1분 전입니다.')
-      break
     case 'BROADCAST_CANCELED':
       alert('방송이 자동 취소되었습니다.')
       goToList()
       break
     case 'BROADCAST_ENDED':
-    case 'BROADCAST_SCHEDULED_END':
       alert('방송이 종료되었습니다.')
       void refreshDetail(idValue)
+      break
+    case 'BROADCAST_SCHEDULED_END':
+      if (window.confirm('방송이 종료되었습니다.')) {
+        goToList()
+      }
       break
     case 'BROADCAST_STOPPED':
       if (detail.value) {
         detail.value.status = 'STOPPED'
       }
-      alert(typeof data === 'string' ? data : '관리자에 의해 방송이 중지되었습니다.')
+      if (window.confirm(typeof data === 'string' ? data : '관리자에 의해 방송이 중지되었습니다.')) {
+        goToList()
+      }
       break
     default:
       break
@@ -300,6 +324,7 @@ const connectSse = (broadcastId: number) => {
   const events = [
     'BROADCAST_READY',
     'BROADCAST_UPDATED',
+    'BROADCAST_STARTED',
     'PRODUCT_PINNED',
     'SANCTION_UPDATED',
     'BROADCAST_ENDING_SOON',
@@ -335,7 +360,7 @@ const startStatsPolling = (broadcastId: number) => {
 }
 
 const openStopConfirm = () => {
-  if (!detail.value || detail.value.status === 'STOPPED') return
+  if (!detail.value || detail.value.status === 'STOPPED' || !isInteractive.value) return
   showStopModal.value = true
   error.value = ''
 }
@@ -403,6 +428,7 @@ const closeChat = () => {
 }
 
 const sendChat = () => {
+  if (!isInteractive.value) return
   if (!chatText.value.trim()) return
   const now = new Date()
   const time = `${now.getHours()}시 ${String(now.getMinutes()).padStart(2, '0')}분`
@@ -419,6 +445,7 @@ const sendChat = () => {
 }
 
 const openModeration = (msg: { user: string }) => {
+  if (!isInteractive.value) return
   if (msg.user === 'SYSTEM' || msg.user === '관리자') return
   console.log('[admin chat] moderation open', msg.user)
   moderationTarget.value = { user: msg.user }

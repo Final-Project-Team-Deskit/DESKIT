@@ -212,9 +212,9 @@ const ensureEndAt = (startAt?: string, endAt?: string, status?: string) => {
   if (endAt) return endAt
   if (!startAt) return ''
   if (status === 'ENDED' || status === 'VOD' || status === 'STOPPED') {
-    return addMinutes(startAt, 60)
+    return addMinutes(startAt, 30)
   }
-  return addMinutes(startAt, 60)
+  return addMinutes(startAt, 30)
 }
 
 const ensureSuccess = <T>(response: ApiResult<T>) => {

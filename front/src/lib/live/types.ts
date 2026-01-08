@@ -5,6 +5,7 @@ export type LiveItem = {
   thumbnailUrl: string
   startAt: string
   endAt: string
+  status?: string
   viewerCount?: number
   vodUrl?: string
   streamUrl?: string
