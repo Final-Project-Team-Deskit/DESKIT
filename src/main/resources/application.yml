@@ -32,10 +32,10 @@ spring:
         format_sql: true
         show_sql: true
   data:
-    redis:
-      host: redis-11674.c340.ap-northeast-2-1.ec2.cloud.redislabs.com
-      port: 11674
-      password: wfpUvcysPnJIhN8ALNLltZDLnbaA8UNg
+#    redis:
+#      host: redis-11674.c340.ap-northeast-2-1.ec2.cloud.redislabs.com
+#      port: 6
+#      password: wfpUvcysPnJIhN8ALNLltZDLnbaA8UNg
   #      port: 6379
   #      password: redis1234
   servlet:
