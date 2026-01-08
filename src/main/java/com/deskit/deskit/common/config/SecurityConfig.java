@@ -124,6 +124,7 @@ public class SecurityConfig {
 								"/api/products",
 								"/api/setups",
 								"/api/home/**",
+								"/livechats/**",
 								"/products/**",
 								"/setups/**"
 						).permitAll()
@@ -138,7 +139,8 @@ public class SecurityConfig {
                 "/oauth/**",
 								"/login",
 								"/login/**",
-								"/login/oauth2/**"
+								"/login/oauth2/**",
+                                "/ws/**"
 						).permitAll()
 						.requestMatchers("/api/admin/**").hasAuthority("ROLE_ADMIN")
 						.requestMatchers("/api/quit").hasAnyAuthority(

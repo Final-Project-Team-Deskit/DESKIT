@@ -1,6 +1,8 @@
-<script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+﻿<script setup lang="ts">
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { Client, type StompSubscription } from '@stomp/stompjs'
+import SockJS from 'sockjs-client/dist/sockjs'
 import PageContainer from '../components/PageContainer.vue'
 import PageHeader from '../components/PageHeader.vue'
 import ConfirmModal from '../components/ConfirmModal.vue'
@@ -8,10 +10,12 @@ import { allLiveItems } from '../lib/home-data'
 import { getLiveStatus, parseLiveDate } from '../lib/live/utils'
 import { useNow } from '../lib/live/useNow'
 import { getProductsForLive, type LiveProductItem } from '../lib/live/detail'
+import { getAuthUser } from '../lib/auth'
 
 const route = useRoute()
 const router = useRouter()
 const { now } = useNow(1000)
+const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080'
 
 const liveId = computed(() => {
   const value = route.params.id
@@ -131,6 +135,19 @@ const toggleSettings = () => {
   isSettingsOpen.value = !isSettingsOpen.value
 }
 
+type LiveMessageType = 'TALK' | 'ENTER' | 'EXIT' | 'PURCHASE' | 'NOTICE'
+
+// [수정] DTO 구조를 백엔드와 맞춤
+type LiveChatMessageDTO = {
+  broadcastId: number
+  memberEmail: string
+  type: LiveMessageType
+  sender: string
+  content: string
+  vodPlayTime: number
+  sentAt?: number
+}
+
 type ChatMessage = {
   id: string
   user: string
@@ -166,6 +183,25 @@ const messages = ref<ChatMessage[]>([
 const input = ref('')
 const isLoggedIn = ref(true)
 const chatListRef = ref<HTMLDivElement | null>(null)
+const memberEmail = ref<string>("") // [확인] memberEmail ref
+const nickname = ref(`guest_${Math.floor(Math.random() * 1000)}`)
+const stompClient = ref<Client | null>(null)
+let stompSubscription: StompSubscription | null = null
+const isChatConnected = ref(false)
+const ENTER_SENT_KEY_PREFIX = 'deskit_live_enter_sent_v1'
+
+const getAccessToken = () => {
+  return localStorage.getItem('access') || sessionStorage.getItem('access')
+}
+
+const broadcastId = computed(() => {
+  if (!liveId.value) {
+    return undefined
+  }
+  const raw = String(liveId.value)
+  const numeric = Number.parseInt(raw.replace(/[^0-9]/g, ''), 10)
+  return Number.isFinite(numeric) ? numeric : undefined
+})
 
 const formatChatTime = (value: Date) => {
   const hours = String(value.getHours()).padStart(2, '0')
@@ -182,21 +218,194 @@ const scrollToBottom = () => {
   })
 }
 
+const appendMessage = (message: ChatMessage) => {
+  messages.value.push(message)
+  scrollToBottom()
+}
+
+// [수정] 인증 정보 갱신 시 email을 저장하도록 변경
+const refreshAuth = () => {
+  const user = getAuthUser()
+  isLoggedIn.value = user !== null
+  if (user?.name) {
+    nickname.value = user.name
+  }
+  // memberId 관련 로직을 제거하고 email을 할당
+  memberEmail.value = user?.email || ""
+}
+
+const sendSocketMessage = (type: LiveMessageType, content: string) => {
+  if (!stompClient.value?.connected || !broadcastId.value) {
+    return
+  }
+  const payload: LiveChatMessageDTO = {
+    broadcastId: broadcastId.value,
+    memberEmail: memberEmail.value, // [수정] memberEmail 사용
+    type,
+    sender: nickname.value,
+    content,
+    vodPlayTime: 0,
+    sentAt: Date.now(),
+  }
+  stompClient.value.publish({
+    destination: '/pub/chat/message',
+    body: JSON.stringify(payload),
+  })
+}
+
+const handleIncomingMessage = (payload: LiveChatMessageDTO) => {
+  const kind: ChatMessage['kind'] = payload.type === 'TALK' ? 'user' : 'system'
+  const user = kind === 'system' ? 'system' : payload.sender || 'unknown'
+  const sentAt = payload.sentAt ? new Date(payload.sentAt) : new Date()
+  appendMessage({
+    id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+    user,
+    text: payload.content ?? '',
+    at: sentAt,
+    kind,
+  })
+}
+
+const fetchRecentMessages = async () => {
+  if (!broadcastId.value) {
+    return
+  }
+  try {
+    const response = await fetch(`${apiBase}/livechats/${broadcastId.value}/recent?seconds=60`)
+    if (!response.ok) {
+      return
+    }
+    const recent = (await response.json()) as LiveChatMessageDTO[]
+    if (!Array.isArray(recent) || recent.length === 0) {
+      return
+    }
+    messages.value = recent
+      .filter((item) => item.type === 'TALK')
+      .map((item) => ({
+        id: `${item.sentAt ?? Date.now()}-${Math.random().toString(16).slice(2)}`,
+        user: item.sender || 'unknown',
+        text: item.content ?? '',
+        at: new Date(item.sentAt ?? Date.now()),
+        kind: 'user' as const,
+      }))
+    scrollToBottom()
+  } catch (error) {
+    console.error('[livechat] recent fetch failed', error)
+  }
+}
+
+const connectChat = () => {
+  if (!broadcastId.value || stompClient.value?.active) {
+    return
+  }
+  const client = new Client({
+    webSocketFactory: () =>
+      new SockJS(`${apiBase}/ws`, undefined, {
+        withCredentials: true,
+      }),
+    reconnectDelay: 5000,
+  })
+  const access = getAccessToken()
+  if (access) {
+    client.connectHeaders = {
+      access,
+      Authorization: `Bearer ${access}`,
+    }
+  }
+
+  client.onConnect = () => {
+    isChatConnected.value = true
+    stompSubscription?.unsubscribe()
+    stompSubscription = client.subscribe(`/sub/chat/${broadcastId.value}`, (frame) => {
+      try {
+        const payload = JSON.parse(frame.body) as LiveChatMessageDTO
+        handleIncomingMessage(payload)
+      } catch (error) {
+        console.error('[livechat] message parse failed', error)
+      }
+    })
+    if (shouldSendEnterMessage()) {
+      sendSocketMessage('ENTER', `${nickname.value} entered the room.`)
+      markEnterMessageSent()
+    }
+  }
+
+  client.onStompError = (frame) => {
+    console.error('[livechat] stomp error', frame.headers, frame.body)
+  }
+
+  client.onWebSocketClose = () => {
+    isChatConnected.value = false
+  }
+
+  client.onDisconnect = () => {
+    isChatConnected.value = false
+  }
+
+  stompClient.value = client
+  client.activate()
+}
+
+const disconnectChat = () => {
+  if (stompClient.value?.connected) {
+    sendSocketMessage('EXIT', `${nickname.value} left the room.`)
+  }
+  stompSubscription?.unsubscribe()
+  stompSubscription = null
+  if (stompClient.value) {
+    stompClient.value.deactivate()
+    stompClient.value = null
+  }
+  isChatConnected.value = false
+}
+
+const getEnterSentKey = () => {
+  if (!broadcastId.value) {
+    return null
+  }
+  return `${ENTER_SENT_KEY_PREFIX}:${broadcastId.value}`
+}
+
+const shouldSendEnterMessage = () => {
+  const key = getEnterSentKey()
+  if (!key) {
+    return false
+  }
+  try {
+    return localStorage.getItem(key) !== 'true'
+  } catch {
+    return true
+  }
+}
+
+const markEnterMessageSent = () => {
+  const key = getEnterSentKey()
+  if (!key) {
+    return
+  }
+  try {
+    localStorage.setItem(key, 'true')
+  } catch {
+    return
+  }
+}
+
 const sendMessage = () => {
-  if (!isLoggedIn.value) {
+  if (!isLoggedIn.value || !isChatConnected.value) {
     return
   }
   const trimmed = input.value.trim()
   if (!trimmed) {
     return
   }
-  messages.value.push({
-    id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
-    user: '나',
-    text: trimmed,
-    at: new Date(),
-    kind: 'user',
-  })
+  // messages.value.push({
+  //   id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+  //   user: '나',
+  //   text: trimmed,
+  //   at: new Date(),
+  //   kind: 'user',
+  // })
+  sendSocketMessage('TALK', trimmed)
   input.value = ''
   scrollToBottom()
 }
@@ -285,6 +494,31 @@ onMounted(() => {
   document.addEventListener('fullscreenchange', handleFullscreenChange)
 })
 
+const handleAuthUpdate = () => {
+  refreshAuth()
+}
+
+onMounted(() => {
+  refreshAuth()
+  window.addEventListener('deskit-user-updated', handleAuthUpdate)
+})
+
+watch(
+  broadcastId,
+  (value, previous) => {
+    if (value === previous) {
+      return
+    }
+    messages.value = []
+    disconnectChat()
+    if (value) {
+      fetchRecentMessages()
+      connectChat()
+    }
+  },
+  { immediate: true }
+)
+
 onBeforeUnmount(() => {
   document.removeEventListener('click', handleDocumentClick)
   document.removeEventListener('keydown', handleDocumentKeydown)
@@ -293,6 +527,8 @@ onBeforeUnmount(() => {
     panelResizeObserver.unobserve(playerPanelRef.value)
   }
   panelResizeObserver?.disconnect()
+  window.removeEventListener('deskit-user-updated', handleAuthUpdate)
+  disconnectChat()
 })
 </script>
 
@@ -459,14 +695,14 @@ onBeforeUnmount(() => {
             <input
               v-model="input"
               type="text"
-              placeholder="메시지를 입력하세요"
-              :disabled="!isLoggedIn"
+              placeholder="메시지를 입력하세요."
+              :disabled="!isLoggedIn || !isChatConnected"
               @keydown.enter="sendMessage"
             />
             <button
               type="button"
               class="btn primary"
-              :disabled="!isLoggedIn || !input.trim()"
+              :disabled="!isLoggedIn || !isChatConnected || !input.trim()"
               @click="sendMessage"
             >
               전송

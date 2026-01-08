@@ -1,7 +1,17 @@
 package com.deskit.deskit.common.config;
 
+import com.deskit.deskit.account.jwt.JWTUtil;
+import io.jsonwebtoken.ExpiredJwtException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.messaging.Message;
+import org.springframework.messaging.MessageChannel;
+import org.springframework.messaging.simp.config.ChannelRegistration;
 import org.springframework.messaging.simp.config.MessageBrokerRegistry;
+import org.springframework.messaging.simp.stomp.StompCommand;
+import org.springframework.messaging.simp.stomp.StompHeaderAccessor;
+import org.springframework.messaging.support.ChannelInterceptor;
 import org.springframework.web.socket.config.annotation.EnableWebSocketMessageBroker;
 import org.springframework.web.socket.config.annotation.StompEndpointRegistry;
 import org.springframework.web.socket.config.annotation.WebSocketMessageBrokerConfigurer;
@@ -9,22 +19,89 @@ import org.springframework.web.socket.config.annotation.WebSocketMessageBrokerCo
 @Configuration
 @EnableWebSocketMessageBroker
 public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
+    private static final Logger log = LoggerFactory.getLogger(WebSocketConfig.class);
+    private final JWTUtil jwtUtil;
+
+    public WebSocketConfig(JWTUtil jwtUtil) {
+        this.jwtUtil = jwtUtil;
+    }
 
     @Override
     public void configureMessageBroker(MessageBrokerRegistry config) {
-        // 메시지를 구독(수신)하는 요청의 접두사
-        config.enableSimpleBroker("/topic", "/queue");
-
-        // 메시지를 발행(송신)하는 요청의 접두사
-        config.setApplicationDestinationPrefixes("/app");
+        config.enableSimpleBroker("/topic", "/queue", "/sub");
+        config.setApplicationDestinationPrefixes("/app", "/pub");
     }
 
     @Override
     public void registerStompEndpoints(StompEndpointRegistry registry) {
-        // 프론트엔드에서 연결할 웹소켓 엔드포인트 주소
-        registry.addEndpoint("/ws-live")
-                // CORS 허용 (프론트엔드 포트가 5173인 경우)
+        registry.addEndpoint("/ws-live", "/ws")
                 .setAllowedOriginPatterns("http://localhost:5173", "http://localhost:3000", "*")
-                .withSockJS(); // SockJS 지원
+                .addInterceptors(new WebSocketAuthHandshakeInterceptor(jwtUtil))
+                .setHandshakeHandler(new WebSocketAuthHandshakeHandler())
+                .withSockJS();
+    }
+
+    @Override
+    public void configureClientInboundChannel(ChannelRegistration registration) {
+        registration.interceptors(new ChannelInterceptor() {
+            @Override
+            public Message<?> preSend(Message<?> message, MessageChannel channel) {
+                StompHeaderAccessor accessor = StompHeaderAccessor.wrap(message);
+                if (accessor.getCommand() == StompCommand.CONNECT) {
+                    if (accessor.getUser() == null && accessor.getSessionAttributes() != null) {
+                        Object principal = accessor.getSessionAttributes().get("principal");
+                        if (principal instanceof java.security.Principal) {
+                            accessor.setUser((java.security.Principal) principal);
+                        }
+                    }
+                    if (accessor.getUser() != null) {
+                        String name = accessor.getUser().getName();
+                        log.debug("stomp.connect principal={}", name);
+                        return message;
+                    }
+                    String token = resolveToken(accessor);
+                    if (token == null || token.isBlank()) {
+                        log.debug("stomp.connect no token");
+                        return message;
+                    }
+                    try {
+                        if (jwtUtil.isExpired(token)) {
+                            log.debug("stomp.connect token expired");
+                            return message;
+                        }
+                    } catch (ExpiredJwtException ex) {
+                        log.debug("stomp.connect token expired");
+                        return message;
+                    } catch (Exception ex) {
+                        log.debug("stomp.connect token parse failed: {}", ex.getMessage());
+                        return message;
+                    }
+
+                    String category = jwtUtil.getCategory(token);
+                    if (!"access".equals(category)) {
+                        log.debug("stomp.connect token category invalid");
+                        return message;
+                    }
+
+                    String username = jwtUtil.getUsername(token);
+                    String role = jwtUtil.getRole(token);
+                    accessor.setUser(new WebSocketPrincipal(username));
+                    log.debug("stomp.connect principal={} role={}", username, role);
+                }
+                return message;
+            }
+        });
+    }
+
+    private String resolveToken(StompHeaderAccessor accessor) {
+        String auth = accessor.getFirstNativeHeader("Authorization");
+        if (auth != null && auth.startsWith("Bearer ")) {
+            return auth.substring(7);
+        }
+        String legacy = accessor.getFirstNativeHeader("access");
+        if (legacy != null && !legacy.isBlank()) {
+            return legacy;
+        }
+        return null;
     }
 }
