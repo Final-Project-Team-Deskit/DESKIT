@@ -300,7 +300,7 @@ const minDate = computed(() => {
 
 const maxDate = computed(() => {
   const date = new Date()
-  date.setDate(date.getDate() + 15)
+  date.setDate(date.getDate() + 14)
   return date.toISOString().split('T')[0]
 })
 
