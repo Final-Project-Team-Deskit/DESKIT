@@ -213,6 +213,19 @@ export const fetchSellerBroadcasts = async (params: { tab?: string; statusFilter
   return []
 }
 
+export const fetchAdminBroadcasts = async (params: { tab?: string; statusFilter?: string; sortType?: string; page?: number; size?: number }) => {
+  const { data } = await http.get<ApiResult<{ content?: BroadcastListItem[]; slice?: BroadcastListItem[] }>>('/api/admin/broadcasts', { params })
+  const payload = ensureSuccess(data)
+  if (Array.isArray(payload)) {
+    return payload as BroadcastListItem[]
+  }
+  const content = (payload as any)?.content
+  if (Array.isArray(content)) return content
+  const slice = (payload as any)?.slice
+  if (Array.isArray(slice)) return slice
+  return []
+}
+
 export const createBroadcast = async (payload: BroadcastPayload): Promise<number> => {
   const { data } = await http.post<ApiResult<number>>('/api/seller/broadcasts', payload)
   return ensureSuccess(data)
