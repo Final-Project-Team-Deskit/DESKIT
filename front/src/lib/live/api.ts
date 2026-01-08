@@ -34,6 +34,11 @@ export type BroadcastListItem = {
   endAt?: string
   viewerCount?: number
   liveViewerCount?: number
+  reportCount?: number
+  totalSales?: number | string
+  totalLikes?: number
+  isPublic?: boolean
+  adminLock?: boolean
 }
 
 export type BroadcastDetail = {

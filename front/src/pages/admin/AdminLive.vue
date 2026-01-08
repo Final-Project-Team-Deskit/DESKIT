@@ -151,6 +151,11 @@ const toDateMs = (raw: string | undefined) => {
   return Number.isNaN(parsed) ? 0 : parsed
 }
 
+const toNumber = (value: unknown, fallback = 0) => {
+  const parsed = Number(value)
+  return Number.isNaN(parsed) ? fallback : parsed
+}
+
 const formatDateTime = (value?: string) => {
   if (!value) return ''
   const date = parseLiveDate(value)
@@ -183,9 +188,9 @@ const mapAdminItem = (item: any, kind: 'live' | 'scheduled' | 'vod'): LiveItem =
     sellerName: item.sellerName ?? '',
     status,
     startedAt: item.startAt,
-    viewers: liveViewerCount ?? item.viewerCount ?? 0,
-    likes: item.totalLikes ?? 0,
-    reports: item.reportCount ?? 0,
+    viewers: toNumber(liveViewerCount ?? item.viewerCount),
+    likes: toNumber(item.totalLikes),
+    reports: toNumber(item.reportCount),
     category: item.categoryName ?? '기타',
     startAtMs: Number.isNaN(startAtMs ?? NaN) ? undefined : startAtMs,
     endAtMs: Number.isNaN(endAtMs ?? NaN) ? undefined : endAtMs,
@@ -233,10 +238,10 @@ const loadAdminData = async () => {
       statusLabel: item.isPublic ? 'VOD' : '비공개',
       visibility: item.isPublic ? 'public' : 'private',
       metrics: {
-        reports: item.reportCount ?? 0,
-        likes: item.totalLikes ?? 0,
-        totalRevenue: item.totalSales ?? 0,
-        maxViewers: item.viewerCount ?? 0,
+        reports: toNumber(item.reportCount),
+        likes: toNumber(item.totalLikes),
+        totalRevenue: toNumber(item.totalSales),
+        maxViewers: toNumber(item.viewerCount),
       },
     }))
   } catch {
