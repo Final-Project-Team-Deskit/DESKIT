@@ -3,9 +3,6 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch, type Compon
 import { useRoute, useRouter } from 'vue-router'
 import PageHeader from '../../components/PageHeader.vue'
 import DeviceSetupModal from '../../components/DeviceSetupModal.vue'
-import { getScheduledBroadcasts } from '../../composables/useSellerBroadcasts'
-import { getSellerReservationDetail, sellerReservationSummaries } from '../../lib/mocks/sellerReservations'
-import { getSellerVodDetail, sellerVodSummaries } from '../../lib/mocks/sellerVods'
 import { useInfiniteScroll } from '../../composables/useInfiniteScroll'
 import {
   computeLifecycleStatus,
@@ -14,6 +11,13 @@ import {
   normalizeBroadcastStatus,
   type BroadcastStatus,
 } from '../../lib/broadcastStatus'
+import { parseLiveDate } from '../../lib/live/utils'
+import {
+  fetchBroadcastProducts,
+  fetchBroadcastStats,
+  fetchSellerBroadcastReport,
+  fetchSellerBroadcasts,
+} from '../../lib/live/api'
 
 const router = useRouter()
 const route = useRoute()
@@ -78,70 +82,26 @@ const showDeviceModal = ref(false)
 const selectedScheduled = ref<LiveItem | null>(null)
 
 const liveItems = ref<LiveItem[]>([])
-const liveProducts = ref(
-  [
-    {
-      id: 'p-1',
-      title: '모던 스탠딩 데스크',
-      optionLabel: '1200mm · 오프화이트',
-      status: '판매중',
-      priceOriginal: 289000,
-      priceSale: 229000,
-      soldCount: 48,
-      stockTotal: 120,
-      pinned: true,
-      thumb: '',
-    },
-    {
-      id: 'p-2',
-      title: '로우 프로파일 키보드',
-      optionLabel: '무선 · 베이지',
-      status: '판매중',
-      priceOriginal: 139000,
-      priceSale: 99000,
-      soldCount: 72,
-      stockTotal: 180,
-      pinned: false,
-      thumb: '',
-    },
-    {
-      id: 'p-3',
-      title: '미니멀 데스크 매트',
-      optionLabel: '900mm · 샌드',
-      status: '품절',
-      priceOriginal: 59000,
-      priceSale: 45000,
-      soldCount: 110,
-      stockTotal: 110,
-      pinned: false,
-      thumb: '',
-    },
-    {
-      id: 'p-4',
-      title: '알루미늄 모니터암',
-      optionLabel: '싱글 · 블랙',
-      status: '판매중',
-      priceOriginal: 169000,
-      priceSale: 129000,
-      soldCount: 39,
-      stockTotal: 95,
-      pinned: true,
-      thumb: '',
-    },
-  ],
-)
+const liveProducts = ref<
+  Array<{
+    id: string
+    title: string
+    optionLabel: string
+    status: string
+    priceOriginal: number
+    priceSale: number
+    soldCount: number
+    stockTotal: number
+    pinned: boolean
+    thumb: string
+  }>
+>([])
 
-const liveStats = ref({
-  status: 'ON_AIR',
-  viewers: '1,248명',
-  likes: '3,420',
-  revenue: '₩4,920,000',
-})
+const liveStats = ref<{ status: string; viewers: string; likes: string; revenue: string } | null>(null)
 
 const scheduledItems = ref<LiveItem[]>([])
 const vodItems = ref<LiveItem[]>([])
 
-const liveTicker = ref<number | null>(null)
 const loopGap = 14
 const carouselRefs = ref<Record<LoopKind, HTMLElement | null>>({
   scheduled: null,
@@ -170,8 +130,6 @@ const toDateMs = (item: LiveItem) => {
   return Number.isNaN(parsed) ? 0 : parsed
 }
 
-const pickFromList = (list: readonly string[], index: number): string => list[index % list.length] ?? list[0] ?? ''
-
 const getLikes = (item: LiveItem) => (typeof item.likes === 'number' ? item.likes : 0)
 const getViewers = (item: LiveItem) => (typeof item.viewers === 'number' ? item.viewers : 0)
 const getVisibility = (item: LiveItem): 'public' | 'private' => {
@@ -195,18 +153,6 @@ const formatDDay = (item: LiveItem) => {
   if (diffDays > 0) return `D-${diffDays}`
   return `D+${Math.abs(diffDays)}`
 }
-
-const gradientPalette = ['111827', '0f172a', '1f2937', '334155'] as const
-
-const gradientThumb = (from: string, to: string) =>
-  `data:image/svg+xml;utf8,` +
-  `<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 320 200'>` +
-  `<defs><linearGradient id='g' x1='0' x2='1' y1='0' y2='1'>` +
-  `<stop offset='0' stop-color='%23${from}'/>` +
-  `<stop offset='1' stop-color='%23${to}'/>` +
-  `</linearGradient></defs>` +
-  `<rect width='320' height='200' fill='url(%23g)'/>` +
-  `</svg>`
 
 const withLifecycleStatus = (item: LiveItem): LiveItem => {
   const startAtMs = item.startAtMs ?? toDateMs(item)
@@ -251,99 +197,61 @@ const getLiveCtaLabel = (item: LiveItem): string => {
   return item.ctaLabel ?? '방송 입장'
 }
 
-const liveCategories = ['홈오피스', '주변기기', '조명', '정리/수납']
+const parseBroadcastId = (value?: string) => {
+  const numeric = Number.parseInt(String(value ?? '').replace(/[^0-9]/g, ''), 10)
+  return Number.isFinite(numeric) ? numeric : null
+}
 
-const buildLiveItems = () => {
-  const minutesFromNow = (offset: number) => Date.now() + offset * 60 * 1000
-  const formatRange = (startMs: number, durationMinutes: number) => {
-    const start = new Date(startMs)
-    const end = new Date(startMs + durationMinutes * 60 * 1000)
-    const fmt = (d: Date) => `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
-    return `오늘 ${fmt(start)} - ${fmt(end)}`
+const formatDateTime = (value?: string) => {
+  if (!value) return ''
+  const date = parseLiveDate(value)
+  if (Number.isNaN(date.getTime())) return value
+  const yyyy = date.getFullYear()
+  const mm = String(date.getMonth() + 1).padStart(2, '0')
+  const dd = String(date.getDate()).padStart(2, '0')
+  const hh = String(date.getHours()).padStart(2, '0')
+  const min = String(date.getMinutes()).padStart(2, '0')
+  return `${yyyy}.${mm}.${dd} ${hh}:${min}`
+}
+
+const parseAmount = (value: unknown) => {
+  if (typeof value === 'number') return value
+  if (typeof value === 'string') {
+    const parsed = Number.parseFloat(value.replace(/,/g, ''))
+    return Number.isNaN(parsed) ? 0 : parsed
   }
+  return 0
+}
 
-  const seeds: Array<LiveItem & { startOffset: number; duration: number }> = [
-    {
-      id: 'live-1',
-      title: '진행 중인 방송 제목',
-      subtitle: '셋업 추천 라이브',
-      thumb: gradientThumb('0f172a', '1f2937'),
-      startOffset: -15,
-      duration: 45,
-      status: 'ON_AIR',
-      statusBadge: 'ON_AIR',
-      viewerBadge: '500명 시청 중',
-      ctaLabel: '방송 입장',
-      viewers: 500,
-      likes: 320,
-      category: liveCategories[0],
-      datetime: '',
-    },
-    {
-      id: 'live-2',
-      title: '게이밍 데스크 셋업',
-      subtitle: '조명 & 모니터암',
-      thumb: gradientThumb('111827', '0f172a'),
-      startOffset: -5,
-      duration: 35,
-      status: 'ON_AIR',
-      statusBadge: 'ON_AIR',
-      viewerBadge: '214명 시청 중',
-      ctaLabel: '방송 입장',
-      viewers: 214,
-      likes: 190,
-      category: liveCategories[1],
-      datetime: '',
-    },
-    {
-      id: 'live-3',
-      title: '미니멀 오피스 데스크',
-      subtitle: '수납/정리 팁',
-      thumb: gradientThumb('1f2937', '111827'),
-      startOffset: 8,
-      duration: 30,
-      status: 'READY',
-      statusBadge: 'READY',
-      viewerBadge: '예정 방송',
-      ctaLabel: '방송 입장',
-      viewers: 89,
-      likes: 120,
-      category: liveCategories[2],
-      datetime: '',
-    },
-    {
-      id: 'live-4',
-      title: '홈카페 코너 셋업',
-      subtitle: '바 스툴 & 선반',
-      thumb: gradientThumb('0b1324', '0f172a'),
-      startOffset: -35,
-      duration: 30,
-      status: 'ON_AIR',
-      statusBadge: 'ON_AIR',
-      viewerBadge: '132명 시청 중',
-      ctaLabel: '방송 입장',
-      viewers: 132,
-      likes: 140,
-      category: liveCategories[3],
-      datetime: '',
-    },
-  ]
+const mapBroadcastItem = (item: any, kind: 'live' | 'scheduled' | 'vod'): LiveItem => {
+  const startAtMs = item.startAt ? parseLiveDate(item.startAt).getTime() : undefined
+  const endAtMs = item.endAt ? parseLiveDate(item.endAt).getTime() : getScheduledEndMs(startAtMs)
+  const status = normalizeBroadcastStatus(item.status)
+  const visibility = typeof item.isPublic === 'boolean' ? (item.isPublic ? 'public' : 'private') : 'public'
+  const dateLabel = formatDateTime(item.startAt)
+  const datetime = kind === 'vod' ? (dateLabel ? `업로드: ${dateLabel}` : '') : dateLabel
+  const liveViewerCount = typeof item.liveViewerCount === 'number' ? item.liveViewerCount : undefined
+  const viewerBadge = liveViewerCount ? `${liveViewerCount}명 시청 중` : undefined
 
-  liveItems.value = seeds.map((seed) => {
-    const startAtMs = minutesFromNow(seed.startOffset)
-    const endAtMs = startAtMs + seed.duration * 60 * 1000
-    return {
-      ...seed,
-      datetime: formatRange(startAtMs, seed.duration),
-      startAtMs,
-      endAtMs,
-    }
-  })
-
-  liveProducts.value = liveProducts.value.map((item, index) => ({
-    ...item,
-    thumb: gradientThumb(pickFromList(gradientPalette, index), '0f172a'),
-  }))
+  return {
+    id: String(item.broadcastId),
+    title: item.title ?? '',
+    subtitle: item.categoryName ?? '',
+    thumb: item.thumbnailUrl ?? '',
+    datetime,
+    ctaLabel: kind === 'vod' ? '상세보기' : '방송 입장',
+    category: item.categoryName ?? '기타',
+    status,
+    lifecycleStatus: status,
+    startAtMs: Number.isNaN(startAtMs) ? undefined : startAtMs,
+    endAtMs: Number.isNaN(endAtMs ?? NaN) ? undefined : endAtMs,
+    viewers: liveViewerCount ?? item.viewerCount ?? 0,
+    likes: item.totalLikes ?? 0,
+    revenue: parseAmount(item.totalSales),
+    visibility,
+    statusBadge: kind === 'vod' ? (visibility === 'private' ? '비공개' : 'VOD') : undefined,
+    viewerBadge,
+  }
 }
 
 const liveItemsWithStatus = computed(() => liveItems.value.map(withLifecycleStatus))
@@ -376,71 +284,21 @@ const liveItemsSorted = computed(() => {
 
 const currentLive = computed(() => liveItemsSorted.value[0] ?? null)
 
-const vodCategories = ['홈오피스', '주변기기', '정리/수납', '조명']
-
-const loadScheduled = () => {
-  const fromStorage = getScheduledBroadcasts().map((item, index) => {
-    const detail = getSellerReservationDetail(item.id)
-    const startAtMs = Date.parse(item.datetime.replace(/\./g, '-').replace(' ', 'T'))
-    const status = normalizeBroadcastStatus(detail?.status)
-    return {
-      ...item,
-      category: detail?.category ?? pickFromList(liveCategories, index),
-      status,
-      lifecycleStatus: status,
-      startAtMs: Number.isNaN(startAtMs) ? undefined : startAtMs,
-      endAtMs: getScheduledEndMs(Number.isNaN(startAtMs) ? undefined : startAtMs),
-    }
-  })
-
-  const seeded = sellerReservationSummaries.map((item, index) => {
-    const detail = getSellerReservationDetail(item.id)
-    const startAtMs = Date.parse(item.datetime.replace(/\./g, '-').replace(' ', 'T'))
-    const status = normalizeBroadcastStatus(detail?.status)
-    return {
-      ...item,
-      category: detail?.category ?? pickFromList(liveCategories, index),
-      status,
-      lifecycleStatus: status,
-      startAtMs: Number.isNaN(startAtMs) ? undefined : startAtMs,
-      endAtMs: getScheduledEndMs(Number.isNaN(startAtMs) ? undefined : startAtMs),
-    }
-  })
-
-  scheduledItems.value = [...fromStorage, ...seeded]
-    .sort((a, b) => {
-      const aDate = a.startAtMs ?? toDateMs(a)
-      const bDate = b.startAtMs ?? toDateMs(b)
-      return aDate - bDate
-    })
-}
-
-const loadVods = () => {
-  vodItems.value = sellerVodSummaries.map((item, index) => {
-    const detail = getSellerVodDetail(item.id)
-    const visibility = detail?.vod?.visibility === '비공개' ? 'private' : 'public'
-    const startMs = Date.parse(item.startedAt.replace(/\./g, '-').replace(' ', 'T'))
-    const endMs = Date.parse(item.endedAt.replace(/\./g, '-').replace(' ', 'T'))
-    return {
-      id: item.id,
-      title: item.title,
-      subtitle: '',
-      thumb: item.thumb,
-      datetime: `업로드: ${item.startedAt}`,
-      ctaLabel: '상세보기',
-      visibility,
-      createdAt: item.startedAt,
-      likes: detail?.metrics?.likes ?? 0,
-      viewers: detail?.metrics?.maxViewers ?? 0,
-      revenue: detail?.metrics?.totalRevenue ?? 0,
-      category: pickFromList(vodCategories, index),
-      startAtMs: Number.isNaN(startMs) ? undefined : startMs,
-      statusBadge: detail?.vod?.visibility === '비공개' ? '비공개' : 'VOD',
-      viewerBadge: detail?.metrics?.maxViewers ? `${detail.metrics.maxViewers}명 시청` : undefined,
-      status: 'VOD',
-      endAtMs: Number.isNaN(endMs) ? undefined : endMs,
-    }
-  }).sort((a, b) => (b.startAtMs ?? toDateMs(b)) - (a.startAtMs ?? toDateMs(a)))
+const loadSellerData = async () => {
+  try {
+    const [liveList, scheduledList, vodList] = await Promise.all([
+      fetchSellerBroadcasts({ tab: 'LIVE', size: 200 }),
+      fetchSellerBroadcasts({ tab: 'RESERVED', size: 200 }),
+      fetchSellerBroadcasts({ tab: 'VOD', size: 200 }),
+    ])
+    liveItems.value = liveList.map((item) => mapBroadcastItem(item, 'live'))
+    scheduledItems.value = scheduledList.map((item) => mapBroadcastItem(item, 'scheduled'))
+    vodItems.value = vodList.map((item) => mapBroadcastItem(item, 'vod'))
+  } catch {
+    liveItems.value = []
+    scheduledItems.value = []
+    vodItems.value = []
+  }
 }
 
 const vodItemsWithStatus = computed(() => vodItems.value.map(withLifecycleStatus))
@@ -524,6 +382,7 @@ const filteredScheduledItems = computed(() => {
 })
 
 const scheduledCategories = computed(() => Array.from(new Set(filteredScheduledItems.value.map((item) => item.category ?? '기타'))))
+const vodCategories = computed(() => Array.from(new Set(filteredVodItems.value.map((item) => item.category ?? '기타'))))
 
 const scheduledSummary = computed(() =>
   scheduledWithStatus.value
@@ -725,6 +584,14 @@ watch(
   },
 )
 
+watch(
+  () => currentLive.value,
+  (value) => {
+    void loadCurrentLiveDetails(value)
+  },
+  { immediate: true },
+)
+
 const handleCta = (kind: CarouselKind, item: LiveItem) => {
   if (kind === 'live') {
     const lifecycleStatus = getLifecycleStatus(item)
@@ -757,36 +624,52 @@ const openVodDetail = (item: LiveItem) => {
   router.push(`/seller/broadcasts/vods/${item.id}`).catch(() => {})
 }
 
-const startLiveTicker = () => {
-  liveTicker.value = window.setInterval(() => {
+const loadCurrentLiveDetails = async (item: LiveItem | null) => {
+  if (!item) {
+    liveStats.value = null
+    liveProducts.value = []
+    return
+  }
+  const id = parseBroadcastId(item.id)
+  if (!id) {
+    liveStats.value = null
+    liveProducts.value = []
+    return
+  }
+  try {
+    const [stats, report, products] = await Promise.all([
+      fetchBroadcastStats(id),
+      fetchSellerBroadcastReport(id).catch(() => null),
+      fetchBroadcastProducts(id),
+    ])
+    const revenue = report ? parseAmount(report.totalSales) : 0
     liveStats.value = {
-      status: liveStats.value.status,
-      viewers: `${(parseInt(liveStats.value.viewers.replace(/[^0-9]/g, ''), 10) || 1200) + Math.floor(Math.random() * 30)}명`,
-      likes: `${(parseInt(liveStats.value.likes.replace(/[^0-9]/g, ''), 10) || 3000) + Math.floor(Math.random() * 10)}`,
-      revenue: `₩${(parseInt(liveStats.value.revenue.replace(/[^0-9]/g, ''), 10) || 4920000 + Math.floor(Math.random() * 50000)).toLocaleString()}`,
+      status: getLifecycleStatus(item),
+      viewers: `${stats.viewerCount.toLocaleString()}명`,
+      likes: stats.likeCount.toLocaleString(),
+      revenue: `₩${Math.round(revenue).toLocaleString()}`,
     }
-
-    liveProducts.value = liveProducts.value.map((product) => {
-      if (product.status === '품절') return product
-      const delta = Math.random() < 0.2 ? 1 : 0
-      const soldCount = product.soldCount + delta
-      const stockTotal = Math.max(product.stockTotal - delta, 0)
-      return {
-        ...product,
-        soldCount,
-        stockTotal,
-        status: stockTotal === 0 ? '품절' : product.status,
-      }
-    })
-  }, 3200)
+    liveProducts.value = products.map((product) => ({
+      id: product.id,
+      title: product.name,
+      optionLabel: '-',
+      status: product.isSoldOut ? '품절' : '판매중',
+      priceOriginal: product.price,
+      priceSale: product.price,
+      soldCount: 0,
+      stockTotal: product.stockQty,
+      pinned: false,
+      thumb: product.imageUrl,
+    }))
+  } catch {
+    liveStats.value = null
+    liveProducts.value = []
+  }
 }
 
 onMounted(() => {
-  buildLiveItems()
-  loadScheduled()
-  loadVods()
+  loadSellerData()
   syncTabFromRoute()
-  startLiveTicker()
   nextTick(() => {
     resetAllLoops()
     handleResize()
@@ -795,9 +678,6 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
-  if (liveTicker.value) {
-    window.clearInterval(liveTicker.value)
-  }
   stopAutoLoop('scheduled')
   stopAutoLoop('vod')
   window.removeEventListener('resize', handleResize)
@@ -894,7 +774,7 @@ onBeforeUnmount(() => {
         </article>
         <p v-else class="section-empty live-pane">현재 진행 중인 방송이 없습니다.</p>
 
-        <section class="live-stats live-stats--stacked live-pane">
+        <section v-if="currentLive && liveStats" class="live-stats live-stats--stacked live-pane">
           <div class="live-stats__head">
             <h4>실시간 통계</h4>
             <span class="live-stats__badge">
@@ -926,7 +806,7 @@ onBeforeUnmount(() => {
           </div>
         </section>
 
-        <article class="live-products ds-surface live-pane">
+        <article v-if="currentLive && liveProducts.length" class="live-products ds-surface live-pane">
           <div class="live-products__head">
             <div>
               <h4>판매 상품</h4>

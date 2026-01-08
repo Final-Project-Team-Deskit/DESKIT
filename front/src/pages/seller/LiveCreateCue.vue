@@ -4,9 +4,13 @@ import { useRoute, useRouter } from 'vue-router'
 import PageContainer from '../../components/PageContainer.vue'
 import PageHeader from '../../components/PageHeader.vue'
 import {
+  activateDraftFlow,
   buildDraftFromReservation,
+  clearDraft,
   createDefaultQuestions,
   createEmptyDraft,
+  deactivateDraftFlow,
+  isDraftFlowActive,
   loadDraft,
   saveDraft,
   type LiveCreateDraft,
@@ -37,8 +41,22 @@ const syncDraft = () => {
 const restoreDraft = () => {
   const saved = loadDraft()
   if (saved && (!isEditMode.value || saved.reservationId === reservationId.value)) {
-    draft.value = { ...draft.value, ...saved }
+    if (isEditMode.value) {
+      draft.value = { ...draft.value, ...saved }
+    } else {
+      if (isDraftFlowActive()) {
+        draft.value = { ...draft.value, ...saved }
+      } else {
+        const shouldRestore = window.confirm('이전에 작성 중인 내용을 불러올까요?')
+        if (shouldRestore) {
+          draft.value = { ...draft.value, ...saved }
+        } else {
+          clearDraft()
+        }
+      }
+    }
   }
+  activateDraftFlow()
 
   if (isEditMode.value) {
     draft.value = { ...draft.value, ...buildDraftFromReservation(reservationId.value) }
@@ -89,6 +107,7 @@ const goNext = () => {
 const cancel = () => {
   const ok = window.confirm('작성 중인 내용을 취소하시겠어요?')
   if (!ok) return
+  deactivateDraftFlow()
   const redirect = isEditMode.value && reservationId.value
     ? `/seller/broadcasts/reservations/${reservationId.value}`
     : '/seller/live?tab=scheduled'
