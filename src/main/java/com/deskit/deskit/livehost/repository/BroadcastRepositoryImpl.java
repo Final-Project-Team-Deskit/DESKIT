@@ -257,12 +257,35 @@ public class BroadcastRepositoryImpl implements BroadcastRepositoryCustom {
         if ("SALES".equalsIgnoreCase(sort)) {
             return totalSales.desc();
         }
+        if ("SALES_ASC".equalsIgnoreCase(sort)) {
+            return totalSales.asc();
+        }
+
+        if ("VIEWER_DESC".equalsIgnoreCase(sort)) {
+            return totalViews.desc();
+        }
+        if ("VIEWER_ASC".equalsIgnoreCase(sort)) {
+            return totalViews.asc();
+        }
 
         if ("POPULAR".equalsIgnoreCase(sort) || "VIEWER".equalsIgnoreCase(sort)) {
             if ("VOD".equalsIgnoreCase(tab)) {
                 return totalViews.desc();
             }
             return startedAt.desc().nullsLast();
+        }
+
+        if ("LATEST".equalsIgnoreCase(sort)) {
+            if ("RESERVED".equalsIgnoreCase(tab)) {
+                return scheduledAt.desc().nullsLast();
+            }
+            return startedAt.desc().nullsLast();
+        }
+        if ("OLDEST".equalsIgnoreCase(sort)) {
+            if ("RESERVED".equalsIgnoreCase(tab)) {
+                return scheduledAt.asc().nullsLast();
+            }
+            return startedAt.asc().nullsLast();
         }
 
         if ("LIKE_DESC".equalsIgnoreCase(sort)) {

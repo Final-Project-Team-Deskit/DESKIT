@@ -10,7 +10,7 @@ import {
 } from '../../lib/broadcastStatus'
 import { useInfiniteScroll } from '../../composables/useInfiniteScroll'
 import { parseLiveDate } from '../../lib/live/utils'
-import { fetchAdminBroadcasts } from '../../lib/live/api'
+import { fetchAdminBroadcasts, fetchCategories, type BroadcastCategory } from '../../lib/live/api'
 
 type LiveTab = 'all' | 'scheduled' | 'live' | 'vod'
 type LoopKind = 'live' | 'scheduled' | 'vod'
@@ -110,6 +110,7 @@ const vodPage = ref(1)
 const liveItems = ref<LiveItem[]>([])
 const scheduledItems = ref<ReservationItem[]>([])
 const vodItems = ref<AdminVodItem[]>([])
+const categories = ref<BroadcastCategory[]>([])
 const loopGap = 14
 const carouselRefs = ref<Record<LoopKind, HTMLElement | null>>({
   live: null,
@@ -166,6 +167,51 @@ const formatDateTime = (value?: string) => {
   const hh = String(date.getHours()).padStart(2, '0')
   const min = String(date.getMinutes()).padStart(2, '0')
   return `${yyyy}.${mm}.${dd} ${hh}:${min}`
+}
+
+const resolveCategoryId = (categoryName: string) => {
+  if (categoryName === 'all') return undefined
+  return categories.value.find((category) => category.name === categoryName)?.id
+}
+
+const mapLiveSortType = () => {
+  if (liveSort.value === 'reports_desc') return 'REPORT'
+  if (liveSort.value === 'latest') return 'LATEST'
+  if (liveSort.value === 'viewers_desc') return 'VIEWER_DESC'
+  if (liveSort.value === 'viewers_asc') return 'VIEWER_ASC'
+  return undefined
+}
+
+const mapScheduledSortType = () => {
+  if (scheduledSort.value === 'nearest') return 'START_ASC'
+  if (scheduledSort.value === 'latest') return 'LATEST'
+  if (scheduledSort.value === 'oldest') return 'OLDEST'
+  return undefined
+}
+
+const mapScheduledStatusFilter = () => {
+  if (scheduledStatus.value === 'reserved') return 'RESERVED'
+  if (scheduledStatus.value === 'canceled') return 'CANCELED'
+  return undefined
+}
+
+const mapVodSortType = () => {
+  if (vodSort.value === 'latest') return 'LATEST'
+  if (vodSort.value === 'oldest') return 'OLDEST'
+  if (vodSort.value === 'reports_desc') return 'REPORT'
+  if (vodSort.value === 'likes_desc') return 'LIKE_DESC'
+  if (vodSort.value === 'likes_asc') return 'LIKE_ASC'
+  if (vodSort.value === 'revenue_desc') return 'SALES'
+  if (vodSort.value === 'revenue_asc') return 'SALES_ASC'
+  if (vodSort.value === 'viewers_desc') return 'VIEWER_DESC'
+  if (vodSort.value === 'viewers_asc') return 'VIEWER_ASC'
+  return undefined
+}
+
+const mapVodVisibility = () => {
+  if (vodVisibility.value === 'public') return true
+  if (vodVisibility.value === 'private') return false
+  return undefined
 }
 
 const mapAdminItem = (item: any, kind: 'live' | 'scheduled' | 'vod'): LiveItem => {
@@ -226,10 +272,32 @@ const isPastScheduledEnd = (item: LiveItem): boolean => {
 
 const loadAdminData = async () => {
   try {
+    const liveCategoryId = resolveCategoryId(liveCategory.value)
+    const scheduledCategoryId = resolveCategoryId(scheduledCategory.value)
+    const vodCategoryId = resolveCategoryId(vodCategory.value)
     const [liveList, scheduledList, vodList] = await Promise.all([
-      fetchAdminBroadcasts({ tab: 'LIVE', size: 200 }),
-      fetchAdminBroadcasts({ tab: 'RESERVED', size: 200 }),
-      fetchAdminBroadcasts({ tab: 'VOD', size: 200 }),
+      fetchAdminBroadcasts({
+        tab: 'LIVE',
+        size: 200,
+        sortType: mapLiveSortType(),
+        categoryId: liveCategoryId,
+      }),
+      fetchAdminBroadcasts({
+        tab: 'RESERVED',
+        size: 200,
+        sortType: mapScheduledSortType(),
+        statusFilter: mapScheduledStatusFilter(),
+        categoryId: scheduledCategoryId,
+      }),
+      fetchAdminBroadcasts({
+        tab: 'VOD',
+        size: 200,
+        sortType: mapVodSortType(),
+        categoryId: vodCategoryId,
+        isPublic: mapVodVisibility(),
+        startDate: vodStartDate.value || undefined,
+        endDate: vodEndDate.value || undefined,
+      }),
     ])
     liveItems.value = liveList.map((item) => mapAdminItem(item, 'live'))
     scheduledItems.value = scheduledList.map((item) => mapAdminItem(item, 'scheduled'))
@@ -248,6 +316,14 @@ const loadAdminData = async () => {
     liveItems.value = []
     scheduledItems.value = []
     vodItems.value = []
+  }
+}
+
+const loadCategories = async () => {
+  try {
+    categories.value = await fetchCategories()
+  } catch {
+    categories.value = []
   }
 }
 
@@ -587,14 +663,17 @@ watch(
 watch([liveCategory, liveSort], () => {
   livePage.value = 1
   resetLoop('live')
+  void loadAdminData()
 })
 
 watch([scheduledStatus, scheduledCategory, scheduledSort], () => {
   scheduledPage.value = 1
+  void loadAdminData()
 })
 
 watch([vodStartDate, vodEndDate, vodVisibility, vodCategory, vodSort], () => {
   vodPage.value = 1
+  void loadAdminData()
 })
 
 watch(
@@ -617,6 +696,7 @@ watch(
 
 onMounted(() => {
   refreshTabFromQuery()
+  void loadCategories()
   loadAdminData()
   nextTick(() => {
     resetAllLoops()
