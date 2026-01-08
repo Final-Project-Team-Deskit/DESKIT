@@ -75,13 +75,16 @@ const normalizeReceipt = (raw: any): OrderReceipt | null => {
 
   if (items.length === 0) return null
 
-  const listPriceTotal = items.reduce((sum, item) => {
+  const listPriceTotal = items.reduce((sum: number, item: OrderReceiptItem) => {
     const baseRaw = (item as any).originalPrice ?? (item as any).listPrice ?? item.price
     const base = Number(baseRaw) || 0
     const effectiveBase = base > item.price ? base : item.price
     return sum + effectiveBase * item.quantity
   }, 0)
-  const salePriceTotal = items.reduce((sum, item) => sum + item.price * item.quantity, 0)
+  const salePriceTotal = items.reduce(
+    (sum: number, item: OrderReceiptItem) => sum + item.price * item.quantity,
+    0,
+  )
 
   const shipping = {
     buyerName: raw?.shipping?.buyerName ?? '',
