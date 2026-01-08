@@ -99,7 +99,7 @@ const liveProducts = ref<
   }>
 >([])
 
-const liveStats = ref<{ status: string; viewers: string; likes: string; revenue: string } | null>(null)
+const liveStats = ref<{ status: string; viewers: string; likes: string; revenue: string; hasData: boolean } | null>(null)
 
 const scheduledItems = ref<LiveItem[]>([])
 const vodItems = ref<LiveItem[]>([])
@@ -708,12 +708,16 @@ const loadCurrentLiveDetails = async (item: LiveItem | null) => {
       fetchBroadcastProducts(id),
     ])
     const revenue = report ? parseAmount(report.totalSales) : 0
-    liveStats.value = {
-      status: getLifecycleStatus(item),
-      viewers: `${stats.viewerCount.toLocaleString()}명`,
-      likes: stats.likeCount.toLocaleString(),
-      revenue: `₩${Math.round(revenue).toLocaleString()}`,
-    }
+    const hasData = stats.viewerCount > 0 || stats.likeCount > 0 || revenue > 0
+    liveStats.value = hasData
+      ? {
+        status: getLifecycleStatus(item),
+        viewers: `${stats.viewerCount.toLocaleString()}명`,
+        likes: stats.likeCount.toLocaleString(),
+        revenue: `₩${Math.round(revenue).toLocaleString()}`,
+        hasData,
+      }
+      : null
     liveProducts.value = products.map((product) => ({
       id: product.id,
       title: product.name,
