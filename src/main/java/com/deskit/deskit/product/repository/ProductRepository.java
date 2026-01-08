@@ -3,7 +3,9 @@ package com.deskit.deskit.product.repository;
 import com.deskit.deskit.product.entity.Product;
 import java.util.List;
 import java.util.Optional;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -31,6 +33,10 @@ public interface ProductRepository extends JpaRepository<Product, Long> {
    * 예: id는 존재하지만 deleted_at이 채워져 있으면(논리삭제) -> Optional.empty()
    */
   Optional<Product> findByIdAndDeletedAtIsNull(Long id);
+
+  @Lock(LockModeType.PESSIMISTIC_WRITE)
+  @Query("select p from Product p where p.id = :id and p.deletedAt is null")
+  Optional<Product> findByIdForUpdate(@Param("id") Long id);
 
   @Query(value = """
       SELECT

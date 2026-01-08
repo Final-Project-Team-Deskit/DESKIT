@@ -10,6 +10,10 @@
 -- 사용자 커스텀 반영 및 toss_payment 테이블 에러(VARCHAR AUTO_INCREMENT) 수정 (25.12.25)
 -- =========================================================
 
+DROP DATABASE livecommerce;
+CREATE DATABASE livecommerce;
+USE livecommerce;
+
 SET FOREIGN_KEY_CHECKS = 0;
 
 -- =========================================================
