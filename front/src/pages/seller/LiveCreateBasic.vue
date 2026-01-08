@@ -217,6 +217,16 @@ const clearStandby = () => {
   if (standbyInputRef.value) standbyInputRef.value.value = ''
 }
 
+const handleThumbError = () => {
+  thumbError.value = '이미지를 불러오지 못했습니다.'
+  clearThumb()
+}
+
+const handleStandbyError = () => {
+  standbyError.value = '이미지를 불러오지 못했습니다.'
+  clearStandby()
+}
+
 const isQuestionValid = (text: string) => {
   const trimmed = text.trim()
   return !!trimmed
@@ -554,7 +564,7 @@ watch(
             <span v-if="thumbError" class="error">{{ thumbError }}</span>
             <p class="upload-filename">{{ thumbFileName || '선택된 파일 없음' }}</p>
             <div v-if="draft.thumb" class="preview">
-              <img :src="draft.thumb" alt="방송 썸네일 미리보기" />
+              <img :src="draft.thumb" alt="방송 썸네일 미리보기" @error="handleThumbError" />
             </div>
             <button type="button" class="btn ghost upload-clear" @click="clearThumb">이미지 삭제</button>
           </label>
@@ -564,7 +574,7 @@ watch(
             <span v-if="standbyError" class="error">{{ standbyError }}</span>
             <p class="upload-filename">{{ standbyFileName || '선택된 파일 없음' }}</p>
             <div v-if="draft.standbyThumb" class="preview">
-              <img :src="draft.standbyThumb" alt="대기화면 미리보기" />
+              <img :src="draft.standbyThumb" alt="대기화면 미리보기" @error="handleStandbyError" />
             </div>
             <button type="button" class="btn ghost upload-clear" @click="clearStandby">이미지 삭제</button>
           </label>

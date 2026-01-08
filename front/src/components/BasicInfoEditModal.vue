@@ -131,6 +131,14 @@ const clearWaiting = () => {
   if (waitingInputRef.value) waitingInputRef.value.value = ''
 }
 
+const handleThumbnailError = () => {
+  clearThumbnail()
+}
+
+const handleWaitingError = () => {
+  clearWaiting()
+}
+
 const handleSave = () => {
   if (!props.broadcast) return close()
   const payload: BroadcastInfo = {
@@ -202,7 +210,7 @@ const handleSave = () => {
                 @change="(event) => handleFile(event, 'thumbnail')"
               />
               <div class="upload-preview">
-                <img v-if="thumbnailPreview" :src="thumbnailPreview" alt="썸네일" />
+                <img v-if="thumbnailPreview" :src="thumbnailPreview" alt="썸네일" @error="handleThumbnailError" />
                 <div v-else class="upload-placeholder">
                   <span class="upload-icon">⬆</span>
                   <p class="upload-label">클릭하여 업로드</p>
@@ -224,7 +232,7 @@ const handleSave = () => {
                 @change="(event) => handleFile(event, 'waiting')"
               />
               <div class="upload-preview">
-                <img v-if="waitingPreview" :src="waitingPreview" alt="대기화면" />
+                <img v-if="waitingPreview" :src="waitingPreview" alt="대기화면" @error="handleWaitingError" />
                 <div v-else class="upload-placeholder">
                   <span class="upload-icon">⬆</span>
                   <p class="upload-label">클릭하여 업로드</p>
