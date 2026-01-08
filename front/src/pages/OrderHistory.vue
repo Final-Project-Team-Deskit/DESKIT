@@ -202,8 +202,40 @@ const handleItemsToggle = async (order: OrderReceiptView, event: Event) => {
   }
 }
 
+const preloadOrderItems = async (targets: OrderReceiptView[]) => {
+  const pending = targets.filter((order) => {
+    if (order.items.length) return false
+    if (order.itemsLoading) return false
+    const numericId = Number(order.orderPk ?? order.orderId)
+    return Number.isFinite(numericId)
+  })
+  if (!pending.length) return
+
+  await Promise.allSettled(
+    pending.map(async (order) => {
+      order.itemsLoading = true
+      order.itemsError = ''
+      try {
+        const response = await getMyOrderDetail(Number(order.orderPk ?? order.orderId))
+        order.items = response.items.map((item, index) => ({
+          productId: String(item.product_id),
+          name: resolveItemName(String(item.product_id), index),
+          quantity: item.quantity,
+          price: item.unit_price,
+          originalPrice: item.unit_price,
+          discountRate: 0,
+        }))
+      } catch {
+        order.itemsError = '상품 정보를 불러올 수 없습니다.'
+      } finally {
+        order.itemsLoading = false
+      }
+    }),
+  )
+}
+
 onMounted(() => {
-  load()
+  load().then(() => preloadOrderItems(orders.value))
 })
 </script>
 
