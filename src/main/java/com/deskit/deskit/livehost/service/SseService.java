@@ -1,6 +1,7 @@
 package com.deskit.deskit.livehost.service;
 
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
@@ -15,14 +16,24 @@ public class SseService {
     private final Map<String, SseEmitter> emitters = new ConcurrentHashMap<>();
 
     public SseEmitter subscribe(Long broadcastId, String userId) {
-        SseEmitter emitter = new SseEmitter(10 * 60 * 1000L);
         String key = broadcastId + "_" + userId;
+        SseEmitter existing = emitters.remove(key);
+        if (existing != null) {
+            existing.complete();
+        }
+        SseEmitter emitter = new SseEmitter(10 * 60 * 1000L);
 
         emitters.put(key, emitter);
 
         emitter.onCompletion(() -> emitters.remove(key));
-        emitter.onTimeout(() -> emitters.remove(key));
-        emitter.onError((e) -> emitters.remove(key));
+        emitter.onTimeout(() -> {
+            emitters.remove(key);
+            emitter.complete();
+        });
+        emitter.onError((e) -> {
+            emitters.remove(key);
+            emitter.completeWithError(e);
+        });
 
         sendToClient(emitter, key, "connect", "Connected!");
 
@@ -54,6 +65,11 @@ public class SseService {
         } else {
             log.warn("Target user not found or disconnected: key={}", key);
         }
+    }
+
+    @Scheduled(fixedRate = 30000)
+    public void sendHeartbeat() {
+        emitters.forEach((key, emitter) -> sendToClient(emitter, key, "PING", "ping"));
     }
 
     private void sendToClient(SseEmitter emitter, String id, String name, Object data) {

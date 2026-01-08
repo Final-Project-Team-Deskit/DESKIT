@@ -1,13 +1,82 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { getAdminVodDetail } from '../../../lib/mocks/adminVods'
+import { fetchAdminBroadcastDetail, fetchAdminBroadcastReport, type BroadcastDetailResponse, type BroadcastResult } from '../../../lib/live/api'
 
 const route = useRoute()
 const router = useRouter()
 
 const vodId = computed(() => (typeof route.params.vodId === 'string' ? route.params.vodId : ''))
-const detail = computed(() => getAdminVodDetail(vodId.value))
+
+type AdminVodDetail = {
+  id: string
+  title: string
+  startedAt: string
+  endedAt: string
+  statusLabel: string
+  sellerName: string
+  thumb: string
+  metrics: {
+    maxViewers: number
+    reports: number
+    sanctions: number
+    likes: number
+    totalRevenue: number
+  }
+  vod: { url?: string }
+  productResults: Array<{ id: string; name: string; price: number; soldQty: number; revenue: number }>
+}
+
+const detail = ref<AdminVodDetail | null>(null)
+
+const formatDateTime = (value?: string) => (value ? value.replace('T', ' ') : '')
+
+const toNumber = (value: number | string | undefined) => {
+  if (typeof value === 'number') return value
+  if (typeof value === 'string') {
+    const parsed = Number(value)
+    return Number.isNaN(parsed) ? 0 : parsed
+  }
+  return 0
+}
+
+const buildDetail = (broadcast: BroadcastDetailResponse, report: BroadcastResult): AdminVodDetail => ({
+  id: String(report.broadcastId),
+  title: report.title ?? broadcast.title ?? '',
+  startedAt: formatDateTime(report.startAt ?? broadcast.startedAt),
+  endedAt: formatDateTime(report.endAt),
+  statusLabel: report.status ?? broadcast.status ?? '',
+  sellerName: broadcast.sellerName ?? '',
+  thumb: broadcast.thumbnailUrl ?? '',
+  metrics: {
+    maxViewers: report.maxViewers ?? 0,
+    reports: report.reportCount ?? 0,
+    sanctions: report.sanctionCount ?? 0,
+    likes: report.totalLikes ?? 0,
+    totalRevenue: toNumber(report.totalSales),
+  },
+  vod: { url: report.vodUrl ?? undefined },
+  productResults: (report.productStats ?? []).map((item) => ({
+    id: String(item.productId),
+    name: item.productName,
+    price: item.price ?? 0,
+    soldQty: item.salesQuantity ?? 0,
+    revenue: toNumber(item.salesAmount),
+  })),
+})
+
+const loadDetail = async () => {
+  const idValue = Number(vodId.value)
+  if (!vodId.value || Number.isNaN(idValue)) {
+    detail.value = null
+    return
+  }
+  const [broadcast, report] = await Promise.all([
+    fetchAdminBroadcastDetail(idValue),
+    fetchAdminBroadcastReport(idValue),
+  ])
+  detail.value = buildDetail(broadcast, report)
+}
 
 const goBack = () => {
   router.back()
@@ -18,10 +87,14 @@ const goToList = () => {
 }
 
 const formatNumber = (value: number) => value.toLocaleString('ko-KR')
+
+watch(vodId, () => {
+  loadDetail()
+}, { immediate: true })
 </script>
 
 <template>
-  <div class="vod-wrap">
+  <div v-if="detail" class="vod-wrap">
     <header class="vod-header">
       <button type="button" class="back-link" @click="goBack">← 뒤로 가기</button>
       <button type="button" class="btn" @click="goToList">목록으로</button>

@@ -1,5 +1,5 @@
 import { getAuthUser } from '../lib/auth'
-import { getSellerReservationDetail, type SellerReservationDetail } from '../lib/mocks/sellerReservations'
+import { fetchSellerBroadcastDetail, type BroadcastDetailResponse } from '../lib/live/api'
 
 export type LiveCreateProduct = {
   id: string
@@ -27,9 +27,15 @@ export type LiveCreateDraft = {
   reservationId?: string
 }
 
-export const DRAFT_KEY = 'deskit_seller_broadcast_draft_v2'
-const DRAFT_OWNER_KEY = 'deskit_seller_broadcast_draft_owner_v2'
-const DRAFT_FLOW_KEY = 'deskit_seller_broadcast_draft_flow_v2'
+export const DRAFT_KEY = 'deskit_seller_broadcast_draft_v3'
+const DRAFT_SCHEMA_VERSION = 1
+
+type StoredDraft = {
+  version: number
+  ownerId: string
+  savedAt: number
+  data: LiveCreateDraft
+}
 
 const resolveSellerKey = () => {
   const user = getAuthUser()
@@ -39,16 +45,8 @@ const resolveSellerKey = () => {
 
 const getDraftStorage = () => sessionStorage
 
-const readOwner = () => getDraftStorage().getItem(DRAFT_OWNER_KEY) ?? ''
-
-const writeOwner = (ownerId: string) => {
-  getDraftStorage().setItem(DRAFT_OWNER_KEY, ownerId)
-}
-
 const clearDraftStorage = () => {
   getDraftStorage().removeItem(DRAFT_KEY)
-  getDraftStorage().removeItem(DRAFT_OWNER_KEY)
-  getDraftStorage().removeItem(DRAFT_FLOW_KEY)
 }
 
 window.addEventListener('deskit-user-updated', () => {
@@ -81,70 +79,80 @@ export const createEmptyDraft = (): LiveCreateDraft => ({
   reservationId: undefined,
 })
 
+const parseStoredDraft = (raw: string | null): StoredDraft | null => {
+  if (!raw) return null
+  try {
+    const parsed = JSON.parse(raw) as StoredDraft
+    if (!parsed || typeof parsed !== 'object') return null
+    if (parsed.version !== DRAFT_SCHEMA_VERSION) return null
+    if (typeof parsed.ownerId !== 'string' || !parsed.ownerId) return null
+    if (typeof parsed.savedAt !== 'number') return null
+    if (!parsed.data || typeof parsed.data !== 'object') return null
+    return parsed
+  } catch (error) {
+    console.error('Failed to parse draft', error)
+    return null
+  }
+}
+
+const normalizeDraft = (payload: LiveCreateDraft): LiveCreateDraft => {
+  const { cueTitle: _ignoredCueTitle, cueNotes: _ignoredCueNotes, ...rest } = payload as Record<string, any>
+
+  return {
+    ...createEmptyDraft(),
+    ...rest,
+    questions: Array.isArray(rest.questions)
+      ? rest.questions
+          .filter((item: any) => item && typeof item.id === 'string' && typeof item.text === 'string')
+          .map((item: any) => ({ id: item.id, text: item.text }))
+      : createEmptyDraft().questions,
+    products: Array.isArray(rest.products)
+      ? rest.products
+          .filter((item: any) => item && typeof item.id === 'string')
+          .map((item: any) => ({
+            id: item.id,
+            name: item.name ?? '',
+            option: item.option ?? '',
+            price: typeof item.price === 'number' ? item.price : 0,
+            broadcastPrice: typeof item.broadcastPrice === 'number' ? item.broadcastPrice : 0,
+            stock: typeof item.stock === 'number' ? item.stock : 0,
+            quantity: typeof item.quantity === 'number' ? item.quantity : 1,
+            thumb: item.thumb ?? '',
+          }))
+      : [],
+  }
+}
+
 export const loadDraft = (): LiveCreateDraft | null => {
   const ownerId = resolveSellerKey()
   if (!ownerId) return null
-  if (readOwner() && readOwner() !== ownerId) return null
-  const raw = getDraftStorage().getItem(DRAFT_KEY)
-  if (!raw) return null
-  try {
-    const parsed = JSON.parse(raw)
-    if (!parsed || typeof parsed !== 'object') return null
-
-    const { cueTitle: _ignoredCueTitle, cueNotes: _ignoredCueNotes, ...rest } = parsed as Record<string, any>
-
-    return {
-      ...createEmptyDraft(),
-      ...rest,
-      questions: Array.isArray(rest.questions)
-        ? rest.questions
-            .filter((item: any) => item && typeof item.id === 'string' && typeof item.text === 'string')
-            .map((item: any) => ({ id: item.id, text: item.text }))
-        : createEmptyDraft().questions,
-      products: Array.isArray(rest.products)
-        ? rest.products
-            .filter((item: any) => item && typeof item.id === 'string')
-            .map((item: any) => ({
-              id: item.id,
-              name: item.name ?? '',
-              option: item.option ?? '',
-              price: typeof item.price === 'number' ? item.price : 0,
-              broadcastPrice: typeof item.broadcastPrice === 'number' ? item.broadcastPrice : 0,
-              stock: typeof item.stock === 'number' ? item.stock : 0,
-              quantity: typeof item.quantity === 'number' ? item.quantity : 1,
-              thumb: item.thumb ?? '',
-            }))
-        : [],
-    }
-  } catch (e) {
-    console.error('Failed to load draft', e)
+  const stored = parseStoredDraft(getDraftStorage().getItem(DRAFT_KEY))
+  if (!stored) {
+    clearDraftStorage()
     return null
   }
+  if (stored.ownerId !== ownerId) {
+    clearDraftStorage()
+    return null
+  }
+  return normalizeDraft(stored.data)
 }
 
 export const saveDraft = (draft: LiveCreateDraft) => {
   const ownerId = resolveSellerKey()
   if (!ownerId) return
-  writeOwner(ownerId)
-  getDraftStorage().setItem(DRAFT_KEY, JSON.stringify(draft))
+  const payload: StoredDraft = {
+    version: DRAFT_SCHEMA_VERSION,
+    ownerId,
+    savedAt: Date.now(),
+    data: draft,
+  }
+  getDraftStorage().setItem(DRAFT_KEY, JSON.stringify(payload))
 }
 
 export const clearDraft = () => {
   clearDraftStorage()
 }
-
-export const activateDraftFlow = () => {
-  const ownerId = resolveSellerKey()
-  if (!ownerId) return
-  writeOwner(ownerId)
-  getDraftStorage().setItem(DRAFT_FLOW_KEY, 'active')
-}
-
-export const deactivateDraftFlow = () => {
-  getDraftStorage().removeItem(DRAFT_FLOW_KEY)
-}
-
-export const isDraftFlowActive = () => getDraftStorage().getItem(DRAFT_FLOW_KEY) === 'active'
 
 const parseCurrency = (value: string) => {
   const digits = value.replace(/[^\d]/g, '')
@@ -152,33 +160,52 @@ const parseCurrency = (value: string) => {
   return Number.isNaN(parsed) ? 0 : parsed
 }
 
-export const buildDraftFromReservation = (reservationId: string): LiveCreateDraft => {
-  const detail: SellerReservationDetail = getSellerReservationDetail(reservationId)
-  const [datePart, timePart] = detail.datetime.split(' ')
-  const mappedDate = datePart?.replace(/\./g, '-') ?? ''
-  const mappedTime = timePart ?? ''
-
+const formatReservationDate = (scheduledAt?: string) => {
+  if (!scheduledAt) return { date: '', time: '' }
+  const normalized = scheduledAt.replace('T', ' ')
+  const [datePart, timePart] = normalized.split(' ')
   return {
-    ...createEmptyDraft(),
-    title: detail.title,
-    subtitle: detail.subtitle,
-    category: detail.category,
-    notice: detail.notice,
-    date: mappedDate,
-    time: mappedTime,
-    thumb: detail.thumb,
-    standbyThumb: (detail as any).standbyThumb ?? '',
-    products: detail.products.map((item) => ({
-      id: item.id,
-      name: item.name,
-      option: item.option ?? item.name,
-      price: parseCurrency(item.price),
-      broadcastPrice: parseCurrency(item.salePrice),
-      stock: parseCurrency(item.stock),
-      quantity: parseCurrency(item.qty) || 1,
-      thumb: item.thumb,
-    })),
-    questions: mapQuestions(detail.cueQuestions ?? []),
-    reservationId,
+    date: datePart?.replace(/\./g, '-') ?? '',
+    time: timePart?.slice(0, 5) ?? '',
+  }
+}
+
+const mapReservationProducts = (detail: BroadcastDetailResponse) =>
+  (detail.products ?? []).map((item) => ({
+    id: `prod-${item.productId}`,
+    name: item.name,
+    option: item.name,
+    price: item.originalPrice ?? 0,
+    broadcastPrice: item.bpPrice ?? item.originalPrice ?? 0,
+    stock: item.stockQty ?? item.bpQuantity ?? 0,
+    quantity: item.bpQuantity ?? 1,
+    thumb: item.imageUrl ?? '',
+  }))
+
+const mapReservationQuestions = (detail: BroadcastDetailResponse) =>
+  mapQuestions((detail.qcards ?? []).map((card) => card.question))
+
+export const buildDraftFromReservation = async (reservationId: string): Promise<LiveCreateDraft> => {
+  try {
+    const detail = await fetchSellerBroadcastDetail(Number(reservationId))
+    const { date, time } = formatReservationDate(detail.scheduledAt)
+
+    return {
+      ...createEmptyDraft(),
+      title: detail.title ?? '',
+      subtitle: detail.sellerName ?? '',
+      category: detail.categoryId ? String(detail.categoryId) : '',
+      notice: detail.notice ?? '',
+      date,
+      time,
+      thumb: detail.thumbnailUrl ?? '',
+      standbyThumb: detail.waitScreenUrl ?? '',
+      products: mapReservationProducts(detail),
+      questions: mapReservationQuestions(detail),
+      reservationId,
+    }
+  } catch (error) {
+    console.error('Failed to load reservation draft', error)
+    return createEmptyDraft()
   }
 }

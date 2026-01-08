@@ -11,6 +11,7 @@ import {
   parseLiveDate,
   sortLivesByStartAt,
 } from '../lib/live/utils'
+import { computeLifecycleStatus, getScheduledEndMs, normalizeBroadcastStatus, type BroadcastStatus } from '../lib/broadcastStatus'
 import type { LiveItem } from '../lib/live/types'
 import { useNow } from '../lib/live/useNow'
 import { fetchPublicBroadcastOverview } from '../lib/live/api'
@@ -72,9 +73,28 @@ const formatTime = (value: string) => {
   return `${hours}:${minutes}`
 }
 
+const getLifecycleStatus = (item: LiveItem): BroadcastStatus => {
+  const startAtMs = parseLiveDate(item.startAt).getTime()
+  const normalizedStart = Number.isNaN(startAtMs) ? undefined : startAtMs
+  const endAtMs = parseLiveDate(item.endAt).getTime()
+  const normalizedEnd = Number.isNaN(endAtMs) ? getScheduledEndMs(normalizedStart) : endAtMs
+  return computeLifecycleStatus({
+    status: normalizeBroadcastStatus(item.status),
+    startAtMs: normalizedStart,
+    endAtMs: normalizedEnd,
+  })
+}
+
 const getStatus = (item: LiveItem) => getLiveStatus(item, now.value)
+const getSectionStatus = (item: LiveItem) => {
+  const status = getLifecycleStatus(item)
+  if (status === 'RESERVED') return 'UPCOMING'
+  if (status === 'VOD') return 'ENDED'
+  return 'LIVE'
+}
+const isRowDisabled = (item: LiveItem) => getLifecycleStatus(item) === 'RESERVED'
 const getCountdownLabel = (item: LiveItem) => {
-  if (getStatus(item) !== 'UPCOMING') {
+  if (getSectionStatus(item) !== 'UPCOMING') {
     return ''
   }
   const start = parseLiveDate(item.startAt)
@@ -112,10 +132,10 @@ const itemsForDay = computed(() => {
   return sortLivesByStartAt(filterLivesByDay(liveItems.value, selectedDay.value))
 })
 
-const liveItemsForDay = computed(() => itemsForDay.value.filter((item) => getStatus(item) === 'LIVE'))
-const upcomingItemsForDay = computed(() => itemsForDay.value.filter((item) => getStatus(item) === 'UPCOMING'))
+const liveItemsForDay = computed(() => itemsForDay.value.filter((item) => getSectionStatus(item) === 'LIVE'))
+const upcomingItemsForDay = computed(() => itemsForDay.value.filter((item) => getSectionStatus(item) === 'UPCOMING'))
 const endedItemsForDay = computed(() =>
-  [...itemsForDay.value].filter((item) => getStatus(item) === 'ENDED').reverse(),
+  [...itemsForDay.value].filter((item) => getSectionStatus(item) === 'ENDED').reverse(),
 )
 
 const orderedItems = computed(() => [
@@ -125,7 +145,7 @@ const orderedItems = computed(() => [
 ])
 
 const statusWeight = (item: LiveItem) => {
-  const s = getStatus(item)
+  const s = getSectionStatus(item)
   if (s === 'LIVE') return 0
   if (s === 'UPCOMING') return 1
   return 2
@@ -187,11 +207,11 @@ const selectToday = () => {
 }
 
 const handleRowClick = (item: LiveItem) => {
-  const status = getStatus(item)
-  if (status === 'UPCOMING') {
+  const lifecycleStatus = getLifecycleStatus(item)
+  if (lifecycleStatus === 'RESERVED') {
     return
   }
-  if (status === 'LIVE') {
+  if (lifecycleStatus !== 'VOD') {
     if (!hasWatchHistoryConsent()) {
       requestWatchHistoryConsent(item.id)
       return
@@ -199,9 +219,7 @@ const handleRowClick = (item: LiveItem) => {
     router.push({ name: 'live-detail', params: { id: item.id } })
     return
   }
-  if (status === 'ENDED') {
-    router.push({ name: 'vod', params: { id: item.id } })
-  }
+  router.push({ name: 'vod', params: { id: item.id } })
 }
 
 const isNotified = (id: string) => notifiedIds.value.has(id)
@@ -251,7 +269,7 @@ onMounted(() => {
   }
 })
 
-const mapToLiveItems = (items: Array<{ broadcastId: number; title: string; notice?: string; thumbnailUrl?: string; startAt?: string; endAt?: string; liveViewerCount?: number; viewerCount?: number; sellerName?: string }>) =>
+const mapToLiveItems = (items: Array<{ broadcastId: number; title: string; notice?: string; thumbnailUrl?: string; startAt?: string; endAt?: string; liveViewerCount?: number; viewerCount?: number; sellerName?: string; status?: string }>) =>
   items
     .filter((item) => item.startAt)
     .map((item) => ({
@@ -262,6 +280,7 @@ const mapToLiveItems = (items: Array<{ broadcastId: number; title: string; notic
       startAt: item.startAt ?? '',
       endAt: item.endAt ?? item.startAt ?? '',
       viewerCount: item.liveViewerCount ?? item.viewerCount ?? 0,
+      status: item.status,
       sellerName: item.sellerName ?? '',
     }))
 
@@ -333,11 +352,11 @@ onMounted(() => {
             :key="item.id"
             class="live-card-row"
             :class="{
-              'row--clickable': getStatus(item) !== 'UPCOMING',
-              'row--disabled': getStatus(item) === 'UPCOMING',
+              'row--clickable': !isRowDisabled(item),
+              'row--disabled': isRowDisabled(item),
             }"
-            :aria-disabled="getStatus(item) === 'UPCOMING' ? 'true' : undefined"
-            :tabindex="getStatus(item) === 'UPCOMING' ? -1 : 0"
+            :aria-disabled="isRowDisabled(item) ? 'true' : undefined"
+            :tabindex="isRowDisabled(item) ? -1 : 0"
             @click="handleRowClick(item)"
             @keydown="(e) => handleRowKeydown(e, item)"
           >
