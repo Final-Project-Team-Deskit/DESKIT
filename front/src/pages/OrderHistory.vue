@@ -1,12 +1,19 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { RouterLink } from 'vue-router'
 import PageContainer from '../components/PageContainer.vue'
 import PageHeader from '../components/PageHeader.vue'
-import { loadOrders, updateOrder, type OrderReceipt } from '../lib/order/order-storage'
+import { getMyOrderDetail, getMyOrders } from '../api/orders'
+import { updateOrder, type OrderReceipt } from '../lib/order/order-storage'
 import { productsData } from '../lib/products-data'
 
-const orders = ref<OrderReceipt[]>([])
+type OrderReceiptView = OrderReceipt & {
+  orderPk?: number
+  itemsLoading?: boolean
+  itemsError?: string
+}
+
+const orders = ref<OrderReceiptView[]>([])
 const isModalOpen = ref(false)
 const selectedOrderId = ref<string | null>(null)
 const cancelReasonCategory = ref('')
@@ -34,8 +41,37 @@ const statusLabel = (status?: OrderReceipt['status']) => {
 
 const totalCount = computed(() => orders.value.length)
 
-const load = () => {
-  orders.value = loadOrders()
+const load = async () => {
+  try {
+    const response = await getMyOrders()
+    orders.value = Array.isArray(response)
+      ? response.map((order) => ({
+          orderId: String(order.order_number ?? ''),
+          createdAt: String(order.created_at ?? ''),
+          items: [],
+          status: order.status ?? 'PAID',
+          shipping: {
+            buyerName: '',
+            zipcode: '',
+            address1: '',
+            address2: '',
+          },
+          paymentMethodLabel: '토스페이 (예정)',
+          totals: {
+            listPriceTotal: Number(order.order_amount ?? 0) || 0,
+            salePriceTotal: Number(order.order_amount ?? 0) || 0,
+            discountTotal: 0,
+            shippingFee: 0,
+            total: Number(order.order_amount ?? 0) || 0,
+          },
+          orderPk: Number(order.order_id ?? 0) || undefined,
+          itemsLoading: false,
+          itemsError: '',
+        }))
+      : []
+  } catch {
+    orders.value = []
+  }
 }
 
 const formatDate = (value: string) => {
@@ -128,17 +164,46 @@ const submitCancel = () => {
   closeModal()
 }
 
-const onStorage = () => load()
+const resolveItemName = (productId: string, index: number) => {
+  const p = productsData.find((x: any) => String(x.product_id) === String(productId))
+  return String(p?.name ?? `상품 ${index + 1}`)
+}
+
+const handleItemsToggle = async (order: OrderReceiptView, event: Event) => {
+  const target = event.target as HTMLDetailsElement
+  if (!target?.open) return
+  if (order.items.length) return
+  if (order.itemsLoading) return
+
+  order.itemsLoading = true
+  order.itemsError = ''
+
+  const numericId = Number(order.orderPk ?? order.orderId)
+  if (!Number.isFinite(numericId)) {
+    order.itemsError = '상품 정보를 불러올 수 없습니다.'
+    order.itemsLoading = false
+    return
+  }
+
+  try {
+    const response = await getMyOrderDetail(numericId)
+    order.items = response.items.map((item, index) => ({
+      productId: String(item.product_id),
+      name: resolveItemName(String(item.product_id), index),
+      quantity: item.quantity,
+      price: item.unit_price,
+      originalPrice: item.unit_price,
+      discountRate: 0,
+    }))
+  } catch {
+    order.itemsError = '상품 정보를 불러올 수 없습니다.'
+  } finally {
+    order.itemsLoading = false
+  }
+}
 
 onMounted(() => {
   load()
-  window.addEventListener('storage', onStorage)
-  window.addEventListener('deskit-order-updated', onStorage)
-})
-
-onBeforeUnmount(() => {
-  window.removeEventListener('storage', onStorage)
-  window.removeEventListener('deskit-order-updated', onStorage)
 })
 </script>
 
@@ -194,7 +259,7 @@ onBeforeUnmount(() => {
               </div>
             </details>
 
-            <details class="items-dropdown">
+            <details class="items-dropdown" @toggle="handleItemsToggle(order, $event)">
               <summary>주문 상품 보기 ({{ order.items.length }})</summary>
               <div class="items-list">
                 <div class="items-meta">
@@ -205,6 +270,12 @@ onBeforeUnmount(() => {
                   <span>상품</span>
                   <span>구매가(합계)</span>
                 </div>
+                <p v-if="order.itemsError" class="error">
+                  {{ order.itemsError }}
+                </p>
+                <p v-else-if="order.itemsLoading" class="error">
+                  상품 정보를 불러오는 중입니다.
+                </p>
                 <div
                   v-for="(item, idx) in order.items"
                   :key="item.productId ? String(item.productId) : `${idx}-${item.name}`"
