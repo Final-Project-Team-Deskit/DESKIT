@@ -61,15 +61,25 @@ const mapProductRanks = (
 const formatCurrency = (value: number) => `₩${value.toLocaleString('ko-KR')}`
 
 const loadRevenueStats = async () => {
-  const payload = await fetchAdminStatistics(periodMap[revenueRange.value])
-  revenueChart.value = mapChart(payload.salesChart)
-  broadcastRanks.value = mapRankGroup(payload.bestBroadcasts, payload.worstBroadcasts)
-  productRanks.value = mapProductRanks(payload.bestProducts ?? [], payload.worstProducts ?? [])
+  try {
+    const payload = await fetchAdminStatistics(periodMap[revenueRange.value])
+    revenueChart.value = mapChart(payload.salesChart)
+    broadcastRanks.value = mapRankGroup(payload.bestBroadcasts, payload.worstBroadcasts)
+    productRanks.value = mapProductRanks(payload.bestProducts ?? [], payload.worstProducts ?? [])
+  } catch {
+    revenueChart.value = []
+    broadcastRanks.value = { best: [], worst: [] }
+    productRanks.value = { best: [], worst: [] }
+  }
 }
 
 const loadViewerStats = async () => {
-  const payload = await fetchAdminStatistics(periodMap[perViewerRange.value])
-  perViewerChart.value = mapChart(payload.arpuChart)
+  try {
+    const payload = await fetchAdminStatistics(periodMap[perViewerRange.value])
+    perViewerChart.value = mapChart(payload.arpuChart)
+  } catch {
+    perViewerChart.value = []
+  }
 }
 
 watch(revenueRange, () => {

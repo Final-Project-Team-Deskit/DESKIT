@@ -54,15 +54,25 @@ const summaryCards = computed(() => {
 })
 
 const loadStopStats = async () => {
-  const payload = await fetchSanctionStatistics(periodMap[stopMetric.value])
-  stopChart.value = mapChart(payload.forceStopChart)
-  topSellerStops.value = mapSellerRanks(payload.worstSellers)
-  topViewerSanctions.value = mapViewerRanks(payload.worstViewers)
+  try {
+    const payload = await fetchSanctionStatistics(periodMap[stopMetric.value])
+    stopChart.value = mapChart(payload.forceStopChart)
+    topSellerStops.value = mapSellerRanks(payload.worstSellers)
+    topViewerSanctions.value = mapViewerRanks(payload.worstViewers)
+  } catch {
+    stopChart.value = []
+    topSellerStops.value = []
+    topViewerSanctions.value = []
+  }
 }
 
 const loadViewerStats = async () => {
-  const payload = await fetchSanctionStatistics(periodMap[viewerMetric.value])
-  viewerChart.value = mapChart(payload.viewerBanChart)
+  try {
+    const payload = await fetchSanctionStatistics(periodMap[viewerMetric.value])
+    viewerChart.value = mapChart(payload.viewerBanChart)
+  } catch {
+    viewerChart.value = []
+  }
 }
 
 watch(stopMetric, () => {
