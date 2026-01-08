@@ -1,16 +1,31 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import PageContainer from '../../../components/PageContainer.vue'
 import QCardModal from '../../../components/QCardModal.vue'
-import { getSellerReservationDetail, type SellerReservationDetail } from '../../../lib/mocks/sellerReservations'
+import { cancelSellerBroadcast, fetchSellerBroadcastDetail, type BroadcastDetailResponse } from '../../../lib/live/api'
 import { normalizeBroadcastStatus } from '../../../lib/broadcastStatus'
 
 const route = useRoute()
 const router = useRouter()
 
 const reservationId = computed(() => (typeof route.params.reservationId === 'string' ? route.params.reservationId : ''))
-const detail = ref<SellerReservationDetail>(getSellerReservationDetail(reservationId.value))
+
+type SellerReservationDetail = {
+  id: string
+  title: string
+  status: string
+  datetime: string
+  category: string
+  notice: string
+  thumb: string
+  standbyThumb?: string
+  products: Array<{ id: string; name: string; price: string; salePrice: string; stock: number; qty: number }>
+  cueQuestions?: string[]
+  cancelReason?: string
+}
+
+const detail = ref<SellerReservationDetail | null>(null)
 const qCardIndex = ref(0)
 
 const goBack = () => {
@@ -22,7 +37,7 @@ const goToList = () => {
 }
 
 const openCueCard = () => {
-  if (!detail.value.cueQuestions?.length) return
+  if (!detail.value?.cueQuestions?.length) return
   showCueCard.value = true
 }
 
@@ -35,14 +50,22 @@ const handleEdit = () => {
 const handleCancel = () => {
   const ok = window.confirm('예약을 취소하시겠습니까?')
   if (!ok) return
-  detail.value.status = 'CANCELED'
-  window.alert('예약이 취소되었습니다.')
+  if (!detail.value) return
+  cancelSellerBroadcast(Number(detail.value.id))
+    .then(() => {
+      if (detail.value) {
+        detail.value.status = 'CANCELED'
+      }
+      window.alert('예약이 취소되었습니다.')
+    })
+    .catch(() => {})
 }
 
 onBeforeUnmount(() => {
 })
 
 const scheduledWindow = computed(() => {
+  if (!detail.value?.datetime) return ''
   const raw = detail.value.datetime
   const start = new Date(raw.replace(/\./g, '-').replace(' ', 'T'))
   const end = new Date(start.getTime() + 30 * 60 * 1000)
@@ -51,16 +74,55 @@ const scheduledWindow = computed(() => {
   return `${raw} ~ ${fmt(end)}`
 })
 
-const cancelReason = computed(() => (detail.value as any).cancelReason ?? '사유가 등록되지 않았습니다.')
-const isCancelled = computed(() => normalizeBroadcastStatus(detail.value.status) === 'CANCELED')
-const standbyImage = computed(() => (detail.value as any).standbyThumb || detail.value.thumb)
+const cancelReason = computed(() => detail.value?.cancelReason ?? '사유가 등록되지 않았습니다.')
+const isCancelled = computed(() => normalizeBroadcastStatus(detail.value?.status) === 'CANCELED')
+const standbyImage = computed(() => detail.value?.standbyThumb || detail.value?.thumb || '')
 const displayedCancelReason = computed(() =>
   isCancelled.value ? cancelReason.value : '',
 )
+
+const formatScheduledAt = (value?: string) => (value ? value.replace(/-/g, '.').replace('T', ' ').slice(0, 16) : '')
+
+const formatCurrency = (amount: number) => `₩${amount.toLocaleString('ko-KR')}`
+
+const mapDetail = (payload: BroadcastDetailResponse): SellerReservationDetail => ({
+  id: String(payload.broadcastId),
+  title: payload.title ?? '',
+  status: payload.status ?? '',
+  datetime: formatScheduledAt(payload.scheduledAt),
+  category: payload.categoryName ?? '',
+  notice: payload.notice ?? '',
+  thumb: payload.thumbnailUrl ?? '',
+  standbyThumb: payload.waitScreenUrl ?? payload.thumbnailUrl ?? '',
+  products: (payload.products ?? []).map((item) => ({
+    id: String(item.productId),
+    name: item.name,
+    price: formatCurrency(item.originalPrice ?? 0),
+    salePrice: formatCurrency(item.bpPrice ?? item.originalPrice ?? 0),
+    stock: item.stockQty ?? item.bpQuantity ?? 0,
+    qty: item.bpQuantity ?? 0,
+  })),
+  cueQuestions: (payload.qcards ?? []).map((card) => card.question),
+  cancelReason: payload.stoppedReason ?? undefined,
+})
+
+const loadDetail = async () => {
+  const idValue = Number(reservationId.value)
+  if (!reservationId.value || Number.isNaN(idValue)) {
+    detail.value = null
+    return
+  }
+  const payload = await fetchSellerBroadcastDetail(idValue)
+  detail.value = mapDetail(payload)
+}
+
+watch(reservationId, () => {
+  loadDetail()
+}, { immediate: true })
 </script>
 
 <template>
-  <PageContainer>
+  <PageContainer v-if="detail">
     <h2 class="page-title">예약 상세</h2>
     <header class="detail-header">
       <button type="button" class="back-link" @click="goBack">← 뒤로 가기</button>

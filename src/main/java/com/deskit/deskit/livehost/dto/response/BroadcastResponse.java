@@ -23,6 +23,7 @@ public class BroadcastResponse {
     private String notice;
     private BroadcastStatus status;
     private BroadcastLayout layout;
+    private Long categoryId;
     private String categoryName;
 
     @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
@@ -32,6 +33,7 @@ public class BroadcastResponse {
 
     private String thumbnailUrl;
     private String waitScreenUrl;
+    private String stoppedReason;
 
     private String streamKey; // OpenVidu Session ID
     private String vodUrl;    // Viewer용 VOD 재생 URL
@@ -65,12 +67,14 @@ public class BroadcastResponse {
                 .notice(broadcast.getBroadcastNotice())
                 .status(broadcast.getStatus())
                 .layout(broadcast.getBroadcastLayout())
+                .categoryId(broadcast.getTagCategory().getTagCategoryId())
                 .categoryName(categoryName)
 
                 .scheduledAt(broadcast.getScheduledAt())
                 .startedAt(broadcast.getStartedAt())
                 .thumbnailUrl(broadcast.getBroadcastThumbUrl())
                 .waitScreenUrl(broadcast.getBroadcastWaitUrl())
+                .stoppedReason(broadcast.getBroadcastStoppedReason())
 
                 .streamKey(broadcast.getStreamKey()) // 라이브 시청용 (Session ID)
                 .vodUrl(vodUrl)                      // VOD 시청용
@@ -84,4 +88,3 @@ public class BroadcastResponse {
                 .build();
     }
 }
-
