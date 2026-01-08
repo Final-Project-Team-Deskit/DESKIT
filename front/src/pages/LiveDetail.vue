@@ -17,7 +17,11 @@ const router = useRouter()
 const { now } = useNow(1000)
 const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080'
 const sseSource = ref<EventSource | null>(null)
+const sseConnected = ref(false)
+const sseRetryCount = ref(0)
+const sseRetryTimer = ref<number | null>(null)
 const statsTimer = ref<number | null>(null)
+const refreshTimer = ref<number | null>(null)
 
 const liveId = computed(() => {
   const value = route.params.id
@@ -246,17 +250,24 @@ const parseSseData = (event: MessageEvent) => {
   }
 }
 
+const scheduleRefresh = () => {
+  if (refreshTimer.value) window.clearTimeout(refreshTimer.value)
+  refreshTimer.value = window.setTimeout(() => {
+    void loadDetail()
+    void loadStats()
+    void loadProducts()
+  }, 500)
+}
+
 const handleSseEvent = (event: MessageEvent) => {
   const data = parseSseData(event)
   switch (event.type) {
     case 'BROADCAST_READY':
     case 'BROADCAST_UPDATED':
-      void loadDetail()
-      void loadStats()
-      void loadProducts()
+      scheduleRefresh()
       break
     case 'PRODUCT_PINNED':
-      void loadProducts()
+      scheduleRefresh()
       break
     case 'SANCTION_ALERT':
       alert(typeof data === 'object' && data ? `${data.type} 제재가 적용되었습니다.` : '제재가 적용되었습니다.')
@@ -283,6 +294,16 @@ const handleSseEvent = (event: MessageEvent) => {
   }
 }
 
+const scheduleReconnect = (id: number) => {
+  if (sseRetryTimer.value) window.clearTimeout(sseRetryTimer.value)
+  const delay = Math.min(30000, 1000 * 2 ** sseRetryCount.value)
+  const jitter = Math.floor(Math.random() * 500)
+  sseRetryTimer.value = window.setTimeout(() => {
+    connectSse(id)
+  }, delay + jitter)
+  sseRetryCount.value += 1
+}
+
 const connectSse = (id: number) => {
   sseSource.value?.close()
   const user = getAuthUser()
@@ -301,8 +322,17 @@ const connectSse = (id: number) => {
     'BROADCAST_STOPPED',
   ]
   events.forEach((name) => source.addEventListener(name, handleSseEvent))
+  source.onopen = () => {
+    sseConnected.value = true
+    sseRetryCount.value = 0
+    scheduleRefresh()
+  }
   source.onerror = () => {
+    sseConnected.value = false
     source.close()
+    if (document.visibilityState === 'visible') {
+      scheduleReconnect(id)
+    }
   }
   sseSource.value = source
 }
@@ -310,9 +340,11 @@ const connectSse = (id: number) => {
 const startStatsPolling = (id: number) => {
   if (statsTimer.value) window.clearInterval(statsTimer.value)
   statsTimer.value = window.setInterval(() => {
-    void loadStats()
-    void loadProducts()
-  }, 10000)
+    if (!sseConnected.value) {
+      void loadStats()
+      void loadProducts()
+    }
+  }, 30000)
 }
 
 const appendMessage = (message: ChatMessage) => {
@@ -613,8 +645,13 @@ watch(
     disconnectChat()
     sseSource.value?.close()
     sseSource.value = null
+    sseConnected.value = false
+    if (sseRetryTimer.value) window.clearTimeout(sseRetryTimer.value)
+    sseRetryTimer.value = null
     if (statsTimer.value) window.clearInterval(statsTimer.value)
     statsTimer.value = null
+    if (refreshTimer.value) window.clearTimeout(refreshTimer.value)
+    refreshTimer.value = null
     if (value) {
       fetchRecentMessages()
       connectChat()
@@ -637,8 +674,13 @@ onBeforeUnmount(() => {
   disconnectChat()
   sseSource.value?.close()
   sseSource.value = null
+  sseConnected.value = false
+  if (sseRetryTimer.value) window.clearTimeout(sseRetryTimer.value)
+  sseRetryTimer.value = null
   if (statsTimer.value) window.clearInterval(statsTimer.value)
   statsTimer.value = null
+  if (refreshTimer.value) window.clearTimeout(refreshTimer.value)
+  refreshTimer.value = null
 })
 </script>
 

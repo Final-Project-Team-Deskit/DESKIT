@@ -98,7 +98,11 @@ const broadcastInfo = ref<(EditableBroadcastInfo & { qCards: string[] }) | null>
 const stream = ref<StreamData | null>(null)
 const chatMessages = ref<StreamChat[]>([])
 const sseSource = ref<EventSource | null>(null)
+const sseConnected = ref(false)
+const sseRetryCount = ref(0)
+const sseRetryTimer = ref<number | null>(null)
 const statsTimer = ref<number | null>(null)
+const refreshTimer = ref<number | null>(null)
 const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080'
 
 const streamId = computed(() => {
@@ -374,6 +378,15 @@ const parseSseData = (event: MessageEvent) => {
   }
 }
 
+const scheduleRefresh = (broadcastId: number) => {
+  if (refreshTimer.value) window.clearTimeout(refreshTimer.value)
+  refreshTimer.value = window.setTimeout(() => {
+    void refreshInfo(broadcastId)
+    void refreshStats(broadcastId)
+    void refreshProducts(broadcastId)
+  }, 500)
+}
+
 const handleSseEvent = (event: MessageEvent) => {
   const id = streamId.value ? Number(streamId.value) : NaN
   if (Number.isNaN(id)) return
@@ -381,16 +394,14 @@ const handleSseEvent = (event: MessageEvent) => {
   switch (event.type) {
     case 'BROADCAST_READY':
     case 'BROADCAST_UPDATED':
-      void refreshInfo(id)
-      void refreshStats(id)
-      void refreshProducts(id)
+      scheduleRefresh(id)
       break
     case 'PRODUCT_PINNED':
       pinnedProductId.value = typeof data === 'number' ? String(data) : pinnedProductId.value
-      void refreshProducts(id)
+      scheduleRefresh(id)
       break
     case 'SANCTION_UPDATED':
-      void refreshStats(id)
+      scheduleRefresh(id)
       break
     case 'BROADCAST_ENDING_SOON':
       alert('방송 종료 1분 전입니다.')
@@ -413,6 +424,16 @@ const handleSseEvent = (event: MessageEvent) => {
   }
 }
 
+const scheduleReconnect = (broadcastId: number) => {
+  if (sseRetryTimer.value) window.clearTimeout(sseRetryTimer.value)
+  const delay = Math.min(30000, 1000 * 2 ** sseRetryCount.value)
+  const jitter = Math.floor(Math.random() * 500)
+  sseRetryTimer.value = window.setTimeout(() => {
+    connectSse(broadcastId)
+  }, delay + jitter)
+  sseRetryCount.value += 1
+}
+
 const connectSse = (broadcastId: number) => {
   if (sseSource.value) {
     sseSource.value.close()
@@ -432,8 +453,17 @@ const connectSse = (broadcastId: number) => {
   events.forEach((name) => {
     source.addEventListener(name, handleSseEvent)
   })
+  source.onopen = () => {
+    sseConnected.value = true
+    sseRetryCount.value = 0
+    scheduleRefresh(broadcastId)
+  }
   source.onerror = () => {
+    sseConnected.value = false
     source.close()
+    if (document.visibilityState === 'visible') {
+      scheduleReconnect(broadcastId)
+    }
   }
   sseSource.value = source
 }
@@ -441,9 +471,11 @@ const connectSse = (broadcastId: number) => {
 const startStatsPolling = (broadcastId: number) => {
   if (statsTimer.value) window.clearInterval(statsTimer.value)
   statsTimer.value = window.setInterval(() => {
-    void refreshStats(broadcastId)
-    void refreshProducts(broadcastId)
-  }, 10000)
+    if (!sseConnected.value) {
+      void refreshStats(broadcastId)
+      void refreshProducts(broadcastId)
+    }
+  }, 30000)
 }
 
 watch(
@@ -460,8 +492,13 @@ watch(
     if (!value) {
       sseSource.value?.close()
       sseSource.value = null
+      sseConnected.value = false
+      if (sseRetryTimer.value) window.clearTimeout(sseRetryTimer.value)
+      sseRetryTimer.value = null
       if (statsTimer.value) window.clearInterval(statsTimer.value)
       statsTimer.value = null
+      if (refreshTimer.value) window.clearTimeout(refreshTimer.value)
+      refreshTimer.value = null
       return
     }
     const idValue = Number(value)
@@ -504,8 +541,13 @@ onBeforeUnmount(() => {
   gridObserver?.disconnect()
   sseSource.value?.close()
   sseSource.value = null
+  sseConnected.value = false
+  if (sseRetryTimer.value) window.clearTimeout(sseRetryTimer.value)
+  sseRetryTimer.value = null
   if (statsTimer.value) window.clearInterval(statsTimer.value)
   statsTimer.value = null
+  if (refreshTimer.value) window.clearTimeout(refreshTimer.value)
+  refreshTimer.value = null
 })
 
 const openConfirm = (options: Partial<typeof confirmState>, onConfirm: () => void) => {
