@@ -127,6 +127,11 @@ public class CustomOAuth2UserService extends DefaultOAuth2UserService {
 
         // Seller에 존재할 경우 -> Seller 로그인
         else {
+            if (existSeller.getStatus() == SellerStatus.PENDING) {
+                throw new OAuth2AuthenticationException(
+                        new OAuth2Error("seller_pending", "관리자 승인 후에 서비스 이용 가능합니다.", null)
+                );
+            }
             if (existSeller.getStatus() == SellerStatus.INACTIVE) {
                 ensureRejoinAllowed(existSeller.getUpdatedAt());
                 existSeller.setStatus(SellerStatus.ACTIVE);

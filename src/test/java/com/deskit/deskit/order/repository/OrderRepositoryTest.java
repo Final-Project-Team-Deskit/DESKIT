@@ -67,18 +67,18 @@ class OrderRepositoryTest {
 
     entityManager.getEntityManager().createNativeQuery(
       "INSERT INTO product (product_id, seller_id, product_name, short_desc, detail_html, " +
-      "price, cost_price, status, stock_qty, safety_stock) " +
+      "price, cost_price, status, stock_qty, safety_stock, created_at, updated_at) " +
       "VALUES (:productId, :sellerId, 'Test Product A', 'Short A', '<p>Detail A</p>', " +
-      "10000, 12000, 'ON_SALE', 10, 5)"
+      "10000, 12000, 'ON_SALE', 10, 5, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"
     ).setParameter("productId", 10L)
       .setParameter("sellerId", sellerId)
       .executeUpdate();
 
     entityManager.getEntityManager().createNativeQuery(
       "INSERT INTO product (product_id, seller_id, product_name, short_desc, detail_html, " +
-      "price, cost_price, status, stock_qty, safety_stock) " +
+      "price, cost_price, status, stock_qty, safety_stock, created_at, updated_at) " +
       "VALUES (:productId, :sellerId, 'Test Product B', 'Short B', '<p>Detail B</p>', " +
-      "10000, 12000, 'ON_SALE', 10, 5)"
+      "10000, 12000, 'ON_SALE', 10, 5, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"
     ).setParameter("productId", 11L)
       .setParameter("sellerId", sellerId)
       .executeUpdate();

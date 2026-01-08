@@ -1,8 +1,8 @@
 ﻿<script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import PageContainer from '../components/PageContainer.vue'
 import PageHeader from '../components/PageHeader.vue'
-import { setAuthUser } from '../lib/auth'
 
 type PendingSignup = {
   username?: string
@@ -20,11 +20,26 @@ type MbtiOption = {
   label: string
 }
 
+type AgreementKey =
+  | 'serviceTerms'
+  | 'privacyPolicy'
+  | 'privacyConsignment'
+  | 'ageOver14'
+  | 'marketing'
+
+type Policy = {
+  key: AgreementKey
+  title: string
+  required: boolean
+  content: string
+}
+
 const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080'
 const pending = ref<PendingSignup | null>(null)
 const signupToken = ref('')
 const inviteToken = ref('')
 const inviteError = ref('')
+const router = useRouter()
 
 const form = reactive({
   phoneNumber: '',
@@ -37,10 +52,125 @@ const form = reactive({
   description: '',
   planFileBase64: '',
   planFileName: '',
-  agreeToTerms: false,
   message: '',
   isVerified: false,
 })
+
+const agreements = reactive<Record<AgreementKey, boolean>>({
+  serviceTerms: false,
+  privacyPolicy: false,
+  privacyConsignment: false,
+  ageOver14: false,
+  marketing: false,
+})
+
+const policies: Policy[] = [
+  {
+    key: 'serviceTerms',
+    title: '서비스 이용약관에 동의합니다.',
+    required: true,
+    content: `
+## 서비스 이용약관
+### 제1조 (목적)
+이 약관은 “DESKIT”(이하 “회사”)이 제공하는 데스크테리어 관련 라이브 커머스 플랫폼 서비스(이하 “서비스”)의 이용과 관련하여 회사와 이용자 간의 권리, 의무 및 책임사항을 규정함을 목적으로 합니다.
+
+### 제2조 (약관의 효력 및 변경)
+1. 본 약관은 서비스 화면에 게시하거나 기타의 방법으로 공지함으로써 효력이 발생합니다.
+2. 회사는 관련 법령을 위배하지 않는 범위에서 약관을 변경할 수 있으며, 변경 시 서비스 내 공지 또는 이메일 등을 통해 사전에 안내합니다.
+3. 이용자가 변경된 약관에 동의하지 않을 경우, 이용자는 서비스 이용을 중단하고 탈퇴할 수 있습니다.
+
+### 제3조 (회원가입 및 이용계약)
+1. 회원가입은 회사가 정한 가입 양식에 따라 정보를 제공하고 이용자가 약관에 동의함으로써 체결됩니다.
+2. 회원은 본 약관 및 관련 정책을 준수해야 합니다.
+3. 본 서비스는 만 14세 이상부터 회원가입이 가능합니다.
+
+### 제4조 (회원의 권리와 의무)
+1. 회원은 계정 정보를 안전하게 관리할 의무가 있습니다.
+2. 회원은 타인의 권리를 침해하거나 불법적인 목적으로 서비스를 이용할 수 없습니다.
+3. 회사는 회원이 본 약관을 위반할 경우 서비스 이용을 제한할 수 있습니다.
+
+### 제5조 (서비스의 제공 및 변경)
+1. 회사는 안정적인 서비스를 제공하기 위해 노력하며, 서비스 내용은 사전 공지 후 변경될 수 있습니다.
+2. 회사는 정기 점검, 긴급 장애, 법령상 사유 등으로 서비스 제공을 일시 중단할 수 있습니다.
+
+### 제6조 (계약 해지 및 이용 제한)
+1. 회원은 언제든지 탈퇴를 요청할 수 있으며, 회사는 관련 법령에 따라 처리합니다.
+2. 회사는 회원이 본 약관을 위반할 경우 사전 통지 후 이용 제한 또는 계약 해지를 할 수 있습니다.
+
+### 제7조 (면책조항)
+1. 회사는 천재지변, 시스템 장애, 회원 과실 등 불가항력적 사유로 인한 서비스 중단이나 손해에 대해 책임을 지지 않습니다.
+2. 회사는 회원 간 거래, 콘텐츠 게시 등에서 발생하는 민·형사상 문제에 대해 책임을 지지 않습니다.
+
+### 제8조 (분쟁 해결)
+1. 서비스 이용과 관련하여 발생한 분쟁은 회사와 이용자 간 합의로 해결하며, 합의가 되지 않을 경우 대한민국 법을 적용합니다.
+2. 소송이 제기될 경우 회사 본사 소재지를 관할하는 법원을 관할 법원으로 합니다.
+    `,
+  },
+  {
+    key: 'privacyPolicy',
+    title: '개인정보 처리방침에 동의합니다.',
+    required: true,
+    content: `
+## 개인정보 처리 방침
+### 제1조 (목적)
+이 방침은 회사가 서비스 이용약관, 개인정보처리방침 등 이용 약관을 개정할 경우 이용자에게 고지하고, 투명하게 정보를 처리하기 위해 규정합니다.
+
+### 제2조 (개정 공지)
+1. 약관 개정 시, 회사는 변경 내용과 시행일을 서비스 내 공지, 이메일, 푸시 알림 등으로 안내합니다.
+2. 이용자는 공지일 기준 7일 이내에 이의를 제기할 수 있으며, 이의가 없는 경우 개정에 동의한 것으로 간주됩니다.
+
+### 제3조 (개정의 효력 발생)
+1. 회사가 공지한 시행일로부터 효력이 발생합니다.
+2. 이용자가 개정된 약관에 동의하지 않을 경우 서비스 이용을 중단하고 탈퇴할 수 있습니다.
+    `,
+  },
+  {
+    key: 'privacyConsignment',
+    title: '개인정보 처리 위탁 약관에 동의합니다.',
+    required: true,
+    content: `
+## 개인정보처리 위탁 약관
+### 제1조 (목적)
+본 약관은 회사가 서비스 제공과 관련하여 이용자의 개인정보를 안전하게 처리하고, 일부 업무를 외부 업체에 위탁할 경우 필요한 사항을 규정함을 목적으로 합니다.
+
+### 제2조 (위탁 업무의 범위)
+회사는 서비스 운영, 결제 처리, 고객 상담 등 일부 업무를 외부 전문 업체에 위탁할 수 있습니다.
+
+### 제3조 (위탁 업체와 보호 조치)
+1. 회사는 개인정보 보호법 등 관련 법령에 따라 위탁 업체와 계약을 체결하고, 개인정보 보호를 위한 기술적·관리적 조치를 취합니다.
+2. 위탁 업체는 위탁 받은 목적 외에 개인정보를 처리할 수 없습니다.
+
+### 제4조 (이용자의 권리와 조치)
+이용자는 위탁업체의 개인정보 처리와 관련하여 회사에 열람, 정정, 삭제 등을 요청할 수 있으며, 회사는 관련 요청을 신속히 처리합니다.
+    `,
+  },
+  {
+    key: 'ageOver14',
+    title: '만 14세 이상입니다.',
+    required: true,
+    content: '',
+  },
+  {
+    key: 'marketing',
+    title: '마케팅 및 알림 정보 제공에 동의합니다.',
+    required: false,
+    content: `
+## 마케팅 정보 제공 동의
+### 제1조 (목적)
+회사는 이용자에게 맞춤형 서비스, 이벤트, 프로모션 정보를 제공하기 위해 마케팅 정보 수신 동의를 받습니다.
+
+### 제2조 (동의 범위)
+이용자는 이메일, SMS, 앱 푸시 알림 등을 통해 마케팅 정보를 받을 수 있으며, 선택적으로 동의할 수 있습니다.
+
+### 제3조 (동의 철회)
+1. 이용자는 언제든지 마케팅 정보 수신 동의를 철회할 수 있습니다.
+2. 철회 시 즉시 마케팅 정보 수신이 중단되며, 서비스 이용에는 영향을 미치지 않습니다.
+
+### 제4조 (보관 및 이용)
+회사는 동의 받은 마케팅 정보만 사용하며, 관련 법령에 따라 안전하게 보관합니다.
+    `,
+  },
+]
 
 const mbtiOptions: MbtiOption[] = [
   { value: 'NONE', label: '선택 안함' },
@@ -77,6 +207,113 @@ const jobLabelMap = jobOptions.reduce<Record<string, string>>((acc, option) => {
 }, {})
 
 const isInviteSignup = computed(() => !!inviteToken.value)
+
+const requiredAgreed = computed(
+  () =>
+    agreements.serviceTerms &&
+    agreements.privacyPolicy &&
+    agreements.privacyConsignment &&
+    agreements.ageOver14,
+)
+
+const allRequiredAgreement = computed({
+  get: () => requiredAgreed.value,
+  set: (value: boolean) => {
+    agreements.serviceTerms = value
+    agreements.privacyPolicy = value
+    agreements.privacyConsignment = value
+    agreements.ageOver14 = value
+  },
+})
+
+const activePolicy = ref<Policy | null>(null)
+
+const openPolicy = (policy: Policy) => {
+  activePolicy.value = policy
+}
+
+const closePolicy = () => {
+  activePolicy.value = null
+}
+
+const escapeHtml = (value: string) =>
+  value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+
+const renderMarkdown = (value: string) => {
+  if (!value) {
+    return ''
+  }
+
+  const lines = value.replace(/\r/g, '').split('\n')
+  const htmlParts: string[] = []
+  let inOrderedList = false
+  let paragraphParts: string[] = []
+
+  const closeList = () => {
+    if (inOrderedList) {
+      htmlParts.push('</ol>')
+      inOrderedList = false
+    }
+  }
+
+  const flushParagraph = () => {
+    if (paragraphParts.length) {
+      htmlParts.push(`<p>${paragraphParts.join(' ')}</p>`)
+      paragraphParts = []
+    }
+  }
+
+  for (const line of lines) {
+    const trimmed = line.trim()
+
+    if (!trimmed) {
+      flushParagraph()
+      closeList()
+      continue
+    }
+
+    if (trimmed.startsWith('### ')) {
+      flushParagraph()
+      closeList()
+      htmlParts.push(`<h3>${escapeHtml(trimmed.slice(4))}</h3>`)
+      continue
+    }
+
+    if (trimmed.startsWith('## ')) {
+      flushParagraph()
+      closeList()
+      htmlParts.push(`<h2>${escapeHtml(trimmed.slice(3))}</h2>`)
+      continue
+    }
+
+    const listMatch = trimmed.match(/^\d+\.\s+(.*)$/)
+    if (listMatch) {
+      flushParagraph()
+      if (!inOrderedList) {
+        htmlParts.push('<ol>')
+        inOrderedList = true
+      }
+      htmlParts.push(`<li>${escapeHtml(listMatch[1])}</li>`)
+      continue
+    }
+
+    paragraphParts.push(escapeHtml(trimmed))
+  }
+
+  flushParagraph()
+  closeList()
+
+  return htmlParts.join('\n')
+}
+
+const activePolicyHtml = computed(() =>
+  activePolicy.value ? renderMarkdown(activePolicy.value.content) : '',
+)
 
 const loadPending = async () => {
   if (!signupToken.value) {
@@ -151,28 +388,14 @@ const verifyCode = async () => {
   form.message = '전화번호 인증이 완료되었습니다.'
 }
 
-const storeAuthUser = () => {
-  const memberCategory = form.memberType === 'SELLER' ? '판매자' : '일반회원'
-  const mbtiValue = form.mbti === 'NONE' ? '' : form.mbti
-  const jobValue = form.jobCategory === 'NONE' ? '' : jobLabelMap[form.jobCategory]
-
-  const authUser = {
-    name: pending.value?.name ?? '',
-    email: pending.value?.email ?? '',
-    signupType: '소셜 회원',
-    memberCategory,
-    mbti: mbtiValue,
-    job: jobValue,
-  }
-
-  setAuthUser(authUser)
-  // localStorage.setItem('deskit-user', JSON.stringify(authUser))
-  // localStorage.setItem('deskit-auth', memberCategory)
-}
-
 const submitSignup = async () => {
   if (!signupToken.value) {
     form.message = '로그인이 필요합니다.'
+    return
+  }
+
+  if (!requiredAgreed.value) {
+    form.message = '필수 약관에 동의해주세요.'
     return
   }
 
@@ -193,7 +416,7 @@ const submitSignup = async () => {
       description: form.description,
       planFileBase64: form.planFileBase64,
       inviteToken: inviteToken.value,
-      isAgreed: form.agreeToTerms,
+      isAgreed: agreements.marketing,
     }),
   })
 
@@ -204,17 +427,22 @@ const submitSignup = async () => {
   }
 
   const successText = await response.text()
-  storeAuthUser()
+  const completionMessage =
+    successText ||
+    (form.memberType === 'SELLER'
+      ? '판매자 가입이 접수되었습니다. 관리자 승인을 기다려 주세요.'
+      : '회원가입이 완료되었습니다.')
 
-  if (form.memberType === 'SELLER') {
-    form.message =
-      successText ||
-      '판매자 가입이 접수되었습니다. 관리자 승인을 기다려 주세요.'
-    return
-  }
-
-  form.message = successText || '회원가입이 완료되었습니다.'
-  window.location.href = '/my'
+  sessionStorage.setItem(
+    'registerComplete',
+    JSON.stringify({
+      memberType: form.memberType,
+      message: completionMessage,
+    }),
+  )
+  sessionStorage.removeItem('signupToken')
+  sessionStorage.removeItem('inviteToken')
+  router.push('/signup/complete').catch(() => {})
 }
 
 const handlePlanFileChange = (event: Event) => {
@@ -387,10 +615,30 @@ onMounted(() => {
           </div>
 
           <div class="section">
+            <h3>약관 동의</h3>
             <label class="checkbox">
-              <input type="checkbox" v-model="form.agreeToTerms" />
-              약관에 동의합니다.
+              <input type="checkbox" v-model="allRequiredAgreement" />
+              필수 약관 전체 동의
             </label>
+            <div class="terms-list">
+              <div v-for="policy in policies" :key="policy.key" class="terms-item">
+                <label class="terms-checkbox">
+                  <input type="checkbox" v-model="agreements[policy.key]" />
+                  <span class="terms-title">{{ policy.title }}</span>
+                  <span class="terms-badge" :class="{ required: policy.required }">
+                    {{ policy.required ? '필수' : '선택' }}
+                  </span>
+                </label>
+                <button
+                  v-if="policy.content.length"
+                  type="button"
+                  class="terms-link"
+                  @click="openPolicy(policy)"
+                >
+                  약관 상세 보기
+                </button>
+              </div>
+            </div>
           </div>
 
           <button type="button" class="btn primary" @click="submitSignup">회원가입 완료</button>
@@ -399,6 +647,22 @@ onMounted(() => {
         <p v-if="form.message" class="message">{{ form.message }}</p>
       </section>
     </div>
+
+    <div v-if="activePolicy" class="modal">
+      <div class="modal-backdrop" @click="closePolicy"></div>
+      <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="policy-title">
+        <div class="modal-header">
+          <div>
+            <p class="modal-label">{{ activePolicy.required ? '필수' : '선택' }}</p>
+            <h4 id="policy-title" class="modal-title">{{ activePolicy.title }}</h4>
+          </div>
+          <button type="button" class="modal-close" @click="closePolicy">닫기</button>
+        </div>
+        <div class="modal-body">
+          <div class="modal-text" v-html="activePolicyHtml"></div>
+        </div>
+      </div>
+    </div>
   </PageContainer>
 </template>
 
@@ -406,6 +670,8 @@ onMounted(() => {
 .signup-wrap {
   max-width: 680px;
   margin: 0 auto;
+  font-family: 'Pretendard', 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic',
+    'Nanum Gothic', 'Segoe UI', sans-serif;
 }
 
 .signup-card {
@@ -524,6 +790,164 @@ onMounted(() => {
   color: var(--text-muted);
 }
 
+.terms-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 0.9rem;
+}
+
+.terms-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border: none;
+  border-radius: 0;
+  padding: 0;
+  background: transparent;
+}
+
+.terms-checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 700;
+  color: var(--text-muted);
+}
+
+.terms-title {
+  color: var(--text-strong);
+}
+
+.terms-badge {
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 0.75rem;
+  border: 1px solid var(--border-color);
+  color: var(--text-muted);
+}
+
+.terms-badge.required {
+  border-color: rgba(37, 99, 235, 0.4);
+  color: #1d4ed8;
+  background: rgba(37, 99, 235, 0.1);
+}
+
+.terms-link {
+  border: none;
+  background: transparent;
+  color: var(--primary-color);
+  font-weight: 800;
+  cursor: pointer;
+  padding: 0;
+}
+
+.terms-link:hover {
+  text-decoration: underline;
+}
+
+.modal {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 60;
+}
+
+.modal-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.45);
+}
+
+.modal-card {
+  position: relative;
+  z-index: 1;
+  background: var(--surface);
+  border: 1px solid var(--border-color);
+  border-radius: 16px;
+  padding: 18px;
+  width: min(90vw, 520px);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.modal-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.modal-label {
+  margin: 0 0 4px;
+  font-size: 0.75rem;
+  font-weight: 800;
+  color: var(--text-muted);
+}
+
+.modal-title {
+  margin: 0;
+  font-size: 1.1rem;
+  font-weight: 900;
+  color: var(--text-strong);
+}
+
+.modal-close {
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  background: var(--surface-weak);
+  padding: 6px 12px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.modal-body {
+  max-height: 50vh;
+  overflow: auto;
+  padding-right: 6px;
+}
+
+
+.modal-text {
+  line-height: 1.6;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.modal-text h2 {
+  margin: 0 0 10px;
+  font-size: 1rem;
+  font-weight: 900;
+  color: var(--text-strong);
+}
+
+.modal-text h3 {
+  margin: 14px 0 8px;
+  font-size: 0.95rem;
+  font-weight: 800;
+  color: var(--text-strong);
+}
+
+.modal-text p {
+  margin: 0 0 10px;
+}
+
+.modal-text ol {
+  margin: 0 0 10px 18px;
+  padding: 0;
+}
+
+.modal-text li {
+  margin-bottom: 6px;
+}
+
+.modal-text *:last-child {
+  margin-bottom: 0;
+}
 .btn {
   border: 1px solid var(--border-color);
   background: var(--surface);
@@ -561,5 +985,14 @@ onMounted(() => {
     width: 100%;
     min-width: 0;
   }
+
+  .terms-item {
+    flex-direction: column;
+    align-items: flex-start;
+  }
 }
 </style>
+
+
+
+

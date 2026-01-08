@@ -3,7 +3,6 @@ package com.deskit.deskit.account.controller;
 import com.deskit.deskit.account.dto.SocialSignupRequest;
 import com.deskit.deskit.account.entity.*;
 import com.deskit.deskit.account.enums.*;
-import com.deskit.deskit.account.jwt.JWTUtil;
 import com.deskit.deskit.account.oauth.CustomOAuth2User;
 import com.deskit.deskit.account.repository.*;
 import com.deskit.deskit.common.util.verification.PhoneSendRequest;
@@ -41,8 +40,6 @@ public class SignupController {
     private static final String SESSION_PHONE_VERIFIED = "pendingPhoneVerified";
 
     private final MemberRepository memberRepository;
-    private final JWTUtil jwtUtil;
-    private final RefreshRepository refreshRepository;
     private final SellerRepository sellerRepository;
     private final CompanyRegisteredRepository companyRegisteredRepository;
     private final SellerRegisterRepository sellerRegisterRepository;
@@ -171,10 +168,6 @@ public class SignupController {
             return new ResponseEntity<>("already signed up", HttpStatus.CONFLICT);
         }
 
-        if (!request.isAgreed()) {
-            return new ResponseEntity<>("terms agreement required", HttpStatus.BAD_REQUEST);
-        }
-
         Boolean verified = (Boolean) session.getAttribute(SESSION_PHONE_VERIFIED);
         if (verified == null || !verified) {
             return new ResponseEntity<>("phone verification required", HttpStatus.BAD_REQUEST);
@@ -231,8 +224,7 @@ public class SignupController {
 
         memberRepository.save(member);
 
-        // 가입 성공 후 토큰 발행
-        issueTokens(member.getLoginId(), member.getRole(), response);
+        clearAuthCookies(response);
 
         // 폰 인증 세션 삭제
         clearPhoneSession(session);
@@ -344,14 +336,13 @@ public class SignupController {
 
         sellerGradeRepository.save(sellerGrade);
 
-        // 가입 완료 후 토큰 발행
-        issueTokens(seller.getLoginId(), String.valueOf(seller.getRole()), response);
+        clearAuthCookies(response);
 
         // 폰 인증 세션 삭제
         clearPhoneSession(session);
 
         return new ResponseEntity<>(
-                "판매자 회원 가입 신청이 완료되었습니다. 관리자 승인 후에 서비스 이용이 가능합니다.",
+                "판매자 회원 가입 신청이 완료되었습니다.",
                 HttpStatus.OK
         );
     }
@@ -443,40 +434,24 @@ public class SignupController {
         invitation.setUpdatedAt(now);
         invitationRepository.save(invitation);
 
-        issueTokens(seller.getLoginId(), String.valueOf(seller.getRole()), response);
+        clearAuthCookies(response);
 
         clearPhoneSession(session);
 
         return new ResponseEntity<>("invited seller signup completed", HttpStatus.OK);
     }
 
-    // access/refresh token 발행
-    private void issueTokens(String username, String role, HttpServletResponse response) {
-        long accessExpiryMs = 600000L;
-
-        long refreshExpiryMs = 86400000L;
-
-        // 토큰 생성
-        String access = jwtUtil.createJwt("access", username, role, accessExpiryMs); // Access token for header.
-        String refresh = jwtUtil.createJwt("refresh", username, role, refreshExpiryMs); // Refresh token for cookie.
-
-        refreshRepository.save(username, refresh, refreshExpiryMs);
-
-        response.setHeader("access", access);
-        response.addCookie(createCookie("access", access, Math.toIntExact(accessExpiryMs / 1000)));
-        response.addCookie(createCookie("refresh", refresh, Math.toIntExact(refreshExpiryMs / 1000)));
+    private void clearAuthCookies(HttpServletResponse response) {
+        response.addCookie(expireCookie("access"));
+        response.addCookie(expireCookie("refresh"));
     }
 
-    // HttpOnly로 안전한 쿠키 생성
-    private Cookie createCookie(String key, String value, int maxAge) {
-        // refresh token 쿠키
-        Cookie cookie = new Cookie(key, value);
-
-        cookie.setMaxAge(maxAge);
+    private Cookie expireCookie(String key) {
+        Cookie cookie = new Cookie(key, "");
+        cookie.setMaxAge(0);
         // cookie.setSecure(true);
         cookie.setPath("/");
         cookie.setHttpOnly(true);
-
         return cookie;
     }
 
