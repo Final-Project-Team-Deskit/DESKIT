@@ -355,6 +355,14 @@ public class BroadcastService {
     }
 
     @Transactional(readOnly = true)
+    public BroadcastResponse getAdminBroadcastDetail(Long broadcastId) {
+        Broadcast broadcast = broadcastRepository.findById(broadcastId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.BROADCAST_NOT_FOUND));
+
+        return createBroadcastResponse(broadcast);
+    }
+
+    @Transactional(readOnly = true)
     public Object getPublicBroadcasts(BroadcastSearch condition, Pageable pageable) {
         if ("ALL".equalsIgnoreCase(condition.getTab())) {
             return getOverview(null, false);
@@ -737,15 +745,22 @@ public class BroadcastService {
         List<StatisticsResponse.BroadcastRank> best;
         List<StatisticsResponse.BroadcastRank> worst;
         List<StatisticsResponse.BroadcastRank> topView;
+        List<StatisticsResponse.BroadcastRank> worstView;
+        List<StatisticsResponse.ProductRank> bestProducts = List.of();
+        List<StatisticsResponse.ProductRank> worstProducts = List.of();
 
         if (sellerId != null) {
             best = broadcastResultRepository.getRanking(sellerId, period, "SALES", true, 5);
             worst = broadcastResultRepository.getRanking(sellerId, period, "SALES", false, 5);
             topView = broadcastResultRepository.getRanking(sellerId, period, "VIEWS", true, 5);
+            worstView = broadcastResultRepository.getRanking(sellerId, period, "VIEWS", false, 5);
         } else {
             best = broadcastResultRepository.getRanking(null, period, "SALES", true, 10);
             worst = broadcastResultRepository.getRanking(null, period, "SALES", false, 10);
             topView = List.of();
+            worstView = List.of();
+            bestProducts = getProductSalesRanking(period, true, 5);
+            worstProducts = getProductSalesRanking(period, false, 5);
         }
 
         return StatisticsResponse.builder()
@@ -754,7 +769,59 @@ public class BroadcastService {
                 .bestBroadcasts(best)
                 .worstBroadcasts(worst)
                 .topViewerBroadcasts(topView)
+                .worstViewerBroadcasts(worstView)
+                .bestProducts(bestProducts)
+                .worstProducts(worstProducts)
                 .build();
+    }
+
+    private List<StatisticsResponse.ProductRank> getProductSalesRanking(String period, boolean desc, int limit) {
+        var bpTable = org.jooq.impl.DSL.table(name("broadcast_product")).as("bp");
+        var broadcastTable = org.jooq.impl.DSL.table(name("broadcast")).as("b");
+        var productTable = org.jooq.impl.DSL.table(name("product")).as("p");
+
+        var bpBroadcastId = field(name("bp", "broadcast_id"), Long.class);
+        var bpProductId = field(name("bp", "product_id"), Long.class);
+        var bpPrice = field(name("bp", "bp_price"), BigDecimal.class);
+        var bpQuantity = field(name("bp", "bp_quantity"), BigDecimal.class);
+        var broadcastIdField = field(name("b", "broadcast_id"), Long.class);
+        var startedAtField = field(name("b", "started_at"), LocalDateTime.class);
+        var endedAtField = field(name("b", "ended_at"), LocalDateTime.class);
+        var productIdField = field(name("p", "product_id"), Long.class);
+        var productNameField = field(name("p", "product_name"), String.class);
+
+        LocalDateTime startDate = resolveRankingStartDate(period);
+        var salesExpr = org.jooq.impl.DSL.sum(bpPrice.mul(bpQuantity)).as("sales_amount");
+
+        var orderField = desc ? salesExpr.desc().nullsLast() : salesExpr.asc().nullsLast();
+
+        return dsl.select(productIdField, productNameField, salesExpr)
+                .from(bpTable)
+                .join(broadcastTable).on(bpBroadcastId.eq(broadcastIdField))
+                .join(productTable).on(bpProductId.eq(productIdField))
+                .where(
+                        endedAtField.isNotNull(),
+                        startedAtField.ge(startDate)
+                )
+                .groupBy(productIdField, productNameField)
+                .orderBy(orderField)
+                .limit(limit)
+                .fetch(record -> StatisticsResponse.ProductRank.builder()
+                        .productId(record.get(productIdField))
+                        .title(record.get(productNameField))
+                        .totalSales(record.get(salesExpr) != null ? record.get(salesExpr) : BigDecimal.ZERO)
+                        .build());
+    }
+
+    private LocalDateTime resolveRankingStartDate(String period) {
+        LocalDateTime now = LocalDateTime.now();
+        if ("DAILY".equalsIgnoreCase(period)) {
+            return now.withHour(0).withMinute(0).withSecond(0).withNano(0);
+        }
+        if ("MONTHLY".equalsIgnoreCase(period)) {
+            return now.withDayOfMonth(1).withHour(0).withMinute(0).withSecond(0).withNano(0);
+        }
+        return now.withDayOfYear(1).withHour(0).withMinute(0).withSecond(0).withNano(0);
     }
 
     @Scheduled(fixedDelay = 60000)
