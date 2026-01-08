@@ -88,9 +88,15 @@ const routes: RouteRecordRaw[] = [
     component: () => import('../pages/OrderHistory.vue'),
   },
   {
-    path: '/order/complete',
-    name: 'order-complete',
+    path: '/orders/:orderId/complete',
+    name: 'order-complete-detail',
     component: () => import('../pages/OrderComplete.vue'),
+  },
+  {
+    path: '/order/complete',
+    name: 'order-complete-legacy',
+    redirect: (to) =>
+      to.query.orderId ? `/orders/${to.query.orderId}/complete` : '/cart',
   },
   {
     path: '/admin',
@@ -280,4 +286,3 @@ router.beforeEach(async (to) => {
   }
   return true
 })
-

@@ -1,21 +1,153 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
-import { RouterLink, useRouter } from 'vue-router'
+import { computed, ref, watch } from 'vue'
+import { RouterLink, useRoute, useRouter } from 'vue-router'
 import PageContainer from '../components/PageContainer.vue'
 import PageHeader from '../components/PageHeader.vue'
-import { loadLastOrder, type OrderReceipt } from '../lib/order/order-storage'
+import { getMyOrderDetail } from '../api/orders'
 
 const router = useRouter()
-const receipt = ref<OrderReceipt | null>(null)
+const route = useRoute()
+const receipt = ref<{
+  orderId: string
+  createdAt: string
+  items: Array<{
+    productId: string
+    name: string
+    quantity: number
+    price: number
+  }>
+  status?: string
+  shipping: {
+    buyerName: string
+    zipcode: string
+    address1: string
+    address2: string
+  }
+  paymentMethodLabel: string
+  totals: {
+    total: number
+  }
+} | null>(null)
+const isLoading = ref(false)
+const errorMessage = ref('')
 
 const formatPrice = (value: number) => `${value.toLocaleString('ko-KR')}원`
 
-onMounted(() => {
-  receipt.value = loadLastOrder()
+const statusConfig = computed(() => {
+  const status = receipt.value?.status
+  if (status === 'PAYMENT_PENDING' || status === 'CREATED') {
+    return {
+      title: '결제 대기 중',
+      description: '결제 확인 후 주문이 완료됩니다.',
+      ctaLabel: '주문 내역 보기',
+      ctaPath: '/my/orders',
+    }
+  }
+  if (status === 'COMPLETED' || status === 'PAID') {
+    return {
+      title: '주문이 완료되었습니다',
+      description: '주문 내역에서 배송 정보를 확인하세요.',
+      ctaLabel: '주문 내역 보기',
+      ctaPath: '/my/orders',
+    }
+  }
+  if (
+    status === 'CANCELED' ||
+    status === 'CANCELLED' ||
+    status === 'CANCEL_REQUESTED' ||
+    status === 'REFUNDED' ||
+    status === 'REFUND_REJECTED'
+  ) {
+    return {
+      title: '주문이 취소되었습니다',
+      description: '취소된 주문입니다.',
+      ctaLabel: '메인으로 이동',
+      ctaPath: '/',
+    }
+  }
+  return {
+    title: '결제가 완료되었어요.',
+    description: '주문 정보가 준비되었습니다.',
+    ctaLabel: '메인으로 이동',
+    ctaPath: '/',
+  }
 })
 
-const goHome = () => {
-  router.push('/').catch(() => {})
+const loadOrderDetail = async (orderId: string) => {
+  if (!orderId) {
+    errorMessage.value = '주문 정보를 찾을 수 없습니다.'
+    receipt.value = null
+    return
+  }
+
+  const numericId = Number(orderId)
+  if (!Number.isFinite(numericId)) {
+    errorMessage.value = '주문 정보를 찾을 수 없습니다.'
+    receipt.value = null
+    return
+  }
+
+  isLoading.value = true
+  errorMessage.value = ''
+  receipt.value = null
+  try {
+    const response = await getMyOrderDetail(numericId)
+    if (!response?.order_id) {
+      errorMessage.value = '주문 정보를 찾을 수 없습니다.'
+      receipt.value = null
+      return
+    }
+    const items = response.items.map((item, index) => ({
+      productId: String(item.product_id),
+      name: `상품 ${index + 1}`,
+      quantity: item.quantity,
+      price: item.unit_price,
+    }))
+    const total = Number(response.order_amount ?? 0) || 0
+    receipt.value = {
+      orderId: response.order_number || String(response.order_id),
+      createdAt: response.created_at,
+      items,
+      status: response.status ?? undefined,
+      shipping: {
+        buyerName: '',
+        zipcode: '',
+        address1: '',
+        address2: '',
+      },
+      paymentMethodLabel: '토스페이(예정)',
+      totals: {
+        total,
+      },
+    }
+  } catch (error: any) {
+    const status = error?.response?.status
+    if (status === 401 || status === 403) {
+      router.push('/login').catch(() => {})
+      return
+    }
+    if (status === 404) {
+      errorMessage.value = '주문 정보를 찾을 수 없습니다.'
+      receipt.value = null
+      return
+    }
+    errorMessage.value = '주문 정보를 불러올 수 없습니다.'
+    receipt.value = null
+  } finally {
+    isLoading.value = false
+  }
+}
+
+watch(
+  () => route.params.orderId,
+  (orderId) => {
+    loadOrderDetail(String(orderId ?? ''))
+  },
+  { immediate: true },
+)
+
+const handlePrimaryAction = () => {
+  router.push(statusConfig.value.ctaPath).catch(() => {})
 }
 </script>
 
@@ -31,17 +163,22 @@ const goHome = () => {
       <span class="checkout-step checkout-step--active">03 주문 완료</span>
     </div>
 
-    <div v-if="!receipt" class="checkout-empty">
-      <p>주문 정보가 없습니다.</p>
-      <RouterLink to="/cart" class="link">장바구니로 돌아가기</RouterLink>
+    <div v-if="isLoading" class="checkout-empty">
+      <p>주문 정보를 불러오는 중입니다.</p>
+    </div>
+
+    <div v-else-if="!receipt" class="checkout-empty">
+      <p>{{ errorMessage || '주문 정보가 없습니다.' }}</p>
+      <RouterLink to="/cart" class="link">장바구니로 이동</RouterLink>
+      <RouterLink to="/" class="link">메인으로 이동</RouterLink>
     </div>
 
     <section v-else class="panel">
       <div class="success">
         <div class="success-icon">✅</div>
         <div>
-          <h2 class="success-title">결제가 완료되었어요.</h2>
-          <p class="success-desc">주문번호 : {{ receipt.orderId }}</p>
+          <h2 class="success-title">{{ statusConfig.title }}</h2>
+          <p class="success-desc">{{ statusConfig.description }} 주문번호 : {{ receipt.orderId }}</p>
         </div>
       </div>
 
@@ -93,7 +230,9 @@ const goHome = () => {
       </div>
 
       <div class="actions">
-        <button type="button" class="btn primary" @click="goHome">메인으로 이동</button>
+        <button type="button" class="btn primary" @click="handlePrimaryAction">
+          {{ statusConfig.ctaLabel }}
+        </button>
       </div>
     </section>
   </PageContainer>
