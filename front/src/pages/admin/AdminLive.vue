@@ -3,19 +3,14 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch, type Compon
 import { useRoute, useRouter } from 'vue-router'
 import PageHeader from '../../components/PageHeader.vue'
 import {
-  ADMIN_RESERVATIONS_EVENT,
-  getAdminReservationSummaries,
-  type AdminReservationSummary,
-} from '../../lib/mocks/adminReservations'
-import { ADMIN_LIVES_EVENT, getAdminLiveSummaries, type AdminLiveSummary } from '../../lib/mocks/adminLives'
-import { ADMIN_VODS_EVENT, getAdminVodSummaries, type AdminVodSummary } from '../../lib/mocks/adminVods'
-import {
   computeLifecycleStatus,
   getScheduledEndMs,
   normalizeBroadcastStatus,
   type BroadcastStatus,
 } from '../../lib/broadcastStatus'
 import { useInfiniteScroll } from '../../composables/useInfiniteScroll'
+import { parseLiveDate } from '../../lib/live/utils'
+import { fetchAdminBroadcasts } from '../../lib/live/api'
 
 type LiveTab = 'all' | 'scheduled' | 'live' | 'vod'
 type LoopKind = 'live' | 'scheduled' | 'vod'
@@ -53,7 +48,12 @@ type AdminVodItem = LiveItem & {
   sellerName: string
   statusLabel: string
   category: string
-  metrics: AdminVodSummary['metrics']
+  metrics: {
+    reports: number
+    likes: number
+    totalRevenue: number
+    maxViewers: number
+  }
   startAtMs?: number
   endAtMs?: number
   visibility?: 'public' | 'private'
@@ -107,7 +107,7 @@ const vodCategory = ref<string>('all')
 const VOD_PAGE_SIZE = 12
 const vodPage = ref(1)
 
-const liveItems = ref<AdminLiveSummary[]>([])
+const liveItems = ref<LiveItem[]>([])
 const scheduledItems = ref<ReservationItem[]>([])
 const vodItems = ref<AdminVodItem[]>([])
 const loopGap = 14
@@ -147,8 +147,52 @@ const setTab = (tab: LiveTab) => {
 
 const toDateMs = (raw: string | undefined) => {
   if (!raw) return 0
-  const parsed = Date.parse(raw.replace(/\./g, '-').replace(' ', 'T'))
+  const parsed = parseLiveDate(raw).getTime()
   return Number.isNaN(parsed) ? 0 : parsed
+}
+
+const formatDateTime = (value?: string) => {
+  if (!value) return ''
+  const date = parseLiveDate(value)
+  if (Number.isNaN(date.getTime())) return value
+  const yyyy = date.getFullYear()
+  const mm = String(date.getMonth() + 1).padStart(2, '0')
+  const dd = String(date.getDate()).padStart(2, '0')
+  const hh = String(date.getHours()).padStart(2, '0')
+  const min = String(date.getMinutes()).padStart(2, '0')
+  return `${yyyy}.${mm}.${dd} ${hh}:${min}`
+}
+
+const mapAdminItem = (item: any, kind: 'live' | 'scheduled' | 'vod'): LiveItem => {
+  const startAtMs = item.startAt ? toDateMs(item.startAt) : undefined
+  const endAtMs = item.endAt ? toDateMs(item.endAt) : getScheduledEndMs(startAtMs)
+  const status = normalizeBroadcastStatus(item.status)
+  const visibility = typeof item.isPublic === 'boolean' ? (item.isPublic ? 'public' : 'private') : 'public'
+  const dateLabel = formatDateTime(item.startAt)
+  const datetime = kind === 'vod' ? (dateLabel ? `업로드: ${dateLabel}` : '') : dateLabel
+  const liveViewerCount = typeof item.liveViewerCount === 'number' ? item.liveViewerCount : undefined
+  const viewerBadge = liveViewerCount ? `${liveViewerCount}명 시청 중` : undefined
+
+  return {
+    id: String(item.broadcastId),
+    title: item.title ?? '',
+    subtitle: item.categoryName ?? '',
+    thumb: item.thumbnailUrl ?? '',
+    datetime,
+    ctaLabel: kind === 'vod' ? '상세보기' : undefined,
+    sellerName: item.sellerName ?? '',
+    status,
+    startedAt: item.startAt,
+    viewers: liveViewerCount ?? item.viewerCount ?? 0,
+    likes: item.totalLikes ?? 0,
+    reports: item.reportCount ?? 0,
+    category: item.categoryName ?? '기타',
+    startAtMs: Number.isNaN(startAtMs ?? NaN) ? undefined : startAtMs,
+    endAtMs: Number.isNaN(endAtMs ?? NaN) ? undefined : endAtMs,
+    lifecycleStatus: status,
+    statusBadge: kind === 'vod' ? (visibility === 'private' ? '비공개' : 'VOD') : undefined,
+    viewerBadge,
+  }
 }
 
 const withLifecycleStatus = (item: LiveItem): LiveItem => {
@@ -175,57 +219,31 @@ const isPastScheduledEnd = (item: LiveItem): boolean => {
   return Date.now() > endAtMs
 }
 
-const syncScheduled = () => {
-  const items = getAdminReservationSummaries()
-  scheduledItems.value = items
-    .map((item: AdminReservationSummary) => ({
-      id: item.id,
-      title: item.title,
-      subtitle: item.subtitle,
-      thumb: item.thumb,
-      datetime: item.datetime,
-      ctaLabel: item.ctaLabel,
-      sellerName: item.sellerName,
-      status: normalizeBroadcastStatus(item.status),
-      category: (item as any).category ?? '기타',
-      startAtMs: toDateMs(item.datetime),
-      endAtMs: getScheduledEndMs(toDateMs(item.datetime)),
+const loadAdminData = async () => {
+  try {
+    const [liveList, scheduledList, vodList] = await Promise.all([
+      fetchAdminBroadcasts({ tab: 'LIVE', size: 200 }),
+      fetchAdminBroadcasts({ tab: 'RESERVED', size: 200 }),
+      fetchAdminBroadcasts({ tab: 'VOD', size: 200 }),
+    ])
+    liveItems.value = liveList.map((item) => mapAdminItem(item, 'live'))
+    scheduledItems.value = scheduledList.map((item) => mapAdminItem(item, 'scheduled'))
+    vodItems.value = vodList.map((item) => ({
+      ...mapAdminItem(item, 'vod'),
+      statusLabel: item.isPublic ? 'VOD' : '비공개',
+      visibility: item.isPublic ? 'public' : 'private',
+      metrics: {
+        reports: item.reportCount ?? 0,
+        likes: item.totalLikes ?? 0,
+        totalRevenue: item.totalSales ?? 0,
+        maxViewers: item.viewerCount ?? 0,
+      },
     }))
-}
-
-const syncLives = () => {
-  const items = getAdminLiveSummaries()
-  liveItems.value = items.map((item) => {
-    const startAtMs = toDateMs(item.startedAt)
-    const status = normalizeBroadcastStatus(item.status)
-    return {
-      ...item,
-      status,
-      startAtMs,
-      startedAtMs: startAtMs,
-      endAtMs: getScheduledEndMs(startAtMs),
-    }
-  })
-}
-
-const syncVods = () => {
-  const items = getAdminVodSummaries()
-  vodItems.value = items.map((item: AdminVodSummary) => {
-    const startAtMs = toDateMs(item.startedAt)
-    const endAtMs = toDateMs(item.endedAt)
-    const visibility = item.statusLabel === '비공개' ? 'private' : 'public'
-    return {
-      ...item,
-      subtitle: '',
-      datetime: `업로드: ${item.startedAt}`,
-      ctaLabel: '상세보기',
-      status: 'VOD',
-      startAtMs,
-      endAtMs,
-      visibility,
-      lifecycleStatus: 'VOD',
-    }
-  })
+  } catch {
+    liveItems.value = []
+    scheduledItems.value = []
+    vodItems.value = []
+  }
 }
 
 const liveItemsWithStatus = computed(() => liveItems.value.map(withLifecycleStatus))
@@ -258,7 +276,6 @@ const stoppedVodItems = computed<AdminVodItem[]>(() => {
         reports: item.reports ?? 0,
         totalRevenue: 0,
         maxViewers: item.viewers ?? 0,
-        watchTime: 0,
       },
       startAtMs: item.startAtMs,
       endAtMs: item.endAtMs,
@@ -595,23 +612,15 @@ watch(
 
 onMounted(() => {
   refreshTabFromQuery()
-  syncLives()
-  syncScheduled()
-  syncVods()
+  loadAdminData()
   nextTick(() => {
     resetAllLoops()
     handleResize()
   })
-  window.addEventListener(ADMIN_LIVES_EVENT, syncLives)
-  window.addEventListener(ADMIN_RESERVATIONS_EVENT, syncScheduled)
-  window.addEventListener(ADMIN_VODS_EVENT, syncVods)
   window.addEventListener('resize', handleResize)
 })
 
 onBeforeUnmount(() => {
-  window.removeEventListener(ADMIN_LIVES_EVENT, syncLives)
-  window.removeEventListener(ADMIN_RESERVATIONS_EVENT, syncScheduled)
-  window.removeEventListener(ADMIN_VODS_EVENT, syncVods)
   window.removeEventListener('resize', handleResize)
   stopAutoLoop('live')
   stopAutoLoop('scheduled')

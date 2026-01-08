@@ -1,12 +1,15 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
-import { liveItems, type ProductItem, type SetupItem } from '../lib/home-data'
+import { type ProductItem, type SetupItem } from '../lib/home-data'
 import { listPopularProducts, listPopularSetups } from '../api/home'
 import LiveCarousel from '../components/LiveCarousel.vue'
 import SetupCarousel from '../components/SetupCarousel.vue'
 import ProductCarousel from '../components/ProductCarousel.vue'
 import PageContainer from '../components/PageContainer.vue'
+import { fetchPublicBroadcastOverview } from '../lib/live/api'
+import type { LiveItem } from '../lib/live/types'
 
+const liveItems = ref<LiveItem[]>([])
 const popularProducts = ref<ProductItem[]>([])
 const popularSetups = ref<SetupItem[]>([])
 const popularProductsLoading = ref(true)
@@ -58,8 +61,32 @@ const loadPopulars = async () => {
   popularSetupsLoading.value = false
 }
 
+const mapToLiveItems = (items: Array<{ broadcastId: number; title: string; notice?: string; thumbnailUrl?: string; startAt?: string; endAt?: string; liveViewerCount?: number; viewerCount?: number; sellerName?: string }>) =>
+  items
+    .filter((item) => item.startAt)
+    .map((item) => ({
+      id: String(item.broadcastId),
+      title: item.title,
+      description: item.notice ?? '',
+      thumbnailUrl: item.thumbnailUrl ?? '',
+      startAt: item.startAt ?? '',
+      endAt: item.endAt ?? item.startAt ?? '',
+      viewerCount: item.liveViewerCount ?? item.viewerCount ?? 0,
+      sellerName: item.sellerName ?? '',
+    }))
+
+const loadLiveItems = async () => {
+  try {
+    const items = await fetchPublicBroadcastOverview()
+    liveItems.value = mapToLiveItems(items).slice(0, 8)
+  } catch {
+    liveItems.value = []
+  }
+}
+
 onMounted(() => {
   loadPopulars()
+  loadLiveItems()
 })
 </script>
 

@@ -6,11 +6,11 @@ import SockJS from 'sockjs-client/dist/sockjs'
 import PageContainer from '../components/PageContainer.vue'
 import PageHeader from '../components/PageHeader.vue'
 import ConfirmModal from '../components/ConfirmModal.vue'
-import { allLiveItems } from '../lib/home-data'
 import { getLiveStatus, parseLiveDate } from '../lib/live/utils'
 import { useNow } from '../lib/live/useNow'
-import { getProductsForLive, type LiveProductItem } from '../lib/live/detail'
 import { getAuthUser } from '../lib/auth'
+import { fetchBroadcastProducts, fetchPublicBroadcastDetail, type BroadcastProductItem } from '../lib/live/api'
+import type { LiveItem } from '../lib/live/types'
 
 const route = useRoute()
 const router = useRouter()
@@ -22,12 +22,7 @@ const liveId = computed(() => {
   return Array.isArray(value) ? value[0] : value
 })
 
-const liveItem = computed(() => {
-  if (!liveId.value) {
-    return undefined
-  }
-  return allLiveItems.find((item) => item.id === liveId.value)
-})
+const liveItem = ref<LiveItem | null>(null)
 
 const status = computed(() => {
   if (!liveItem.value) {
@@ -60,12 +55,43 @@ const scheduledLabel = computed(() => {
   return `${month}.${date} (${day}) ${hours}:${minutes} 예정`
 })
 
-const products = computed<LiveProductItem[]>(() => {
-  if (!liveId.value) {
-    return []
+const buildLiveItem = (detail: { broadcastId: number; title: string; notice?: string; thumbnailUrl?: string; scheduledAt?: string; startedAt?: string; sellerName?: string }) => {
+  const startAt = detail.startedAt ?? detail.scheduledAt ?? ''
+  const endAt = startAt ? new Date(parseLiveDate(startAt).getTime() + 60 * 60 * 1000).toISOString() : ''
+  return {
+    id: String(detail.broadcastId),
+    title: detail.title,
+    description: detail.notice ?? '',
+    thumbnailUrl: detail.thumbnailUrl ?? '',
+    startAt,
+    endAt,
+    sellerName: detail.sellerName ?? '',
   }
-  return getProductsForLive(liveId.value)
-})
+}
+
+const loadDetail = async () => {
+  if (!broadcastId.value) return
+  try {
+    const detail = await fetchPublicBroadcastDetail(broadcastId.value)
+    liveItem.value = buildLiveItem(detail)
+  } catch {
+    liveItem.value = null
+  }
+}
+
+const loadProducts = async () => {
+  if (!broadcastId.value) {
+    products.value = []
+    return
+  }
+  try {
+    products.value = await fetchBroadcastProducts(broadcastId.value)
+  } catch {
+    products.value = []
+  }
+}
+
+const products = ref<BroadcastProductItem[]>([])
 const sortedProducts = computed(() => {
   const list = products.value.slice()
   const withPinned = list.map((item, index) => ({
@@ -156,29 +182,7 @@ type ChatMessage = {
   kind?: 'system' | 'user'
 }
 
-const messages = ref<ChatMessage[]>([
-  {
-    id: 'sys-1',
-    user: 'system',
-    text: '라이브에 오신 것을 환영합니다.',
-    at: new Date(Date.now() - 1000 * 60 * 6),
-    kind: 'system',
-  },
-  {
-    id: 'msg-1',
-    user: 'desklover',
-    text: '오늘 소개하는 제품이 기대돼요!',
-    at: new Date(Date.now() - 1000 * 60 * 4),
-    kind: 'user',
-  },
-  {
-    id: 'msg-2',
-    user: 'setup_master',
-    text: '채팅 참여하실 분 손들기 🙌',
-    at: new Date(Date.now() - 1000 * 60 * 2),
-    kind: 'user',
-  },
-])
+const messages = ref<ChatMessage[]>([])
 
 const input = ref('')
 const isLoggedIn = ref(true)
@@ -509,6 +513,8 @@ watch(
     if (value === previous) {
       return
     }
+    void loadDetail()
+    void loadProducts()
     messages.value = []
     disconnectChat()
     if (value) {

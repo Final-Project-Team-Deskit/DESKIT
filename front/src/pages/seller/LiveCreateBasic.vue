@@ -1,19 +1,29 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import PageContainer from '../../components/PageContainer.vue'
 import PageHeader from '../../components/PageHeader.vue'
-import { addScheduledBroadcast } from '../../composables/useSellerBroadcasts'
 import {
-  DRAFT_KEY,
+  activateDraftFlow,
   buildDraftFromReservation,
+  clearDraft,
   createEmptyDraft,
+  deactivateDraftFlow,
+  isDraftFlowActive,
   loadDraft,
   saveDraft,
   type LiveCreateDraft,
   type LiveCreateProduct,
 } from '../../composables/useLiveCreateDraft'
-import { productsData } from '../../lib/products-data'
+import {
+  createBroadcast,
+  fetchCategories,
+  fetchReservationSlots,
+  fetchSellerProducts,
+  updateBroadcast,
+  type BroadcastCategory,
+  type ReservationSlot,
+} from '../../lib/live/api'
 
 const router = useRouter()
 const route = useRoute()
@@ -26,6 +36,10 @@ const error = ref('')
 const showTermsModal = ref(false)
 const showProductModal = ref(false)
 const modalProducts = ref<LiveCreateProduct[]>([])
+const sellerProducts = ref<LiveCreateProduct[]>([])
+const categories = ref<BroadcastCategory[]>([])
+const reservationSlots = ref<ReservationSlot[]>([])
+const activeDate = ref('')
 
 const reservationId = computed(() => {
   const queryValue = route.query.reservationId
@@ -35,18 +49,7 @@ const reservationId = computed(() => {
 const isEditMode = computed(() => route.query.mode === 'edit' && !!reservationId.value)
 const modalCount = computed(() => modalProducts.value.length)
 
-const availableProducts = computed(() =>
-  productsData.map<LiveCreateProduct>((product) => ({
-    id: `prod-${product.product_id}`,
-    name: product.name,
-    option: product.short_desc ?? '-',
-    price: product.price,
-    broadcastPrice: product.price,
-    stock: product.salesVolume ?? 100,
-    quantity: 1,
-    thumb: product.imageUrl,
-  })),
-)
+const availableProducts = computed(() => sellerProducts.value)
 
 const filteredProducts = computed(() => {
   const q = productSearch.value.trim().toLowerCase()
@@ -71,10 +74,6 @@ const addProduct = (product: LiveCreateProduct, target: LiveCreateProduct[]) => 
 }
 
 const removeProduct = (productId: string, target: LiveCreateProduct[]) => target.filter((item) => item.id !== productId)
-
-const toggleProductInDraft = (product: LiveCreateProduct) => {
-  draft.value.products = isSelected(product.id) ? removeProduct(product.id, draft.value.products) : addProduct(product, draft.value.products)
-}
 
 const toggleProductInModal = (product: LiveCreateProduct) => {
   modalProducts.value = isSelected(product.id, modalProducts.value)
@@ -118,9 +117,24 @@ const syncDraft = () => {
 
 const restoreDraft = () => {
   const savedDraft = loadDraft()
-  const baseDraft = savedDraft && (!isEditMode.value || savedDraft.reservationId === reservationId.value)
-    ? { ...createEmptyDraft(), ...savedDraft }
-    : createEmptyDraft()
+  let baseDraft = createEmptyDraft()
+  if (savedDraft && (!isEditMode.value || savedDraft.reservationId === reservationId.value)) {
+    if (isEditMode.value) {
+      baseDraft = { ...createEmptyDraft(), ...savedDraft }
+    } else {
+      if (isDraftFlowActive()) {
+        baseDraft = { ...createEmptyDraft(), ...savedDraft }
+      } else {
+        const shouldRestore = window.confirm('이전에 작성 중인 내용을 불러올까요?')
+        if (shouldRestore) {
+          baseDraft = { ...createEmptyDraft(), ...savedDraft }
+        } else {
+          clearDraft()
+        }
+      }
+    }
+  }
+  activateDraftFlow()
 
   const reservationDraft = isEditMode.value
     ? { ...baseDraft, ...buildDraftFromReservation(reservationId.value), reservationId: reservationId.value }
@@ -195,29 +209,45 @@ const submit = () => {
   const confirmed = window.confirm(isEditMode.value ? '예약 수정을 진행할까요?' : '방송 등록을 진행할까요?')
   if (!confirmed) return
 
-  const id = draft.value.reservationId || `schedule-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
-  const datetime = `${draft.value.date} ${draft.value.time}`
-  const scheduled = {
-    id,
+  const scheduledAt = `${draft.value.date} ${draft.value.time}:00`
+  const payload = {
     title: draft.value.title.trim(),
-    subtitle: draft.value.subtitle?.trim() || '예약 방송',
-    thumb: draft.value.thumb,
-    datetime,
-    ctaLabel: '방송 시작',
-    products: draft.value.products,
-    standbyThumb: draft.value.standbyThumb || undefined,
-    termsAgreed: draft.value.termsAgreed,
-    category: draft.value.category,
-    notice: draft.value.notice,
+    notice: draft.value.notice.trim(),
+    categoryId: Number(draft.value.category),
+    scheduledAt,
+    thumbnailUrl: draft.value.thumb,
+    waitScreenUrl: draft.value.standbyThumb || null,
+    broadcastLayout: 'FULL',
+    products: draft.value.products.map((product) => ({
+      productId: Number(product.id.replace('prod-', '')),
+      salePrice: product.broadcastPrice,
+      quantity: product.quantity,
+    })),
+    qcards: draft.value.questions.map((q) => ({ question: q.text.trim() })).filter((q) => q.question.length > 0),
   }
 
-  addScheduledBroadcast(scheduled)
-  localStorage.removeItem(DRAFT_KEY)
-  alert(isEditMode.value ? '예약 수정이 완료되었습니다.' : '방송 등록이 완료되었습니다.')
-  const redirectPath = isEditMode.value
-    ? `/seller/broadcasts/reservations/${id}`
-    : '/seller/live?tab=scheduled'
-  router.push(redirectPath).catch(() => {})
+  const request = isEditMode.value
+    ? updateBroadcast(Number(reservationId.value), payload)
+    : createBroadcast(payload)
+
+  request
+    .then((broadcastId) => {
+      clearDraft()
+      alert(isEditMode.value ? '예약 수정이 완료되었습니다.' : '방송 등록이 완료되었습니다.')
+      const id = broadcastId ?? reservationId.value
+      const redirectPath = isEditMode.value
+        ? `/seller/broadcasts/reservations/${id}`
+        : '/seller/live?tab=scheduled'
+      router.push(redirectPath).catch(() => {})
+    })
+    .catch((apiError) => {
+      if (apiError?.code === 'B005') {
+        alert('선택한 시간대의 예약이 마감되었습니다. 다른 시간대를 선택해주세요.')
+        void reloadReservationSlots(draft.value.date)
+        return
+      }
+      error.value = apiError?.message ?? '방송 등록에 실패했습니다.'
+    })
 }
 
 const goPrev = () => {
@@ -227,6 +257,7 @@ const goPrev = () => {
 const cancel = () => {
   const ok = window.confirm('작성 중인 내용을 취소하시겠어요?')
   if (!ok) return
+  deactivateDraftFlow()
   const redirect = isEditMode.value && reservationId.value
     ? `/seller/broadcasts/reservations/${reservationId.value}`
     : '/seller/live?tab=scheduled'
@@ -257,17 +288,58 @@ const confirmRemoveProduct = (productId: string) => {
   }
 }
 
-const timeOptions = computed(() => {
-  const options: string[] = []
-  for (let hour = 0; hour < 24; hour += 1) {
-    for (const minute of [0, 30]) {
-      const hh = hour.toString().padStart(2, '0')
-      const mm = minute.toString().padStart(2, '0')
-      options.push(`${hh}:${mm}`)
-    }
-  }
-  return options
+const minDate = computed(() => {
+  const date = new Date()
+  date.setDate(date.getDate() + 1)
+  return date.toISOString().split('T')[0]
 })
+
+const maxDate = computed(() => {
+  const date = new Date()
+  date.setDate(date.getDate() + 15)
+  return date.toISOString().split('T')[0]
+})
+
+const normalizeCategorySelection = () => {
+  if (!draft.value.category) return
+  const current = categories.value.find((category) => category.id.toString() === draft.value.category)
+  if (current) return
+  const matched = categories.value.find((category) => category.name === draft.value.category)
+  if (matched) draft.value.category = matched.id.toString()
+}
+
+const loadCategories = async () => {
+  try {
+    categories.value = await fetchCategories()
+    normalizeCategorySelection()
+  } catch (apiError) {
+    error.value = apiError?.message ?? '카테고리를 불러오지 못했습니다.'
+  }
+}
+
+const loadProducts = async () => {
+  try {
+    const items = await fetchSellerProducts()
+    sellerProducts.value = items
+  } catch (apiError) {
+    error.value = apiError?.message ?? '상품 목록을 불러오지 못했습니다.'
+  }
+}
+
+const reloadReservationSlots = async (date: string) => {
+  if (!date) return
+  try {
+    reservationSlots.value = await fetchReservationSlots(date)
+    const current = reservationSlots.value.map((slot) => slot.time)
+    if (draft.value.time && !current.includes(draft.value.time)) {
+      draft.value.time = ''
+    }
+  } catch (apiError) {
+    error.value = apiError?.message ?? '예약 가능 시간을 불러오지 못했습니다.'
+  }
+}
+
+const timeOptions = computed(() => reservationSlots.value.map((slot) => slot.time))
 
 watch(
   () => [isEditMode.value, reservationId.value],
@@ -276,6 +348,34 @@ watch(
   },
   { immediate: true },
 )
+
+watch(
+  () => draft.value.date,
+  (value) => {
+    if (!value) return
+    if (value < minDate.value) {
+      draft.value.date = minDate.value
+      return
+    }
+    if (value > maxDate.value) {
+      draft.value.date = maxDate.value
+      return
+    }
+    if (value !== activeDate.value) {
+      activeDate.value = value
+      void reloadReservationSlots(value)
+    }
+  },
+)
+
+onMounted(async () => {
+  await loadCategories()
+  await loadProducts()
+  if (draft.value.date) {
+    activeDate.value = draft.value.date
+    void reloadReservationSlots(draft.value.date)
+  }
+})
 
 watch(
   draft,
@@ -304,11 +404,9 @@ watch(
           <span class="field__label">카테고리</span>
           <select v-model="draft.category">
             <option value="" disabled>카테고리를 선택하세요</option>
-            <option value="가구">가구</option>
-            <option value="전자기기">전자기기</option>
-            <option value="패션">패션</option>
-            <option value="뷰티">뷰티</option>
-            <option value="악세사리">악세사리</option>
+            <option v-for="category in categories" :key="category.id" :value="category.id.toString()">
+              {{ category.name }}
+            </option>
           </select>
         </label>
       </div>
@@ -325,7 +423,7 @@ watch(
       <div class="field-grid">
         <label class="field">
           <span class="field__label">방송 날짜</span>
-          <input v-model="draft.date" type="date" />
+          <input v-model="draft.date" type="date" :min="minDate" :max="maxDate" />
         </label>
         <label class="field">
           <span class="field__label">방송 시간</span>
