@@ -97,29 +97,7 @@ const syncChatHeight = () => {
 const products = ref<BroadcastProductItem[]>([])
 
 const messages = ref(
-  [
-    {
-      id: 'sys-1',
-      user: 'system',
-      text: 'VOD 채팅 기록을 보고 계십니다.',
-      at: new Date(Date.now() - 1000 * 60 * 6),
-      kind: 'system',
-    },
-    {
-      id: 'msg-1',
-      user: 'desklover',
-      text: '이 라이브 제품 너무 좋았어요!',
-      at: new Date(Date.now() - 1000 * 60 * 4),
-      kind: 'user',
-    },
-    {
-      id: 'msg-2',
-      user: 'setup_master',
-      text: '배송도 빨랐습니다 👍',
-      at: new Date(Date.now() - 1000 * 60 * 2),
-      kind: 'user',
-    },
-  ] as Array<{ id: string; user: string; text: string; at: Date; kind?: 'system' | 'user' }>,
+  [] as Array<{ id: string; user: string; text: string; at: Date; kind?: 'system' | 'user' }>,
 )
 
 const chatListRef = ref<HTMLDivElement | null>(null)

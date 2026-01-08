@@ -182,29 +182,7 @@ type ChatMessage = {
   kind?: 'system' | 'user'
 }
 
-const messages = ref<ChatMessage[]>([
-  {
-    id: 'sys-1',
-    user: 'system',
-    text: '라이브에 오신 것을 환영합니다.',
-    at: new Date(Date.now() - 1000 * 60 * 6),
-    kind: 'system',
-  },
-  {
-    id: 'msg-1',
-    user: 'desklover',
-    text: '오늘 소개하는 제품이 기대돼요!',
-    at: new Date(Date.now() - 1000 * 60 * 4),
-    kind: 'user',
-  },
-  {
-    id: 'msg-2',
-    user: 'setup_master',
-    text: '채팅 참여하실 분 손들기 🙌',
-    at: new Date(Date.now() - 1000 * 60 * 2),
-    kind: 'user',
-  },
-])
+const messages = ref<ChatMessage[]>([])
 
 const input = ref('')
 const isLoggedIn = ref(true)
