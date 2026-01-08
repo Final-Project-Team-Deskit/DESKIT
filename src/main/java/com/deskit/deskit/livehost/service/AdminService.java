@@ -40,6 +40,7 @@ public class AdminService {
             throw new BusinessException(ErrorCode.INVALID_INPUT_VALUE);
         }
 
+        validateTransition(broadcast.getStatus(), BroadcastStatus.STOPPED);
         broadcast.forceStopByAdmin(reason);
 
         openViduService.closeSession(broadcastId);
@@ -60,7 +61,28 @@ public class AdminService {
             throw new BusinessException(ErrorCode.INVALID_INPUT_VALUE);
         }
 
+        validateTransition(broadcast.getStatus(), BroadcastStatus.CANCELED);
         broadcast.cancelBroadcast(reason);
+    }
+
+    private void validateTransition(BroadcastStatus from, BroadcastStatus to) {
+        if (!isTransitionAllowed(from, to)) {
+            throw new BusinessException(ErrorCode.BROADCAST_INVALID_TRANSITION);
+        }
+    }
+
+    private boolean isTransitionAllowed(BroadcastStatus from, BroadcastStatus to) {
+        if (from == null || to == null || from == to) {
+            return false;
+        }
+        return switch (from) {
+            case RESERVED -> to == BroadcastStatus.READY || to == BroadcastStatus.CANCELED;
+            case READY -> to == BroadcastStatus.ON_AIR || to == BroadcastStatus.CANCELED || to == BroadcastStatus.STOPPED;
+            case ON_AIR -> to == BroadcastStatus.ENDED || to == BroadcastStatus.STOPPED;
+            case ENDED -> to == BroadcastStatus.VOD || to == BroadcastStatus.STOPPED;
+            case STOPPED -> to == BroadcastStatus.VOD;
+            default -> false;
+        };
     }
 
     @Transactional
