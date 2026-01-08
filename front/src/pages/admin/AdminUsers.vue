@@ -29,12 +29,15 @@ type AdminUserPageResponse = {
 
 type AdminUserTab = 'members' | 'companies'
 type CompanyStatus = '활성화' | '삭제'
+type CompanyGrade = 'A' | 'B' | 'C'
 
 type AdminCompany = {
   id: string
   companyName: string
   ownerName: string
   businessNumber: string
+  grade: CompanyGrade | null
+  gradeExpiredAt: string | null
   status: CompanyStatus
   joinedAt: string
 }
@@ -62,6 +65,7 @@ const selectedUser = ref<AdminUser | null>(null)
 const companyKeyword = ref('')
 const companyNameFilter = ref('')
 const companyNumberFilter = ref('')
+const companyGradeFilter = ref<'전체' | CompanyGrade>('전체')
 const companyStatusFilter = ref<'전체' | CompanyStatus>('전체')
 const companyFromDate = ref('')
 const companyToDate = ref('')
@@ -110,6 +114,13 @@ const maskBusinessNumber = (value: string) => {
   const head = digits.slice(0, 3)
   const tail = digits.slice(-2)
   return `${head}${'*'.repeat(Math.max(0, digits.length - 5))}${tail}`
+}
+
+const formatCompanyGrade = (value: CompanyGrade | null) => {
+  if (value === 'A') return 'A(공식 파트너)'
+  if (value === 'B') return 'B(인증 판매자)'
+  if (value === 'C') return 'C(신규 판매자)'
+  return '-'
 }
 
 const openUserModal = (user: AdminUser) => {
@@ -215,6 +226,9 @@ const loadCompanies = async (targetPage = companyPage.value) => {
     }
     if (companyNumberFilter.value.trim()) {
       params.set('businessNumber', companyNumberFilter.value.trim())
+    }
+    if (companyGradeFilter.value !== '전체') {
+      params.set('grade', companyGradeFilter.value)
     }
     if (companyStatusFilter.value !== '전체') {
       params.set('status', companyStatusFilter.value)
@@ -484,7 +498,16 @@ watch(
               <option>삭제</option>
             </select>
           </label>
-          <div class="field date-range">
+          <label class="field">
+            <span class="field__label">배정 그룹</span>
+            <select v-model="companyGradeFilter" class="field-input">
+              <option>전체</option>
+              <option value="A">A(공식 파트너)</option>
+              <option value="B">B(인증 판매자)</option>
+              <option value="C">C(신규 판매자)</option>
+            </select>
+          </label>
+          <div class="field date-range is-compact">
             <span class="field__label">가입일</span>
             <div class="date-inputs">
               <input v-model="companyFromDate" type="date" class="field-input" />
@@ -506,6 +529,7 @@ watch(
                 <th>대표자(OWNER)</th>
                 <th>사업자등록번호</th>
                 <th>상태</th>
+                <th>배정 그룹</th>
                 <th>가입일</th>
               </tr>
             </thead>
@@ -529,6 +553,7 @@ watch(
                     {{ company.status }}
                   </span>
                 </td>
+                <td>{{ formatCompanyGrade(company.grade) }}</td>
                 <td>{{ company.joinedAt }}</td>
               </tr>
             </tbody>
@@ -590,6 +615,14 @@ watch(
             <div class="detail-item">
               <dt>상태</dt>
               <dd>{{ selectedCompany.status }}</dd>
+            </div>
+            <div class="detail-item">
+              <dt>배정 그룹</dt>
+              <dd>{{ formatCompanyGrade(selectedCompany.grade) }}</dd>
+            </div>
+            <div class="detail-item">
+              <dt>그룹 만료일</dt>
+              <dd>{{ selectedCompany.gradeExpiredAt ?? '-' }}</dd>
             </div>
             <div class="detail-item">
               <dt>가입일</dt>
@@ -672,6 +705,10 @@ watch(
 
 .date-range {
   grid-column: span 3;
+}
+
+.date-range.is-compact {
+  grid-column: span 1;
 }
 
 .date-inputs {

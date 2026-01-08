@@ -18,6 +18,8 @@ type Manager = {
 
 type SellerMyPagePayload = {
   companyName?: string
+  companyGrade?: string
+  gradeExpiredAt?: string
   managers?: Manager[]
 }
 
@@ -61,6 +63,8 @@ const managers = ref([
 */
 const managers = ref<Manager[]>([])
 const companyName = ref('')
+const companyGrade = ref('')
+const gradeExpiredAt = ref('')
 
 const showManagerModal = ref(false)
 const showConfirmModal = ref(false)
@@ -89,16 +93,29 @@ const loadSellerMyPage = async () => {
     if (!response.ok) {
       managers.value = []
       companyName.value = ''
+      companyGrade.value = ''
+      gradeExpiredAt.value = ''
       return
     }
     const payload = (await response.json().catch(() => null)) as SellerMyPagePayload | null
     managers.value = Array.isArray(payload?.managers) ? payload?.managers ?? [] : []
     companyName.value = typeof payload?.companyName === 'string' ? payload?.companyName ?? '' : ''
+    companyGrade.value = typeof payload?.companyGrade === 'string' ? payload?.companyGrade ?? '' : ''
+    gradeExpiredAt.value = typeof payload?.gradeExpiredAt === 'string' ? payload?.gradeExpiredAt ?? '' : ''
   } catch (error) {
     console.error('failed to load my page', error)
     managers.value = []
     companyName.value = ''
+    companyGrade.value = ''
+    gradeExpiredAt.value = ''
   }
+}
+
+const formatCompanyGrade = (value: string) => {
+  if (value === 'A') return '공식 파트너'
+  if (value === 'B') return '인증 판매자'
+  if (value === 'C') return '신규 판매자'
+  return '-'
 }
 
 const formatManagerRole = (role: string) => {
@@ -270,6 +287,14 @@ onBeforeUnmount(() => {
         <div class="seller-info__row">
           <dt>사업자명</dt>
           <dd>{{ companyName || '-' }}</dd>
+        </div>
+        <div class="seller-info__row">
+          <dt>배정 그룹</dt>
+          <dd>{{ formatCompanyGrade(companyGrade) }}</dd>
+        </div>
+        <div class="seller-info__row">
+          <dt>그룹 만료일</dt>
+          <dd>{{ gradeExpiredAt || '-' }}</dd>
         </div>
       </dl>
       <button type="button" class="seller-logout" @click="handleLogout">로그아웃</button>

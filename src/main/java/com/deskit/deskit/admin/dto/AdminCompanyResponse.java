@@ -5,6 +5,8 @@ public record AdminCompanyResponse(
 		String companyName,
 		String ownerName,
 		String businessNumber,
+		String grade,
+		String gradeExpiredAt,
 		String status,
 		String joinedAt
 ) {
