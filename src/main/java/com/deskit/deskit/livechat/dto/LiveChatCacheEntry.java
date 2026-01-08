@@ -1,13 +1,17 @@
 package com.deskit.deskit.livechat.dto;
 
-import lombok.*;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.Setter;
 
 @Getter
 @Setter
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class LiveChatMessageDTO {
+public class LiveChatCacheEntry {
     private Long broadcastId;
     private String memberEmail;
     private LiveMessageType type;

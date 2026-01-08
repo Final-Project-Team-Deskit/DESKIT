@@ -122,6 +122,7 @@ public class SecurityConfig {
 								"/api/products",
 								"/api/setups",
 								"/api/home/**",
+								"/livechats/**",
 								"/products/**",
 								"/setups/**"
 						).permitAll()

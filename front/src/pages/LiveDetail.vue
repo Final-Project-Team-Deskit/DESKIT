@@ -137,13 +137,15 @@ const toggleSettings = () => {
 
 type LiveMessageType = 'TALK' | 'ENTER' | 'EXIT' | 'PURCHASE' | 'NOTICE'
 
+// [수정] DTO 구조를 백엔드와 맞춤
 type LiveChatMessageDTO = {
   broadcastId: number
-  memberId: number
+  memberEmail: string
   type: LiveMessageType
   sender: string
   content: string
   vodPlayTime: number
+  sentAt?: number
 }
 
 type ChatMessage = {
@@ -181,11 +183,16 @@ const messages = ref<ChatMessage[]>([
 const input = ref('')
 const isLoggedIn = ref(true)
 const chatListRef = ref<HTMLDivElement | null>(null)
-const memberId = ref<number>(1)
+const memberEmail = ref<string>("") // [확인] memberEmail ref
 const nickname = ref(`guest_${Math.floor(Math.random() * 1000)}`)
 const stompClient = ref<Client | null>(null)
 let stompSubscription: StompSubscription | null = null
 const isChatConnected = ref(false)
+const ENTER_SENT_KEY_PREFIX = 'deskit_live_enter_sent_v1'
+
+const getAccessToken = () => {
+  return localStorage.getItem('access') || sessionStorage.getItem('access')
+}
 
 const broadcastId = computed(() => {
   if (!liveId.value) {
@@ -216,15 +223,15 @@ const appendMessage = (message: ChatMessage) => {
   scrollToBottom()
 }
 
+// [수정] 인증 정보 갱신 시 email을 저장하도록 변경
 const refreshAuth = () => {
   const user = getAuthUser()
   isLoggedIn.value = user !== null
   if (user?.name) {
     nickname.value = user.name
   }
-  const rawId = user?.id ?? user?.userId ?? user?.user_id ?? user?.sellerId ?? user?.seller_id
-  const numeric = Number.parseInt(String(rawId ?? ''), 10)
-  memberId.value = Number.isFinite(numeric) ? numeric : 1
+  // memberId 관련 로직을 제거하고 email을 할당
+  memberEmail.value = user?.email || ""
 }
 
 const sendSocketMessage = (type: LiveMessageType, content: string) => {
@@ -233,11 +240,12 @@ const sendSocketMessage = (type: LiveMessageType, content: string) => {
   }
   const payload: LiveChatMessageDTO = {
     broadcastId: broadcastId.value,
-    memberId: memberId.value,
+    memberEmail: memberEmail.value, // [수정] memberEmail 사용
     type,
     sender: nickname.value,
     content,
     vodPlayTime: 0,
+    sentAt: Date.now(),
   }
   stompClient.value.publish({
     destination: '/pub/chat/message',
@@ -248,13 +256,42 @@ const sendSocketMessage = (type: LiveMessageType, content: string) => {
 const handleIncomingMessage = (payload: LiveChatMessageDTO) => {
   const kind: ChatMessage['kind'] = payload.type === 'TALK' ? 'user' : 'system'
   const user = kind === 'system' ? 'system' : payload.sender || 'unknown'
+  const sentAt = payload.sentAt ? new Date(payload.sentAt) : new Date()
   appendMessage({
     id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
     user,
     text: payload.content ?? '',
-    at: new Date(),
+    at: sentAt,
     kind,
   })
+}
+
+const fetchRecentMessages = async () => {
+  if (!broadcastId.value) {
+    return
+  }
+  try {
+    const response = await fetch(`${apiBase}/livechats/${broadcastId.value}/recent?seconds=60`)
+    if (!response.ok) {
+      return
+    }
+    const recent = (await response.json()) as LiveChatMessageDTO[]
+    if (!Array.isArray(recent) || recent.length === 0) {
+      return
+    }
+    messages.value = recent
+      .filter((item) => item.type === 'TALK')
+      .map((item) => ({
+        id: `${item.sentAt ?? Date.now()}-${Math.random().toString(16).slice(2)}`,
+        user: item.sender || 'unknown',
+        text: item.content ?? '',
+        at: new Date(item.sentAt ?? Date.now()),
+        kind: 'user' as const,
+      }))
+    scrollToBottom()
+  } catch (error) {
+    console.error('[livechat] recent fetch failed', error)
+  }
 }
 
 const connectChat = () => {
@@ -262,9 +299,19 @@ const connectChat = () => {
     return
   }
   const client = new Client({
-    webSocketFactory: () => new SockJS(`${apiBase}/ws`),
+    webSocketFactory: () =>
+      new SockJS(`${apiBase}/ws`, undefined, {
+        withCredentials: true,
+      }),
     reconnectDelay: 5000,
   })
+  const access = getAccessToken()
+  if (access) {
+    client.connectHeaders = {
+      access,
+      Authorization: `Bearer ${access}`,
+    }
+  }
 
   client.onConnect = () => {
     isChatConnected.value = true
@@ -277,7 +324,10 @@ const connectChat = () => {
         console.error('[livechat] message parse failed', error)
       }
     })
-    sendSocketMessage('ENTER', `${nickname.value} entered the room.`)
+    if (shouldSendEnterMessage()) {
+      sendSocketMessage('ENTER', `${nickname.value} entered the room.`)
+      markEnterMessageSent()
+    }
   }
 
   client.onStompError = (frame) => {
@@ -309,6 +359,37 @@ const disconnectChat = () => {
   isChatConnected.value = false
 }
 
+const getEnterSentKey = () => {
+  if (!broadcastId.value) {
+    return null
+  }
+  return `${ENTER_SENT_KEY_PREFIX}:${broadcastId.value}`
+}
+
+const shouldSendEnterMessage = () => {
+  const key = getEnterSentKey()
+  if (!key) {
+    return false
+  }
+  try {
+    return localStorage.getItem(key) !== 'true'
+  } catch {
+    return true
+  }
+}
+
+const markEnterMessageSent = () => {
+  const key = getEnterSentKey()
+  if (!key) {
+    return
+  }
+  try {
+    localStorage.setItem(key, 'true')
+  } catch {
+    return
+  }
+}
+
 const sendMessage = () => {
   if (!isLoggedIn.value || !isChatConnected.value) {
     return
@@ -317,13 +398,13 @@ const sendMessage = () => {
   if (!trimmed) {
     return
   }
-  messages.value.push({
-    id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
-    user: '나',
-    text: trimmed,
-    at: new Date(),
-    kind: 'user',
-  })
+  // messages.value.push({
+  //   id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+  //   user: '나',
+  //   text: trimmed,
+  //   at: new Date(),
+  //   kind: 'user',
+  // })
   sendSocketMessage('TALK', trimmed)
   input.value = ''
   scrollToBottom()
@@ -431,6 +512,7 @@ watch(
     messages.value = []
     disconnectChat()
     if (value) {
+      fetchRecentMessages()
       connectChat()
     }
   },
