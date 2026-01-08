@@ -367,7 +367,17 @@ export const saveMediaConfig = async (broadcastId: number, payload: MediaConfig)
   return ensureSuccess(data)
 }
 
-export const fetchSellerBroadcasts = async (params: { tab?: string; statusFilter?: string; sortType?: string; page?: number; size?: number }) => {
+export const fetchSellerBroadcasts = async (params: {
+  tab?: string
+  statusFilter?: string
+  sortType?: string
+  categoryId?: number
+  isPublic?: boolean
+  startDate?: string
+  endDate?: string
+  page?: number
+  size?: number
+}) => {
   const { data } = await http.get<ApiResult<{ content?: BroadcastListItem[]; slice?: BroadcastListItem[] }>>('/api/seller/broadcasts', { params })
   const payload = ensureSuccess(data)
   if (Array.isArray(payload)) {
@@ -380,7 +390,17 @@ export const fetchSellerBroadcasts = async (params: { tab?: string; statusFilter
   return []
 }
 
-export const fetchAdminBroadcasts = async (params: { tab?: string; statusFilter?: string; sortType?: string; page?: number; size?: number }) => {
+export const fetchAdminBroadcasts = async (params: {
+  tab?: string
+  statusFilter?: string
+  sortType?: string
+  categoryId?: number
+  isPublic?: boolean
+  startDate?: string
+  endDate?: string
+  page?: number
+  size?: number
+}) => {
   const { data } = await http.get<ApiResult<{ content?: BroadcastListItem[]; slice?: BroadcastListItem[] }>>('/api/admin/broadcasts', { params })
   const payload = ensureSuccess(data)
   if (Array.isArray(payload)) {
