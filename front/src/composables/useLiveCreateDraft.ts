@@ -1,3 +1,4 @@
+import { getAuthUser } from '../lib/auth'
 import { getSellerReservationDetail, type SellerReservationDetail } from '../lib/mocks/sellerReservations'
 
 export type LiveCreateProduct = {
@@ -27,6 +28,35 @@ export type LiveCreateDraft = {
 }
 
 export const DRAFT_KEY = 'deskit_seller_broadcast_draft_v2'
+const DRAFT_OWNER_KEY = 'deskit_seller_broadcast_draft_owner_v2'
+const DRAFT_FLOW_KEY = 'deskit_seller_broadcast_draft_flow_v2'
+
+const resolveSellerKey = () => {
+  const user = getAuthUser()
+  const sellerId = user?.seller_id ?? user?.sellerId ?? user?.id ?? user?.user_id ?? user?.userId
+  return typeof sellerId === 'number' ? sellerId.toString() : ''
+}
+
+const getDraftStorage = () => sessionStorage
+
+const readOwner = () => getDraftStorage().getItem(DRAFT_OWNER_KEY) ?? ''
+
+const writeOwner = (ownerId: string) => {
+  getDraftStorage().setItem(DRAFT_OWNER_KEY, ownerId)
+}
+
+const clearDraftStorage = () => {
+  getDraftStorage().removeItem(DRAFT_KEY)
+  getDraftStorage().removeItem(DRAFT_OWNER_KEY)
+  getDraftStorage().removeItem(DRAFT_FLOW_KEY)
+}
+
+window.addEventListener('deskit-user-updated', () => {
+  const ownerId = resolveSellerKey()
+  if (!ownerId) {
+    clearDraftStorage()
+  }
+})
 
 const createId = () => `q-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
 
@@ -52,7 +82,10 @@ export const createEmptyDraft = (): LiveCreateDraft => ({
 })
 
 export const loadDraft = (): LiveCreateDraft | null => {
-  const raw = localStorage.getItem(DRAFT_KEY)
+  const ownerId = resolveSellerKey()
+  if (!ownerId) return null
+  if (readOwner() && readOwner() !== ownerId) return null
+  const raw = getDraftStorage().getItem(DRAFT_KEY)
   if (!raw) return null
   try {
     const parsed = JSON.parse(raw)
@@ -90,8 +123,28 @@ export const loadDraft = (): LiveCreateDraft | null => {
 }
 
 export const saveDraft = (draft: LiveCreateDraft) => {
-  localStorage.setItem(DRAFT_KEY, JSON.stringify(draft))
+  const ownerId = resolveSellerKey()
+  if (!ownerId) return
+  writeOwner(ownerId)
+  getDraftStorage().setItem(DRAFT_KEY, JSON.stringify(draft))
 }
+
+export const clearDraft = () => {
+  clearDraftStorage()
+}
+
+export const activateDraftFlow = () => {
+  const ownerId = resolveSellerKey()
+  if (!ownerId) return
+  writeOwner(ownerId)
+  getDraftStorage().setItem(DRAFT_FLOW_KEY, 'active')
+}
+
+export const deactivateDraftFlow = () => {
+  getDraftStorage().removeItem(DRAFT_FLOW_KEY)
+}
+
+export const isDraftFlowActive = () => getDraftStorage().getItem(DRAFT_FLOW_KEY) === 'active'
 
 const parseCurrency = (value: string) => {
   const digits = value.replace(/[^\d]/g, '')

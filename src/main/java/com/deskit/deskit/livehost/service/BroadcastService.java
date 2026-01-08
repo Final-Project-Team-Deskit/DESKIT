@@ -219,6 +219,7 @@ public class BroadcastService {
 
         var condition = sellerField.eq(sellerId)
                 .and(statusField.in(statuses))
+                .and(stockQty.gt(0))
                 .and(deletedAt.isNull());
         if (keyword != null && !keyword.isBlank()) {
             condition = condition.and(productName.containsIgnoreCase(keyword));
