@@ -114,6 +114,13 @@ public class Order extends BaseEntity {
   private LocalDateTime cancelledAt;
 
   /**
+   * 환불 완료 시각
+   * - refunded_at (nullable)
+   */
+  @Column(name = "refunded_at")
+  private LocalDateTime refundedAt;
+
+  /**
    * 주문 생성 팩토리 메서드
    *
    * - 엔티티 생성 시 필요한 핵심 값들을 한 곳에서 세팅하기 위해 제공
@@ -139,10 +146,6 @@ public class Order extends BaseEntity {
     return order;
   }
 
-  public void changeStatus(OrderStatus status) {
-    this.status = status;
-  }
-
   public void requestCancel(String reason) {
     if (this.status == OrderStatus.CREATED) {
       if (this.cancelReason == null && reason != null) {
@@ -160,4 +163,32 @@ public class Order extends BaseEntity {
     }
     throw new IllegalStateException("invalid status for cancel request");
   }
+
+  public void approveCancel() {
+    if (this.status != OrderStatus.CANCEL_REQUESTED) {
+      throw new IllegalStateException("invalid status for cancel approval");
+    }
+    this.status = OrderStatus.CANCELLED;
+    if (this.cancelledAt == null) {
+      this.cancelledAt = LocalDateTime.now();
+    }
+  }
+
+  public void approveRefund() {
+    if (this.status != OrderStatus.REFUND_REQUESTED) {
+      throw new IllegalStateException("invalid status for refund approval");
+    }
+    this.status = OrderStatus.REFUNDED;
+    if (this.refundedAt == null) {
+      this.refundedAt = LocalDateTime.now();
+    }
+  }
+
+  public void rejectRefund() {
+    if (this.status != OrderStatus.REFUND_REQUESTED) {
+      throw new IllegalStateException("invalid status for refund rejection");
+    }
+    this.status = OrderStatus.REFUND_REJECTED;
+  }
+
 }

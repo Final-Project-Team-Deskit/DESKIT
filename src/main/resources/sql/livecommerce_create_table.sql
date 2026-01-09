@@ -302,6 +302,7 @@ CREATE TABLE `order`
         'CANCELLED',        -- 주문 취소 완료
         'COMPLETED',        -- 구매 확정 (배송/서비스 완료)
         'REFUND_REQUESTED', -- 환불 요청
+        'REFUND_REJECTED',
         'REFUNDED'          -- 환불 완료
         )                                NOT NULL DEFAULT 'CREATED' COMMENT '주문 상태',
     cancel_reason        VARCHAR(500)    NULL COMMENT '주문 취소 사유',

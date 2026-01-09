@@ -8,8 +8,6 @@ import com.deskit.deskit.order.dto.CreateOrderResponse;
 import com.deskit.deskit.order.dto.OrderCancelRequest;
 import com.deskit.deskit.order.dto.OrderCancelResponse;
 import com.deskit.deskit.order.dto.OrderDetailResponse;
-import com.deskit.deskit.order.dto.OrderStatusUpdateRequest;
-import com.deskit.deskit.order.dto.OrderStatusUpdateResponse;
 import com.deskit.deskit.order.dto.OrderSummaryResponse;
 import com.deskit.deskit.order.service.OrderService;
 import jakarta.validation.Valid;
@@ -19,12 +17,12 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.server.ResponseStatusException;
 
 @RestController
@@ -63,16 +61,6 @@ public class OrderController {
   ) {
     Long memberId = resolveMemberId(user);
     return ResponseEntity.ok(orderService.getMyOrderDetail(memberId, orderId));
-  }
-
-  @PatchMapping("/{orderId}/status")
-  public ResponseEntity<OrderStatusUpdateResponse> updateOrderStatus(
-          @AuthenticationPrincipal CustomOAuth2User user,
-          @PathVariable("orderId") Long orderId,
-          @Valid @RequestBody OrderStatusUpdateRequest request
-  ) {
-    Long memberId = resolveMemberId(user);
-    return ResponseEntity.ok(orderService.updateOrderStatus(memberId, orderId, request));
   }
 
   @PatchMapping("/{orderId}/cancel")

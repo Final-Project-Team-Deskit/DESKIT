@@ -8,8 +8,6 @@ import com.deskit.deskit.order.dto.CreateOrderRequest;
 import com.deskit.deskit.order.dto.CreateOrderResponse;
 import com.deskit.deskit.order.dto.OrderDetailResponse;
 import com.deskit.deskit.order.dto.OrderItemResponse;
-import com.deskit.deskit.order.dto.OrderStatusUpdateRequest;
-import com.deskit.deskit.order.dto.OrderStatusUpdateResponse;
 import com.deskit.deskit.order.dto.OrderSummaryResponse;
 import com.deskit.deskit.order.entity.Order;
 import com.deskit.deskit.order.entity.OrderItem;
@@ -182,36 +180,6 @@ public class OrderService {
       .collect(Collectors.toList());
 
     return OrderDetailResponse.from(order, items);
-  }
-
-  public OrderStatusUpdateResponse updateOrderStatus(Long memberId, Long orderId, OrderStatusUpdateRequest request) {
-    if (memberId == null) {
-      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "member_id required");
-    }
-    if (!memberRepository.existsById(memberId)) {
-      throw new ResponseStatusException(HttpStatus.NOT_FOUND, "member not found");
-    }
-    if (orderId == null) {
-      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "order_id required");
-    }
-    if (request == null || request.status() == null) {
-      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "status required");
-    }
-
-    Order order = orderRepository.findById(orderId)
-      .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "order not found"));
-    if (!order.getMemberId().equals(memberId)) {
-      throw new ResponseStatusException(HttpStatus.FORBIDDEN, "forbidden");
-    }
-
-    OrderStatus newStatus = request.status();
-    if (newStatus == order.getStatus()) {
-      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "status unchanged");
-    }
-
-    order.changeStatus(newStatus);
-    orderRepository.save(order);
-    return new OrderStatusUpdateResponse(order.getId(), order.getStatus());
   }
 
   public OrderCancelResponse requestCancel(Long memberId, Long orderId, OrderCancelRequest request) {

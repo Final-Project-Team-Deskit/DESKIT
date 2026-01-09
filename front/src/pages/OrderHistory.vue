@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { RouterLink } from 'vue-router'
+import { RouterLink, useRouter } from 'vue-router'
 import PageContainer from '../components/PageContainer.vue'
 import PageHeader from '../components/PageHeader.vue'
 import { cancelOrder, getMyOrderDetail, getMyOrders } from '../api/orders'
@@ -22,6 +22,14 @@ type OrderSummaryResponse = {
   status: OrderStatus
   order_amount: number
   created_at: string
+  cancel_reason?: string
+  cancel_requested_at?: string
+}
+
+type OrderDetailWithCancel = {
+  cancel_reason?: string
+  cancel_requested_at?: string
+  updated_at?: string
 }
 
 type OrderItemView = {
@@ -65,6 +73,7 @@ type OrderViewModel = {
 }
 
 const orders = ref<OrderViewModel[]>([])
+const router = useRouter()
 const isModalOpen = ref(false)
 const selectedOrderId = ref<string | null>(null)
 const cancelReasonCategory = ref('')
@@ -99,6 +108,8 @@ const mapOrderSummaryToView = (order: OrderSummaryResponse): OrderViewModel => (
   createdAt: String(order.created_at ?? ''),
   items: [],
   status: order.status ?? 'PAID',
+  cancelReason: order.cancel_reason ?? undefined,
+  cancelRequestedAt: order.cancel_requested_at ?? undefined,
   shipping: {
     buyerName: '',
     zipcode: '',
@@ -122,7 +133,13 @@ const load = async () => {
   try {
     const response = await getMyOrders()
     orders.value = Array.isArray(response) ? response.map(mapOrderSummaryToView) : []
-  } catch {
+    await preloadOrderItems(orders.value)
+  } catch (error: any) {
+    const status = error?.response?.status
+    if (status === 401 || status === 403) {
+      router.push('/login').catch(() => {})
+      return
+    }
     orders.value = []
   }
 }
@@ -185,10 +202,20 @@ const thumbOf = (order: OrderViewModel) => {
 const quantityOf = (order: OrderViewModel) =>
   order.items.reduce((sum, item) => sum + item.quantity, 0)
 
-const canCancel = (status?: OrderStatus) =>
-  (status ?? 'PAID') === 'PAID' || (status ?? 'PAID') === 'CREATED'
-const isCancelRequested = (status?: OrderStatus) =>
-  (status ?? 'PAID') === 'CANCEL_REQUESTED' || (status ?? 'PAID') === 'REFUND_REQUESTED'
+const canRequestCancel = (status?: OrderStatus) =>
+  (status ?? 'PAID') === 'CREATED' || (status ?? 'PAID') === 'PAID'
+
+const canViewReason = (status?: OrderStatus) =>
+  (status ?? 'PAID') === 'CANCEL_REQUESTED' ||
+  (status ?? 'PAID') === 'REFUND_REQUESTED' ||
+  (status ?? 'PAID') === 'CANCELLED' ||
+  (status ?? 'PAID') === 'REFUNDED' ||
+  (status ?? 'PAID') === 'REFUND_REJECTED'
+
+const isTerminalStatus = (status?: OrderStatus) =>
+  (status ?? 'PAID') === 'CANCELLED' ||
+  (status ?? 'PAID') === 'REFUNDED' ||
+  (status ?? 'PAID') === 'COMPLETED'
 const cancelReasonTitle = (status?: OrderStatus) =>
   (status ?? 'PAID') === 'REFUND_REQUESTED' ? '환불 사유 보기' : '취소 사유 보기'
 
@@ -232,6 +259,8 @@ const resolveItemName = (productId: string, index: number) => {
   return String(p?.name ?? `상품 ${index + 1}`)
 }
 
+const itemLoadErrorMessage = '상품 정보를 불러올 수 없습니다. 다시 시도해주세요.'
+
 const handleItemsToggle = async (order: OrderViewModel, event: Event) => {
   const target = event.target
   if (!(target instanceof HTMLDetailsElement)) return
@@ -244,7 +273,7 @@ const handleItemsToggle = async (order: OrderViewModel, event: Event) => {
 
   const numericId = Number(order.orderPk ?? order.orderId)
   if (!Number.isFinite(numericId)) {
-    order.itemsError = '상품 정보를 불러올 수 없습니다.'
+    order.itemsError = itemLoadErrorMessage
     order.itemsLoading = false
     return
   }
@@ -260,9 +289,32 @@ const handleItemsToggle = async (order: OrderViewModel, event: Event) => {
       discountRate: 0,
     }))
   } catch {
-    order.itemsError = '상품 정보를 불러올 수 없습니다.'
+    order.itemsError = itemLoadErrorMessage
   } finally {
     order.itemsLoading = false
+  }
+}
+
+const handleReasonToggle = async (order: OrderViewModel, event: Event) => {
+  const target = event.target
+  if (!(target instanceof HTMLDetailsElement)) return
+  if (!target.open) return
+  if (order.cancelReason && order.cancelReason.trim()) return
+
+  const numericId = Number(order.orderPk ?? order.orderId)
+  if (!Number.isFinite(numericId)) return
+
+  try {
+    const response = (await getMyOrderDetail(numericId)) as OrderDetailWithCancel
+    if (typeof response.cancel_reason === 'string' && response.cancel_reason.trim()) {
+      order.cancelReason = response.cancel_reason.trim()
+    }
+    const requestedAt = response.cancel_requested_at ?? response.updated_at
+    if (requestedAt) {
+      order.cancelRequestedAt = String(requestedAt)
+    }
+  } catch {
+    return
   }
 }
 
@@ -290,7 +342,7 @@ const preloadOrderItems = async (targets: OrderViewModel[]) => {
           discountRate: 0,
         }))
       } catch {
-        order.itemsError = '상품 정보를 불러올 수 없습니다.'
+        order.itemsError = itemLoadErrorMessage
       } finally {
         order.itemsLoading = false
       }
@@ -299,7 +351,7 @@ const preloadOrderItems = async (targets: OrderViewModel[]) => {
 }
 
 onMounted(() => {
-  load().then(() => preloadOrderItems(orders.value))
+  load()
 })
 </script>
 
@@ -334,7 +386,7 @@ onMounted(() => {
                 </div>
               </div>
             </div>
-            <details v-if="isCancelRequested(order.status)" class="reason-disclosure">
+            <details v-if="canViewReason(order.status)" class="reason-disclosure" @toggle="handleReasonToggle(order, $event)">
               <summary class="reason-summary">{{ cancelReasonTitle(order.status) }}</summary>
               <div class="reason-panel">
                 <div class="reason-meta">
@@ -403,7 +455,7 @@ onMounted(() => {
             </div>
             <div class="action-block">
               <button
-                v-if="canCancel(order.status) && !isCancelRequested(order.status)"
+                v-if="canRequestCancel(order.status) && !isTerminalStatus(order.status)"
                 type="button"
                 class="btn cancel"
                 @click="openModal(order.orderId)"
