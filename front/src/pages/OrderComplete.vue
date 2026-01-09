@@ -4,6 +4,8 @@ import { RouterLink, useRoute, useRouter } from 'vue-router'
 import PageContainer from '../components/PageContainer.vue'
 import PageHeader from '../components/PageHeader.vue'
 import { getMyOrderDetail } from '../api/orders'
+import { productsData } from '../lib/products-data'
+import { loadLastOrder } from '../lib/order/order-storage'
 
 const router = useRouter()
 const route = useRoute()
@@ -73,6 +75,11 @@ const statusConfig = computed(() => {
   }
 })
 
+const resolveItemName = (productId: string, index: number) => {
+  const product = productsData.find((item: any) => String(item.product_id) === String(productId))
+  return String(product?.name ?? `상품 ${index + 1}`)
+}
+
 const loadOrderDetail = async (orderId: string) => {
   if (!orderId) {
     errorMessage.value = '주문 정보를 찾을 수 없습니다.'
@@ -97,25 +104,35 @@ const loadOrderDetail = async (orderId: string) => {
       receipt.value = null
       return
     }
-    const items = response.items.map((item, index) => ({
-      productId: String(item.product_id),
-      name: `상품 ${index + 1}`,
-      quantity: item.quantity,
-      price: item.unit_price,
-    }))
+    const cached = loadLastOrder()
+    const resolvedOrderId = response.order_number || String(response.order_id)
+    const cachedMatches = cached?.orderId === resolvedOrderId
+    const cachedItems = cachedMatches ? cached?.items ?? [] : []
+    const items = response.items.map((item, index) => {
+      const productId = String(item.product_id)
+      const cachedItem = cachedItems.find((cachedItem) => cachedItem.productId === productId)
+      return {
+        productId,
+        name: cachedItem?.name ?? resolveItemName(productId, index),
+        quantity: item.quantity,
+        price: item.unit_price,
+      }
+    })
     const total = Number(response.order_amount ?? 0) || 0
     receipt.value = {
-      orderId: response.order_number || String(response.order_id),
+      orderId: resolvedOrderId,
       createdAt: response.created_at,
       items,
       status: response.status ?? undefined,
-      shipping: {
-        buyerName: '',
-        zipcode: '',
-        address1: '',
-        address2: '',
-      },
-      paymentMethodLabel: '토스페이',
+      shipping: cachedMatches && cached
+        ? cached.shipping
+        : {
+            buyerName: '',
+            zipcode: '',
+            address1: '',
+            address2: '',
+          },
+      paymentMethodLabel: cachedMatches && cached ? cached.paymentMethodLabel : '토스페이',
       totals: {
         total,
       },

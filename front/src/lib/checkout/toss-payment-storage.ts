@@ -8,6 +8,7 @@ export type PendingTossPayment = {
   tossOrderId: string
   orderAmount: number
   paymentMethod: PaymentMethod
+  paymentMethodLabel?: string
   createdAt: string
   items: CheckoutItem[]
   shipping: ShippingInfo

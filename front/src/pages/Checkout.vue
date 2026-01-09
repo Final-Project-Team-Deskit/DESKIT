@@ -1,4 +1,4 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import PageContainer from '../components/PageContainer.vue'
@@ -6,7 +6,6 @@ import PageHeader from '../components/PageHeader.vue'
 import {
   loadCheckout,
   updateShipping,
-  updatePaymentMethod,
   type CheckoutDraft,
   type CheckoutItem,
   type ShippingInfo,
@@ -35,7 +34,6 @@ const form = reactive<ShippingInfo>({
   address1: '',
   address2: '',
 })
-const paymentMethod = ref<PaymentMethod | null>(null)
 const address2Ref = ref<HTMLInputElement | null>(null)
 let postcodeScriptPromise: Promise<void> | null = null
 
@@ -50,24 +48,25 @@ const isTossReady = ref(false)
 const tossError = ref('')
 const tossRendered = ref(false)
 let tossWidgets: any = null
+let paymentMethodWidget: any = null
 let tossPaymentsClient: any = null
 let tossScriptPromise: Promise<void> | null = null
 let tossInitPromise: Promise<void> | null = null
 
 const step = computed<'shipping' | 'payment'>(() =>
-    route.query.step === 'payment' ? 'payment' : 'shipping',
+  route.query.step === 'payment' ? 'payment' : 'shipping',
 )
 
 const items = computed(() => draft.value?.items ?? [])
 const listPriceTotal = computed(() =>
-    items.value.reduce((sum, item) => {
-      const base =
-          item.originalPrice && item.originalPrice > item.price ? item.originalPrice : item.price
-      return sum + base * item.quantity
-    }, 0),
+  items.value.reduce((sum, item) => {
+    const base =
+      item.originalPrice && item.originalPrice > item.price ? item.originalPrice : item.price
+    return sum + base * item.quantity
+  }, 0),
 )
 const salePriceTotal = computed(() =>
-    items.value.reduce((sum, item) => sum + item.price * item.quantity, 0),
+  items.value.reduce((sum, item) => sum + item.price * item.quantity, 0),
 )
 const discountTotal = computed(() => {
   const diff = listPriceTotal.value - salePriceTotal.value
@@ -79,7 +78,7 @@ const shippingFee = computed(() => {
 })
 const total = computed(() => salePriceTotal.value + shippingFee.value)
 const totalQuantity = computed(() =>
-    items.value.reduce((sum, item) => sum + item.quantity, 0),
+  items.value.reduce((sum, item) => sum + item.quantity, 0),
 )
 
 const formatPrice = (value: number) => `${value.toLocaleString('ko-KR')}원`
@@ -92,7 +91,6 @@ const refreshDraft = () => {
   form.zipcode = draft.value.shipping?.zipcode ?? ''
   form.address1 = draft.value.shipping?.address1 ?? ''
   form.address2 = draft.value.shipping?.address2 ?? ''
-  paymentMethod.value = draft.value.paymentMethod ?? null
 }
 
 const persistField = (field: keyof ShippingInfo, value: string) => {
@@ -104,15 +102,7 @@ const persistField = (field: keyof ShippingInfo, value: string) => {
   }
 
   form[field] = sanitized
-  const updated = updateShipping({[field]: sanitized} as Partial<ShippingInfo>)
-  if (updated) {
-    draft.value = updated
-  }
-}
-
-const persistPayment = (method: PaymentMethod) => {
-  paymentMethod.value = method
-  const updated = updatePaymentMethod(method)
+  const updated = updateShipping({ [field]: sanitized } as Partial<ShippingInfo>)
   if (updated) {
     draft.value = updated
   }
@@ -145,7 +135,7 @@ const openPostcode = async () => {
       const jibunAddr = data.jibunAddress || ''
       let extraRoadAddr = ''
 
-      if (data.bname && /[?숇줈媛]$/g.test(data.bname)) {
+      if (data.bname && /[가-힣]/.test(data.bname)) {
         extraRoadAddr += data.bname
       }
       if (data.buildingName && data.apartment === 'Y') {
@@ -183,14 +173,13 @@ const validate = () => {
 
   if (!name) errors.buyerName = '주문자 이름을 입력해주세요.'
   else if (!/^[a-zA-Z가-힣]{1,6}$/.test(name)) {
-    errors.buyerName = '이름은 한글/영문 6글자 이내로 입력해주세요.'
+    errors.buyerName = '이름은 영문/한글 6글자 이내로 입력해주세요.'
   }
 
   if (!zip) errors.zipcode = '우편번호를 입력해주세요.'
   else if (!/^[0-9]{5}$/.test(zip)) errors.zipcode = '우편번호는 5자리 숫자입니다.'
 
   if (!addr1) errors.address1 = '주소를 입력해주세요.'
-  // address2 optional
 
   form.buyerName = name
   form.zipcode = zip
@@ -204,19 +193,13 @@ const canProceed = computed(() => {
   const name = form.buyerName.trim()
   const zip = form.zipcode.trim()
   const addr1 = form.address1.trim()
-  return (
-      /^[a-zA-Z가-힣]{1,6}$/.test(name) &&
-      /^[0-9]{5}$/.test(zip) &&
-      !!addr1 &&
-      paymentMethod.value !== null
-  )
+  return /^[a-zA-Z가-힣]{1,6}$/.test(name) && /^[0-9]{5}$/.test(zip) && !!addr1
 })
 
 const handleNext = () => {
   if (!validate()) return
-  updateShipping({...form})
-  router.push({path: '/checkout', query: {step: 'payment'}}).catch(() => {
-  })
+  updateShipping({ ...form })
+  router.push({ path: '/checkout', query: { step: 'payment' } }).catch(() => {})
 }
 
 const handleBack = () => {
@@ -224,8 +207,7 @@ const handleBack = () => {
 }
 
 const goShipping = () => {
-  router.push({path: '/checkout'}).catch(() => {
-  })
+  router.push({ path: '/checkout' }).catch(() => {})
 }
 
 const loadTossScript = () => {
@@ -277,7 +259,7 @@ const ensureTossWidgets = async () => {
       value: total.value,
     })
 
-    await Promise.all([
+    const [methodsWidget] = await Promise.all([
       tossWidgets.renderPaymentMethods({
         selector: '#payment-method',
         variantKey: 'DEFAULT',
@@ -287,6 +269,7 @@ const ensureTossWidgets = async () => {
         variantKey: 'AGREEMENT',
       }),
     ])
+    paymentMethodWidget = methodsWidget
     isTossReady.value = true
     tossRendered.value = true
   })()
@@ -307,6 +290,30 @@ const orderNameOf = (items: CheckoutItem[]) => {
   return `${base} 외 ${items.length - 1}건`
 }
 
+const resolvePaymentMethodLabel = (selected: any) => {
+  if (!selected) return '토스페이'
+  const methodRaw = selected.method ?? selected.type ?? ''
+  const method = String(methodRaw).toUpperCase()
+  if (method === 'CARD') return '카드'
+  if (method === 'EASY_PAY') {
+    const easyPayProvider = selected.easyPay?.provider || selected.easyPay?.providerCode
+    return easyPayProvider ? `간편결제(${easyPayProvider})` : '간편결제'
+  }
+  if (method === 'TRANSFER') return '계좌이체'
+  if (method === 'VIRTUAL_ACCOUNT') return '가상계좌'
+  if (method === 'MOBILE_PHONE') return '휴대폰'
+  if (method === 'CULTURE_GIFT_CERTIFICATE') return '문화상품권'
+  if (method === 'BOOK_GIFT_CERTIFICATE') return '도서문화상품권'
+  if (method === 'GAME_GIFT_CERTIFICATE') return '게임문화상품권'
+  if (method === 'PAYCO') return 'PAYCO'
+  if (method === 'TOSSPAY') return '토스페이'
+
+  const easyPayProvider = selected.easyPay?.provider || selected.easyPay?.providerCode
+  if (easyPayProvider) return `간편결제(${easyPayProvider})`
+
+  return methodRaw ? String(methodRaw) : '토스페이'
+}
+
 const buildTossOrderId = (orderNumber?: string, orderId?: number) => {
   const base =
     orderNumber && orderNumber.trim()
@@ -321,6 +328,7 @@ const buildTossOrderId = (orderNumber?: string, orderId?: number) => {
   }
   return sanitized
 }
+
 const handleTossPayment = async () => {
   if (inflight) return
   const current = draft.value ?? loadCheckout()
@@ -349,13 +357,20 @@ const handleTossPayment = async () => {
       throw new Error('invalid order response')
     }
 
+    await ensureTossWidgets()
+    const selectedMethod = paymentMethodWidget?.getSelectedPaymentMethod
+      ? await paymentMethodWidget.getSelectedPaymentMethod()
+      : null
+    const paymentMethodLabel = resolvePaymentMethodLabel(selectedMethod)
     const tossOrderId = buildTossOrderId(response.order_number, response.order_id ?? undefined)
+
     const pending: PendingTossPayment = {
       orderId: response.order_id,
       orderNumber: response.order_number ?? undefined,
       tossOrderId,
       orderAmount: Number(response.order_amount ?? total.value) || 0,
-      paymentMethod: current.paymentMethod ?? 'CARD',
+      paymentMethod: 'CARD' as PaymentMethod,
+      paymentMethodLabel,
       createdAt: new Date().toISOString(),
       items: current.items,
       shipping: { ...current.shipping },
@@ -369,7 +384,6 @@ const handleTossPayment = async () => {
     }
     savePendingTossPayment(pending)
 
-    await ensureTossWidgets()
     await tossWidgets.setAmount({
       currency: 'KRW',
       value: pending.orderAmount,
@@ -387,12 +401,13 @@ const handleTossPayment = async () => {
     await inflight
   } catch (error) {
     console.error(error)
-    tossError.value = '결제 요청에 실패했습니다. 잠시 후 다시 시도해주세요.'
+    tossError.value = '결제 요청이 실패했습니다. 잠시 후 다시 시도해주세요.'
   } finally {
     inflight = null
     isSubmitting.value = false
   }
 }
+
 watch(
   () => step.value,
   async (current) => {
@@ -401,6 +416,7 @@ watch(
       tossRendered.value = false
       tossError.value = ''
       tossWidgets = null
+      paymentMethodWidget = null
       return
     }
     if (!draft.value) return
@@ -489,7 +505,7 @@ onBeforeUnmount(() => {
                   id="buyerName"
                   type="text"
                   :value="form.buyerName"
-                  placeholder="한글/영문 6글자 이내"
+                  placeholder="영문/한글 6글자 이내"
                   maxlength="6"
                   @input="persistField('buyerName', ($event.target as HTMLInputElement).value)"
                   @blur="validate"
@@ -524,7 +540,7 @@ onBeforeUnmount(() => {
                   id="address1"
                   type="text"
                   :value="form.address1"
-                  placeholder="서울시 강남구 강남대로 123"
+                  placeholder="서울특별시 강남구 강남로 123"
                   readonly
                   @blur="validate"
                 />
@@ -548,51 +564,9 @@ onBeforeUnmount(() => {
           <section class="panel panel--form">
             <div class="panel__header">
               <div>
-                <p class="eyebrow">결제 수단</p>
-                <h3 class="panel__title">결제 방법을 선택해주세요.</h3>
+                <p class="eyebrow">결제 안내</p>
+                <h3 class="panel__title">토스페이먼츠 결제위젯에서 진행해주세요.</h3>
               </div>
-            </div>
-
-            <div class="payment-options">
-              <label class="payment-option" :class="{ 'payment-option--active': paymentMethod === 'CARD' }">
-                <input
-                  type="radio"
-                  name="payment"
-                  value="CARD"
-                  :checked="paymentMethod === 'CARD'"
-                  @change="persistPayment('CARD')"
-                />
-                <div>
-                  <p class="option-title">신용카드</p>
-                  <p class="option-desc">일반 카드 결제</p>
-                </div>
-              </label>
-              <label class="payment-option" :class="{ 'payment-option--active': paymentMethod === 'EASY_PAY' }">
-                <input
-                  type="radio"
-                  name="payment"
-                  value="EASY_PAY"
-                  :checked="paymentMethod === 'EASY_PAY'"
-                  @change="persistPayment('EASY_PAY')"
-                />
-                <div>
-                  <p class="option-title">간편결제</p>
-                  <p class="option-desc">간편 결제 서비스</p>
-                </div>
-              </label>
-              <label class="payment-option" :class="{ 'payment-option--active': paymentMethod === 'TRANSFER' }">
-                <input
-                  type="radio"
-                  name="payment"
-                  value="TRANSFER"
-                  :checked="paymentMethod === 'TRANSFER'"
-                  @change="persistPayment('TRANSFER')"
-                />
-                <div>
-                  <p class="option-title">계좌이체</p>
-                  <p class="option-desc">무통장 계좌이체</p>
-                </div>
-              </label>
             </div>
           </section>
         </div>
@@ -637,12 +611,12 @@ onBeforeUnmount(() => {
         <p class="summary-meta-text">총 {{ items.length }}종 / {{ totalQuantity }}개</p>
 
         <div class="summary-row">
-          <span>총 상품 금액(정가)</span>
+          <span>총상품 금액(정가)</span>
           <strong class="amount">{{ formatPrice(listPriceTotal) }}</strong>
         </div>
 
         <div class="summary-row">
-          <span>총 할인 금액</span>
+          <span>총할인 금액</span>
           <strong class="amount" :class="{ discount: discountTotal > 0 }">
             {{ discountTotal > 0 ? `-${formatPrice(discountTotal)}` : '-' }}
           </strong>
@@ -660,7 +634,7 @@ onBeforeUnmount(() => {
         <p v-if="items.length" class="summary-helper">5만원 이상 무료배송</p>
 
         <div class="summary-total">
-          <span>총 결제 금액</span>
+          <span>총결제 금액</span>
           <strong class="amount total-amount">
             {{ items.length === 0 ? '-' : formatPrice(total) }}
           </strong>
@@ -846,48 +820,6 @@ onBeforeUnmount(() => {
   padding: 16px;
   background: var(--surface-weak);
   margin-top: 10px;
-}
-
-.payment-options {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.payment-option {
-  border: 1px solid var(--border-color);
-  border-radius: 12px;
-  padding: 12px 14px;
-  background: var(--surface);
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  cursor: pointer;
-  transition: background 0.2s ease, border-color 0.2s ease;
-}
-
-.payment-option:hover {
-  background: var(--surface-weak);
-}
-
-.payment-option--active {
-  border-color: var(--primary-color);
-  background: var(--hover-bg, var(--surface-weak));
-}
-
-.payment-option input {
-  margin: 0;
-}
-
-.option-title {
-  margin: 0;
-  font-weight: 800;
-}
-
-.option-desc {
-  margin: 2px 0 0;
-  color: var(--text-muted);
-  font-size: 0.9rem;
 }
 
 .panel--summary {
