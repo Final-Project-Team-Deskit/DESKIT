@@ -5,6 +5,8 @@ import com.deskit.deskit.account.oauth.CustomOAuth2User;
 import com.deskit.deskit.account.repository.MemberRepository;
 import com.deskit.deskit.order.dto.CreateOrderRequest;
 import com.deskit.deskit.order.dto.CreateOrderResponse;
+import com.deskit.deskit.order.dto.OrderCancelRequest;
+import com.deskit.deskit.order.dto.OrderCancelResponse;
 import com.deskit.deskit.order.dto.OrderDetailResponse;
 import com.deskit.deskit.order.dto.OrderStatusUpdateRequest;
 import com.deskit.deskit.order.dto.OrderStatusUpdateResponse;
@@ -71,6 +73,16 @@ public class OrderController {
   ) {
     Long memberId = resolveMemberId(user);
     return ResponseEntity.ok(orderService.updateOrderStatus(memberId, orderId, request));
+  }
+
+  @PatchMapping("/{orderId}/cancel")
+  public ResponseEntity<OrderCancelResponse> requestCancel(
+          @AuthenticationPrincipal CustomOAuth2User user,
+          @PathVariable("orderId") Long orderId,
+          @Valid @RequestBody OrderCancelRequest request
+  ) {
+    Long memberId = resolveMemberId(user);
+    return ResponseEntity.ok(orderService.requestCancel(memberId, orderId, request));
   }
 
   private Long resolveMemberId(CustomOAuth2User user) {

@@ -3,17 +3,68 @@ import { computed, onMounted, ref } from 'vue'
 import { RouterLink } from 'vue-router'
 import PageContainer from '../components/PageContainer.vue'
 import PageHeader from '../components/PageHeader.vue'
-import { getMyOrderDetail, getMyOrders } from '../api/orders'
-import { updateOrder, type OrderReceipt } from '../lib/order/order-storage'
+import { cancelOrder, getMyOrderDetail, getMyOrders } from '../api/orders'
 import { productsData } from '../lib/products-data'
 
-type OrderReceiptView = OrderReceipt & {
+type OrderStatus =
+  | 'CREATED'
+  | 'PAID'
+  | 'CANCEL_REQUESTED'
+  | 'CANCELLED'
+  | 'REFUND_REQUESTED'
+  | 'REFUND_REJECTED'
+  | 'REFUNDED'
+  | 'COMPLETED'
+
+type OrderSummaryResponse = {
+  order_id: number
+  order_number: string
+  status: OrderStatus
+  order_amount: number
+  created_at: string
+}
+
+type OrderItemView = {
+  productId: string
+  name: string
+  quantity: number
+  price: number
+  originalPrice: number
+  discountRate: number
+  image?: string
+  thumbnail?: string
+  thumb?: string
+  imageUrl?: string
+  img?: string
+}
+
+type OrderViewModel = {
+  orderId: string
+  createdAt: string
+  items: OrderItemView[]
+  status?: OrderStatus
+  cancelReason?: string
+  cancelRequestedAt?: string
+  shipping: {
+    buyerName: string
+    zipcode: string
+    address1: string
+    address2: string
+  }
+  paymentMethodLabel: string
+  totals: {
+    listPriceTotal: number
+    salePriceTotal: number
+    discountTotal: number
+    shippingFee: number
+    total: number
+  }
   orderPk?: number
   itemsLoading?: boolean
   itemsError?: string
 }
 
-const orders = ref<OrderReceiptView[]>([])
+const orders = ref<OrderViewModel[]>([])
 const isModalOpen = ref(false)
 const selectedOrderId = ref<string | null>(null)
 const cancelReasonCategory = ref('')
@@ -27,12 +78,14 @@ const cancelReasons = [
   '기타',
 ]
 
-const statusLabel = (status?: OrderReceipt['status']) => {
+const statusLabel = (status?: OrderStatus) => {
   const map: Record<string, string> = {
     CREATED: '주문 생성',
     PAID: '결제 완료',
     CANCEL_REQUESTED: '취소 요청',
-    CANCELED: '취소',
+    CANCELLED: '취소 완료',
+    COMPLETED: '구매 확정',
+    REFUND_REQUESTED: '환불 요청',
     REFUND_REJECTED: '환불 거절',
     REFUNDED: '환불 완료',
   }
@@ -41,34 +94,34 @@ const statusLabel = (status?: OrderReceipt['status']) => {
 
 const totalCount = computed(() => orders.value.length)
 
+const mapOrderSummaryToView = (order: OrderSummaryResponse): OrderViewModel => ({
+  orderId: String(order.order_number ?? ''),
+  createdAt: String(order.created_at ?? ''),
+  items: [],
+  status: order.status ?? 'PAID',
+  shipping: {
+    buyerName: '',
+    zipcode: '',
+    address1: '',
+    address2: '',
+  },
+  paymentMethodLabel: '토스페이 (예정)',
+  totals: {
+    listPriceTotal: Number(order.order_amount ?? 0) || 0,
+    salePriceTotal: Number(order.order_amount ?? 0) || 0,
+    discountTotal: 0,
+    shippingFee: 0,
+    total: Number(order.order_amount ?? 0) || 0,
+  },
+  orderPk: Number(order.order_id ?? 0) || undefined,
+  itemsLoading: false,
+  itemsError: '',
+})
+
 const load = async () => {
   try {
     const response = await getMyOrders()
-    orders.value = Array.isArray(response)
-      ? response.map((order) => ({
-          orderId: String(order.order_number ?? ''),
-          createdAt: String(order.created_at ?? ''),
-          items: [],
-          status: order.status ?? 'PAID',
-          shipping: {
-            buyerName: '',
-            zipcode: '',
-            address1: '',
-            address2: '',
-          },
-          paymentMethodLabel: '토스페이 (예정)',
-          totals: {
-            listPriceTotal: Number(order.order_amount ?? 0) || 0,
-            salePriceTotal: Number(order.order_amount ?? 0) || 0,
-            discountTotal: 0,
-            shippingFee: 0,
-            total: Number(order.order_amount ?? 0) || 0,
-          },
-          orderPk: Number(order.order_id ?? 0) || undefined,
-          itemsLoading: false,
-          itemsError: '',
-        }))
-      : []
+    orders.value = Array.isArray(response) ? response.map(mapOrderSummaryToView) : []
   } catch {
     orders.value = []
   }
@@ -94,10 +147,24 @@ const formatDateTime = (value: string) => {
 
 const formatPrice = (value: number) => `${value.toLocaleString('ko-KR')}원`
 
-const titleOf = (order: OrderReceipt) => {
+const titleOf = (order: { items: OrderItemView[] }) => {
   const base = order.items[0]?.name ?? '상품'
   if (order.items.length > 1) return `${base} 외 ${order.items.length - 1}건`
   return base
+}
+
+const fallbackTitleItem: OrderItemView = {
+  productId: '',
+  name: '상품',
+  quantity: 1,
+  price: 0,
+  originalPrice: 0,
+  discountRate: 0,
+}
+
+const modalTitle = (orderId: string) => {
+  const order = orders.value.find((item) => item.orderId === orderId)
+  return titleOf(order ?? { items: [fallbackTitleItem] })
 }
 
 const productImageOf = (productId: string) => {
@@ -105,34 +172,25 @@ const productImageOf = (productId: string) => {
   return String(p?.imageUrl ?? p?.image ?? p?.thumbnail ?? p?.thumb ?? '')
 }
 
-const thumbOf = (order: OrderReceipt) => {
-  const first = (order.items?.[0] ?? {}) as any
-  const direct =
-    first?.image ??
-    first?.thumbnail ??
-    first?.thumb ??
-    first?.imageUrl ??
-    first?.img ??
-    ''
+const thumbOf = (order: OrderViewModel) => {
+  const first = order.items?.[0]
+  const direct = first?.image ?? first?.thumbnail ?? first?.thumb ?? first?.imageUrl ?? first?.img ?? ''
   if (direct) return String(direct)
 
-  const pid =
-    first?.productId ??
-    first?.product_id ??
-    first?.id ??
-    first?.productID ??
-    null
+  const pid = first?.productId ?? null
 
   return pid != null && String(pid) !== '' ? productImageOf(String(pid)) : ''
 }
 
-const quantityOf = (order: OrderReceipt) =>
+const quantityOf = (order: OrderViewModel) =>
   order.items.reduce((sum, item) => sum + item.quantity, 0)
 
-const canCancel = (status?: OrderReceipt['status']) =>
+const canCancel = (status?: OrderStatus) =>
   (status ?? 'PAID') === 'PAID' || (status ?? 'PAID') === 'CREATED'
-const isCancelRequested = (status?: OrderReceipt['status']) =>
-  (status ?? 'PAID') === 'CANCEL_REQUESTED'
+const isCancelRequested = (status?: OrderStatus) =>
+  (status ?? 'PAID') === 'CANCEL_REQUESTED' || (status ?? 'PAID') === 'REFUND_REQUESTED'
+const cancelReasonTitle = (status?: OrderStatus) =>
+  (status ?? 'PAID') === 'REFUND_REQUESTED' ? '환불 사유 보기' : '취소 사유 보기'
 
 const openModal = (orderId: string) => {
   selectedOrderId.value = orderId
@@ -148,20 +206,25 @@ const closeModal = () => {
   cancelError.value = ''
 }
 
-const submitCancel = () => {
+const submitCancel = async () => {
   if (!selectedOrderId.value) return
   if (!cancelReasonCategory.value.trim()) {
     cancelError.value = '취소 사유를 선택해주세요.'
     return
   }
-  updateOrder(selectedOrderId.value, {
-    status: 'CANCEL_REQUESTED',
-    cancelReason: cancelReasonCategory.value,
-    // store timestamp for cancel request display
-    cancelRequestedAt: new Date().toISOString(),
-  })
-  load()
-  closeModal()
+  const targetOrder = orders.value.find((order) => order.orderId === selectedOrderId.value)
+  const numericId = Number(targetOrder?.orderPk)
+  if (!Number.isFinite(numericId)) {
+    cancelError.value = '주문 정보를 확인할 수 없습니다.'
+    return
+  }
+  try {
+    await cancelOrder(numericId, cancelReasonCategory.value)
+    await load()
+    closeModal()
+  } catch {
+    cancelError.value = '취소 요청에 실패했습니다.'
+  }
 }
 
 const resolveItemName = (productId: string, index: number) => {
@@ -169,9 +232,10 @@ const resolveItemName = (productId: string, index: number) => {
   return String(p?.name ?? `상품 ${index + 1}`)
 }
 
-const handleItemsToggle = async (order: OrderReceiptView, event: Event) => {
-  const target = event.target as HTMLDetailsElement
-  if (!target?.open) return
+const handleItemsToggle = async (order: OrderViewModel, event: Event) => {
+  const target = event.target
+  if (!(target instanceof HTMLDetailsElement)) return
+  if (!target.open) return
   if (order.items.length) return
   if (order.itemsLoading) return
 
@@ -202,7 +266,7 @@ const handleItemsToggle = async (order: OrderReceiptView, event: Event) => {
   }
 }
 
-const preloadOrderItems = async (targets: OrderReceiptView[]) => {
+const preloadOrderItems = async (targets: OrderViewModel[]) => {
   const pending = targets.filter((order) => {
     if (order.items.length) return false
     if (order.itemsLoading) return false
@@ -271,16 +335,14 @@ onMounted(() => {
               </div>
             </div>
             <details v-if="isCancelRequested(order.status)" class="reason-disclosure">
-              <summary class="reason-summary">취소 사유 보기</summary>
+              <summary class="reason-summary">{{ cancelReasonTitle(order.status) }}</summary>
               <div class="reason-panel">
                 <div class="reason-meta">
                   <span class="reason-meta__label">취소 요청</span>
                   <span class="reason-meta__time">
                     {{
                       formatDateTime(
-                        (order as any).cancelRequestedAt
-                          ? String((order as any).cancelRequestedAt)
-                          : order.createdAt,
+                        order.cancelRequestedAt ? String(order.cancelRequestedAt) : order.createdAt,
                       )
                     }}
                   </span>
@@ -361,13 +423,7 @@ onMounted(() => {
           <p class="modal__subtitle">취소 사유를 입력해주세요.</p>
           <div v-if="selectedOrderId" class="modal__summary">
             <p>주문번호: {{ selectedOrderId }}</p>
-            <p>
-              {{
-                titleOf(orders.find((o) => o.orderId === selectedOrderId) || {
-                  items: [{ name: '상품' }],
-                } as OrderReceipt)
-              }}
-            </p>
+            <p>{{ modalTitle(selectedOrderId) }}</p>
           </div>
           <label class="field">
             <span class="field__label">취소 사유</span>

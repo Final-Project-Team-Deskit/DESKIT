@@ -142,4 +142,22 @@ public class Order extends BaseEntity {
   public void changeStatus(OrderStatus status) {
     this.status = status;
   }
+
+  public void requestCancel(String reason) {
+    if (this.status == OrderStatus.CREATED) {
+      if (this.cancelReason == null && reason != null) {
+        this.cancelReason = reason;
+      }
+      this.status = OrderStatus.CANCEL_REQUESTED;
+      return;
+    }
+    if (this.status == OrderStatus.PAID) {
+      if (this.cancelReason == null && reason != null) {
+        this.cancelReason = reason;
+      }
+      this.status = OrderStatus.REFUND_REQUESTED;
+      return;
+    }
+    throw new IllegalStateException("invalid status for cancel request");
+  }
 }
