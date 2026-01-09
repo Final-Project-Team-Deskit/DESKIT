@@ -28,6 +28,7 @@ type AdminReservationDetail = {
 }
 
 const detail = ref<AdminReservationDetail | null>(null)
+const isLoading = ref(false)
 const showCueCard = ref(false)
 const cueIndex = ref(0)
 
@@ -79,8 +80,15 @@ const loadDetail = async () => {
     detail.value = null
     return
   }
-  const payload = await fetchAdminBroadcastDetail(idValue)
-  detail.value = mapDetail(payload)
+  isLoading.value = true
+  try {
+    const payload = await fetchAdminBroadcastDetail(idValue)
+    detail.value = mapDetail(payload)
+  } catch {
+    detail.value = null
+  } finally {
+    isLoading.value = false
+  }
 }
 
 const goBack = () => {
@@ -287,6 +295,13 @@ watch(reservationId, loadDetail, { immediate: true })
         </div>
       </div>
     </div>
+  </div>
+  <div v-else class="detail-wrap">
+    <h2 class="page-title">예약 상세</h2>
+    <section class="detail-card ds-surface empty-state">
+      <p>{{ isLoading ? '예약 정보를 불러오는 중입니다.' : '예약 정보를 찾을 수 없습니다.' }}</p>
+      <button type="button" class="btn" @click="goToList">목록으로</button>
+    </section>
   </div>
 </template>
 
@@ -603,6 +618,17 @@ watch(reservationId, loadDetail, { immediate: true })
   margin: 0;
   color: #ef4444;
   font-weight: 700;
+}
+
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 32px;
+  color: var(--text-muted);
 }
 
 @media (max-width: 720px) {

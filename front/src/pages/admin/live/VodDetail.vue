@@ -41,6 +41,7 @@ type AdminVodDetail = {
 }
 
 const detail = ref<AdminVodDetail | null>(null)
+const isLoading = ref(false)
 const isVodPlayable = computed(() => !!detail.value?.vod?.url)
 const isVodPublic = computed(() => detail.value?.vod.visibility === '공개')
 const isPlaying = ref(false)
@@ -202,18 +203,26 @@ const loadDetail = async () => {
     detail.value = null
     return
   }
-  const [broadcast, report, chats] = await Promise.all([
-    fetchAdminBroadcastDetail(idValue),
-    fetchAdminBroadcastReport(idValue),
-    fetchRecentLiveChats(idValue, 3600).catch(() => []),
-  ])
-  detail.value = buildDetail(broadcast, report)
-  chatMessages.value = chats.map((item) => ({
-    id: `${item.sentAt}-${item.sender}`,
-    user: item.sender || item.memberEmail || '시청자',
-    text: item.content,
-    time: formatChatTime(item.sentAt),
-  }))
+  isLoading.value = true
+  try {
+    const [broadcast, report, chats] = await Promise.all([
+      fetchAdminBroadcastDetail(idValue),
+      fetchAdminBroadcastReport(idValue),
+      fetchRecentLiveChats(idValue, 3600).catch(() => []),
+    ])
+    detail.value = buildDetail(broadcast, report)
+    chatMessages.value = chats.map((item) => ({
+      id: `${item.sentAt}-${item.sender}`,
+      user: item.sender || item.memberEmail || '시청자',
+      text: item.content,
+      time: formatChatTime(item.sentAt),
+    }))
+  } catch {
+    detail.value = null
+    chatMessages.value = []
+  } finally {
+    isLoading.value = false
+  }
 }
 
 watch(vodId, () => {
@@ -435,6 +444,18 @@ watch(vodId, () => {
       confirm-text="삭제"
       @confirm="confirmDelete"
     />
+  </PageContainer>
+  <PageContainer v-else>
+    <header class="detail-header">
+      <button type="button" class="back-link" @click="goBack">← 뒤로 가기</button>
+      <button type="button" class="btn ghost" @click="goToList">목록으로</button>
+    </header>
+
+    <h2 class="page-title">방송 결과 리포트</h2>
+
+    <section class="detail-card ds-surface empty-state">
+      <p>{{ isLoading ? '방송 정보를 불러오는 중입니다.' : '방송 정보를 찾을 수 없습니다.' }}</p>
+    </section>
   </PageContainer>
 </template>
 
@@ -847,6 +868,17 @@ watch(vodId, () => {
 
 .icon.muted {
   stroke: currentColor;
+}
+
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 32px;
+  color: var(--text-muted);
 }
 
 @media (max-width: 1200px) {
