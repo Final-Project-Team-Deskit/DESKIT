@@ -8,8 +8,7 @@ import {
   clearDraft,
   createDefaultQuestions,
   createEmptyDraft,
-  clearDraftRestoreDecision,
-  getDraftRestoreDecision,
+  DRAFT_KEY,
   loadDraft,
   loadWorkingDraft,
   saveDraft,
@@ -41,13 +40,11 @@ const syncDraft = () => {
 }
 
 const restoreDraft = async () => {
-  const working = loadWorkingDraft()
-  if (working) {
-    draft.value = { ...draft.value, ...working }
-  } else if (!isEditMode.value) {
-    const saved = loadDraft()
-    const decision = getDraftRestoreDecision()
-    if (saved && decision === 'accepted' && (!saved.reservationId || saved.reservationId === reservationId.value)) {
+  const storedDraft = sessionStorage.getItem(DRAFT_KEY)
+  const saved = storedDraft ? loadDraft() : null
+  if (!isEditMode.value && saved && (!saved.reservationId || saved.reservationId === reservationId.value)) {
+    const shouldRestore = window.confirm('이전에 작성 중인 내용을 불러올까요?')
+    if (shouldRestore) {
       draft.value = { ...draft.value, ...saved }
     } else if (decision === 'declined') {
       clearDraft()

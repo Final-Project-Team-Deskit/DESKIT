@@ -204,7 +204,12 @@ export const loadDraft = (): LiveCreateDraft | null => {
     clearDraftStorage()
     return null
   }
-  return normalizeDraft(stored.data)
+  const normalized = normalizeDraft(stored.data)
+  if (!hasDraftContent(normalized)) {
+    clearDraftStorage()
+    return null
+  }
+  return normalized
 }
 
 export const saveDraft = (draft: LiveCreateDraft) => {
