@@ -67,6 +67,7 @@ const sseRetryTimer = ref<number | null>(null)
 const statsTimer = ref<number | null>(null)
 const refreshTimer = ref<number | null>(null)
 const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080'
+const FALLBACK_IMAGE = 'data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs='
 
 const reasonOptions = [
   '음란물',
@@ -99,6 +100,13 @@ const formatElapsed = (startAt?: string) => {
   return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`
 }
 
+const handleImageError = (event: Event) => {
+  const target = event.target as HTMLImageElement | null
+  if (!target || target.dataset.fallbackApplied) return
+  target.dataset.fallbackApplied = 'true'
+  target.src = FALLBACK_IMAGE
+}
+
 const formatChatTime = (timestamp?: number) => {
   if (!timestamp) return ''
   const date = new Date(timestamp)
@@ -106,6 +114,31 @@ const formatChatTime = (timestamp?: number) => {
   const displayHour = hours % 12 || 12
   const minutes = String(date.getMinutes()).padStart(2, '0')
   return `${hours >= 12 ? '오후' : '오전'} ${displayHour}:${minutes}`
+}
+
+const mapLiveProduct = (item: {
+  id: string
+  name: string
+  price: number
+  isSoldOut: boolean
+  imageUrl?: string
+  totalQty?: number
+  stockQty?: number
+}) => {
+  const totalQty = item.totalQty ?? item.stockQty ?? 0
+  const stockQty = item.stockQty ?? totalQty
+  const sold = Math.max(0, totalQty - stockQty)
+  return {
+    id: item.id,
+    name: item.name,
+    option: item.name,
+    price: `₩${item.price.toLocaleString('ko-KR')}`,
+    sale: `₩${item.price.toLocaleString('ko-KR')}`,
+    status: item.isSoldOut ? '품절' : '판매중',
+    thumb: item.imageUrl ?? '',
+    sold,
+    stock: stockQty,
+  }
 }
 
 const loadDetail = async () => {
@@ -148,17 +181,7 @@ const loadDetail = async () => {
       elapsed: formatElapsed(startedAt),
     }
 
-    liveProducts.value = productsResponse.map((item) => ({
-      id: item.id,
-      name: item.name,
-      option: '-',
-      price: `₩${item.price.toLocaleString('ko-KR')}`,
-      sale: `₩${item.price.toLocaleString('ko-KR')}`,
-      status: item.isSoldOut ? '품절' : '판매중',
-      thumb: item.imageUrl || '/placeholder-product.jpg',
-      sold: 0,
-      stock: item.stockQty,
-    }))
+    liveProducts.value = productsResponse.map((item) => mapLiveProduct(item))
 
     chatMessages.value = chatResponse.map((item) => ({
       id: `${item.sentAt}-${item.sender}`,
@@ -196,17 +219,7 @@ const refreshStats = async (broadcastId: number) => {
 const refreshProducts = async (broadcastId: number) => {
   try {
     const products = await fetchBroadcastProducts(broadcastId)
-    liveProducts.value = products.map((item) => ({
-      id: item.id,
-      name: item.name,
-      option: '-',
-      price: `₩${item.price.toLocaleString('ko-KR')}`,
-      sale: `₩${item.price.toLocaleString('ko-KR')}`,
-      status: item.isSoldOut ? '품절' : '판매중',
-      thumb: item.imageUrl || '/placeholder-product.jpg',
-      sold: 0,
-      stock: item.stockQty,
-    }))
+    liveProducts.value = products.map((item) => mapLiveProduct(item))
   } catch {
     return
   }
@@ -666,7 +679,7 @@ watch(
           <div class="product-list">
             <article v-for="product in liveProducts" :key="product.id" class="product-row">
               <div class="product-thumb">
-                <img :src="product.thumb" :alt="product.name" loading="lazy" />
+                <img :src="product.thumb" :alt="product.name" loading="lazy" @error="handleImageError" />
               </div>
               <div class="product-meta">
                 <p class="product-name">{{ product.name }}</p>

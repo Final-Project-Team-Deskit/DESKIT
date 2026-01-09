@@ -513,6 +513,68 @@ public class BroadcastService {
         sseService.notifyBroadcastUpdate(broadcastId, "PRODUCT_PINNED", bp.getProduct().getId());
     }
 
+    @Transactional
+    public String updateVodVisibility(Long sellerId, Long broadcastId, String status) {
+        Broadcast broadcast = broadcastRepository.findById(broadcastId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.BROADCAST_NOT_FOUND));
+        if (!broadcast.getSeller().getSellerId().equals(sellerId)) {
+            throw new BusinessException(ErrorCode.FORBIDDEN_ACCESS);
+        }
+        Vod vod = vodRepository.findByBroadcast(broadcast)
+                .orElseThrow(() -> new BusinessException(ErrorCode.VOD_NOT_FOUND));
+        VodStatus nextStatus = resolveVisibilityStatus(status);
+        vod.changeStatus(nextStatus);
+        return nextStatus.name();
+    }
+
+    @Transactional
+    public void deleteVod(Long sellerId, Long broadcastId) {
+        Broadcast broadcast = broadcastRepository.findById(broadcastId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.BROADCAST_NOT_FOUND));
+        if (!broadcast.getSeller().getSellerId().equals(sellerId)) {
+            throw new BusinessException(ErrorCode.FORBIDDEN_ACCESS);
+        }
+        Vod vod = vodRepository.findByBroadcast(broadcast)
+                .orElseThrow(() -> new BusinessException(ErrorCode.VOD_NOT_FOUND));
+        vod.changeStatus(VodStatus.DELETED);
+    }
+
+    @Transactional
+    public String updateAdminVodVisibility(Long broadcastId, String status) {
+        Broadcast broadcast = broadcastRepository.findById(broadcastId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.BROADCAST_NOT_FOUND));
+        Vod vod = vodRepository.findByBroadcast(broadcast)
+                .orElseThrow(() -> new BusinessException(ErrorCode.VOD_NOT_FOUND));
+        VodStatus nextStatus = resolveVisibilityStatus(status);
+        vod.changeStatus(nextStatus);
+        return nextStatus.name();
+    }
+
+    @Transactional
+    public void deleteAdminVod(Long broadcastId) {
+        Broadcast broadcast = broadcastRepository.findById(broadcastId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.BROADCAST_NOT_FOUND));
+        Vod vod = vodRepository.findByBroadcast(broadcast)
+                .orElseThrow(() -> new BusinessException(ErrorCode.VOD_NOT_FOUND));
+        vod.changeStatus(VodStatus.DELETED);
+    }
+
+    private VodStatus resolveVisibilityStatus(String status) {
+        if (status == null || status.isBlank()) {
+            throw new BusinessException(ErrorCode.INVALID_INPUT_VALUE);
+        }
+        VodStatus nextStatus;
+        try {
+            nextStatus = VodStatus.valueOf(status.toUpperCase());
+        } catch (IllegalArgumentException ex) {
+            throw new BusinessException(ErrorCode.INVALID_INPUT_VALUE);
+        }
+        if (nextStatus == VodStatus.DELETED) {
+            throw new BusinessException(ErrorCode.INVALID_INPUT_VALUE);
+        }
+        return nextStatus;
+    }
+
     @EventListener
     public void handleConnectListener(SessionConnectEvent event) {
         StompHeaderAccessor accessor = StompHeaderAccessor.wrap(event.getMessage());

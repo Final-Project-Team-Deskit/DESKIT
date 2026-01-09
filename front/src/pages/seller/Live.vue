@@ -13,9 +13,9 @@ import {
 } from '../../lib/broadcastStatus'
 import { parseLiveDate } from '../../lib/live/utils'
 import {
-  fetchBroadcastProducts,
   fetchBroadcastStats,
   fetchCategories,
+  fetchSellerBroadcastDetail,
   fetchSellerBroadcastReport,
   fetchSellerBroadcasts,
   type BroadcastCategory,
@@ -703,10 +703,10 @@ async function loadCurrentLiveDetails(item: LiveItem | null) {
     return
   }
   try {
-    const [stats, report, products] = await Promise.all([
+    const [stats, report, detail] = await Promise.all([
       fetchBroadcastStats(id),
       fetchSellerBroadcastReport(id).catch(() => null),
-      fetchBroadcastProducts(id),
+      fetchSellerBroadcastDetail(id),
     ])
     const revenue = report ? parseAmount(report.totalSales) : 0
     const hasData = stats.viewerCount > 0 || stats.likeCount > 0 || revenue > 0
@@ -719,18 +719,23 @@ async function loadCurrentLiveDetails(item: LiveItem | null) {
         hasData,
       }
       : null
-    liveProducts.value = products.map((product) => ({
-      id: product.id,
-      title: product.name,
-      optionLabel: '-',
-      status: product.isSoldOut ? '품절' : '판매중',
-      priceOriginal: product.price,
-      priceSale: product.price,
-      soldCount: 0,
-      stockTotal: product.stockQty,
-      pinned: false,
-      thumb: product.imageUrl,
-    }))
+    liveProducts.value = (detail.products ?? []).map((product) => {
+      const totalQty = product.bpQuantity ?? product.stockQty ?? 0
+      const stockQty = product.stockQty ?? totalQty
+      const soldCount = Math.max(0, totalQty - stockQty)
+      return {
+        id: String(product.productId),
+        title: product.name,
+        optionLabel: product.name,
+        status: product.status === 'SOLDOUT' ? '품절' : '판매중',
+        priceOriginal: product.originalPrice,
+        priceSale: product.bpPrice,
+        soldCount,
+        stockTotal: stockQty,
+        pinned: product.pinned,
+        thumb: product.imageUrl ?? '',
+      }
+    })
   } catch {
     liveStats.value = null
     liveProducts.value = []

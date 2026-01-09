@@ -20,6 +20,8 @@ const router = useRouter()
 const today = new Date()
 const { now } = useNow(1000)
 
+const FALLBACK_IMAGE = 'data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs='
+
 const NOTIFY_KEY = 'deskit_live_notifications'
 const WATCH_HISTORY_CONSENT_KEY = 'deskit_live_watch_history_consent_v1'
 const notifiedIds = ref<Set<string>>(new Set())
@@ -71,6 +73,13 @@ const formatTime = (value: string) => {
   const hours = time.getHours().toString().padStart(2, '0')
   const minutes = time.getMinutes().toString().padStart(2, '0')
   return `${hours}:${minutes}`
+}
+
+const handleImageError = (event: Event) => {
+  const target = event.target as HTMLImageElement | null
+  if (!target || target.dataset.fallbackApplied) return
+  target.dataset.fallbackApplied = 'true'
+  target.src = FALLBACK_IMAGE
 }
 
 const getLifecycleStatus = (item: LiveItem): BroadcastStatus => {
@@ -360,7 +369,7 @@ onMounted(() => {
             @click="handleRowClick(item)"
             @keydown="(e) => handleRowKeydown(e, item)"
           >
-            <img class="thumb" :src="item.thumbnailUrl" :alt="item.title" />
+            <img class="thumb" :src="item.thumbnailUrl" :alt="item.title" @error="handleImageError" />
             <div class="meta">
               <div class="meta__title-row">
                 <h4 class="meta__title">{{ item.title }}</h4>

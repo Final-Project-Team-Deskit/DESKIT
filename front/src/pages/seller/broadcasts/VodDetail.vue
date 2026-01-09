@@ -7,12 +7,16 @@ import {
   fetchRecentLiveChats,
   fetchSellerBroadcastDetail,
   fetchSellerBroadcastReport,
+  deleteSellerVod,
   type BroadcastDetailResponse,
   type BroadcastResult,
+  updateSellerVodVisibility,
 } from '../../../lib/live/api'
 
 const route = useRoute()
 const router = useRouter()
+
+const FALLBACK_IMAGE = 'data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs='
 
 const vodId = computed(() => (typeof route.params.vodId === 'string' ? route.params.vodId : ''))
 
@@ -50,22 +54,44 @@ const goToList = () => {
   router.push('/seller/live?tab=vod').catch(() => {})
 }
 
-const toggleVisibility = () => {
+const toggleVisibility = async () => {
   if (!detail.value) return
-  const next = detail.value.vod.visibility === '공개' ? '비공개' : '공개'
-  detail.value = { ...detail.value, vod: { ...detail.value.vod, visibility: next } }
+  const nextStatus = detail.value.vod.visibility === '공개' ? 'PRIVATE' : 'PUBLIC'
+  try {
+    await updateSellerVodVisibility(Number(detail.value.id), nextStatus)
+    const nextLabel = nextStatus === 'PUBLIC' ? '공개' : '비공개'
+    detail.value = { ...detail.value, vod: { ...detail.value.vod, visibility: nextLabel } }
+  } catch {
+    return
+  }
 }
 
 const handleDownload = () => {
+  if (!detail.value?.vod?.url) return
   window.alert('VOD 파일 다운로드를 시작합니다.')
+  window.open(detail.value.vod.url, '_blank')
 }
 
 const handleDelete = () => {
   showDeleteConfirm.value = true
 }
 
-const confirmDelete = () => {
-  window.alert('VOD가 삭제되었습니다.')
+const confirmDelete = async () => {
+  if (!detail.value) return
+  try {
+    await deleteSellerVod(Number(detail.value.id))
+    window.alert('VOD가 삭제되었습니다.')
+    goToList()
+  } catch {
+    return
+  }
+}
+
+const handleImageError = (event: Event) => {
+  const target = event.target as HTMLImageElement | null
+  if (!target || target.dataset.fallbackApplied) return
+  target.dataset.fallbackApplied = 'true'
+  target.src = FALLBACK_IMAGE
 }
 
 const showChat = ref(false)
@@ -205,7 +231,7 @@ watch(vodId, () => {
     <section class="detail-card ds-surface">
       <div class="info-grid">
         <div class="thumb-box">
-          <img :src="detail.thumb" :alt="detail.title" />
+          <img :src="detail.thumb" :alt="detail.title" @error="handleImageError" />
         </div>
         <div class="info-meta">
           <h3>{{ detail.title }}</h3>
@@ -297,7 +323,7 @@ watch(vodId, () => {
               <span>재생할 VOD가 없습니다.</span>
             </div>
             <div v-if="isVodPlayable && !isPlaying" class="player-poster">
-              <img :src="detail.thumb" :alt="detail.title" />
+              <img :src="detail.thumb" :alt="detail.title" @error="handleImageError" />
               <button type="button" class="play-toggle" @click="startPlayback" title="재생">
                 <svg aria-hidden="true" class="icon" viewBox="0 0 24 24" focusable="false">
                   <polygon points="8 5 19 12 8 19 8 5" fill="currentColor" />

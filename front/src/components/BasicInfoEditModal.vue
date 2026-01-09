@@ -22,8 +22,8 @@ const emit = defineEmits<{
 }>()
 
 const title = ref('')
-const category = ref('가구')
-const notice = ref('판매 상품 외 다른 상품 문의는 받지 않습니다.')
+const category = ref('')
+const notice = ref('')
 const thumbnailPreview = ref('')
 const waitingPreview = ref('')
 const categories = ref<BroadcastCategory[]>([])
@@ -50,7 +50,7 @@ const hydrateFromBroadcast = () => {
   if (!props.broadcast) return
   title.value = props.broadcast.title
   category.value = props.broadcast.category
-  notice.value = props.broadcast.notice ?? '판매 상품 외 다른 상품 문의는 받지 않습니다.'
+  notice.value = props.broadcast.notice ?? ''
   thumbnailPreview.value = props.broadcast.thumbnail ?? ''
   waitingPreview.value = props.broadcast.waitingScreen ?? ''
 }
