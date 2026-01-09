@@ -8,6 +8,7 @@ import {
   buildDraftFromReservation,
   clearDraft,
   createEmptyDraft,
+  getDraftRestoreDecision,
   type LiveCreateDraft,
   type LiveCreateProduct,
   loadDraft,
@@ -142,10 +143,10 @@ const restoreDraft = async () => {
   const savedDraft = loadDraft()
   let baseDraft = createEmptyDraft()
   if (!isEditMode.value && savedDraft && (!savedDraft.reservationId || savedDraft.reservationId === reservationId.value)) {
-    const shouldRestore = window.confirm('이전에 작성 중인 내용을 불러올까요?')
-    if (shouldRestore) {
+    const decision = getDraftRestoreDecision()
+    if (decision === 'accepted') {
       baseDraft = { ...createEmptyDraft(), ...savedDraft }
-    } else {
+    } else if (decision === 'declined') {
       clearDraft()
     }
   }
