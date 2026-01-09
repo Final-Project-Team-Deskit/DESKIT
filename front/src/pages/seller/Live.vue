@@ -689,7 +689,7 @@ const openVodDetail = (item: LiveItem) => {
   router.push(`/seller/broadcasts/vods/${item.id}`).catch(() => {})
 }
 
-const loadCurrentLiveDetails = async (item: LiveItem | null) => {
+async function loadCurrentLiveDetails(item: LiveItem | null) {
   if (!item) {
     liveStats.value = null
     liveProducts.value = []
