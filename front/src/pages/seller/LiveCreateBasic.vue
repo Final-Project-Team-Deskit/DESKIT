@@ -215,9 +215,14 @@ const handleStandbyError = () => {
   clearStandby()
 }
 
-const isQuestionValid = (text: string) => {
-  const trimmed = text.trim()
-  return !!trimmed
+const getErrorMessage = (error: unknown, fallback: string) => {
+  if (error && typeof error === 'object' && 'message' in error) {
+    const message = (error as { message?: unknown }).message
+    if (typeof message === 'string' && message.trim()) {
+      return message
+    }
+  }
+  return fallback
 }
 
 const submit = () => {
@@ -285,7 +290,7 @@ const submit = () => {
         void reloadReservationSlots(draft.value.date)
         return
       }
-      error.value = apiError?.message ?? '방송 등록에 실패했습니다.'
+      error.value = getErrorMessage(apiError, '방송 등록에 실패했습니다.')
     })
 }
 
@@ -329,13 +334,13 @@ const confirmRemoveProduct = (productId: string) => {
 const minDate = computed(() => {
   const date = new Date()
   date.setDate(date.getDate() + 1)
-  return date.toISOString().split('T')[0]
+  return date.toISOString().split('T')[0] ?? ''
 })
 
 const maxDate = computed(() => {
   const date = new Date()
   date.setDate(date.getDate() + 14)
-  return date.toISOString().split('T')[0]
+  return date.toISOString().split('T')[0] ?? ''
 })
 
 const normalizeCategorySelection = () => {
@@ -351,7 +356,7 @@ const loadCategories = async () => {
     categories.value = await fetchCategories()
     normalizeCategorySelection()
   } catch (apiError) {
-    error.value = apiError?.message ?? '카테고리를 불러오지 못했습니다.'
+    error.value = getErrorMessage(apiError, '카테고리를 불러오지 못했습니다.')
   }
 }
 
@@ -359,7 +364,7 @@ const loadProducts = async () => {
   try {
     sellerProducts.value = await fetchSellerProducts()
   } catch (apiError) {
-    error.value = apiError?.message ?? '상품 목록을 불러오지 못했습니다.'
+    error.value = getErrorMessage(apiError, '상품 목록을 불러오지 못했습니다.')
   }
 }
 
@@ -372,7 +377,7 @@ const reloadReservationSlots = async (date: string) => {
       draft.value.time = ''
     }
   } catch (apiError) {
-    error.value = apiError?.message ?? '예약 가능 시간을 불러오지 못했습니다.'
+    error.value = getErrorMessage(apiError, '예약 가능 시간을 불러오지 못했습니다.')
   }
 }
 
@@ -977,7 +982,7 @@ input[type='file'] {
 
 .product-card.checked {
   border-color: var(--primary-color);
-  box-shadow: 0 0 0 2px var(--primary-color-light, rgba(45, 127, 249, 0.2));
+  box-shadow: 0 0 0 2px rgba(45, 127, 249, 0.2);
 }
 
 .product-thumb {
