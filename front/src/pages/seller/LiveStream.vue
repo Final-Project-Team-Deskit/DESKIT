@@ -15,6 +15,7 @@ import {
 } from '../../lib/live/api'
 import { parseLiveDate } from '../../lib/live/utils'
 import { getAuthUser } from '../../lib/auth'
+import { resolveViewerId } from '../../lib/live/viewer'
 import { computeLifecycleStatus, getScheduledEndMs, normalizeBroadcastStatus, type BroadcastStatus } from '../../lib/broadcastStatus'
 
 type StreamProduct = {
@@ -482,8 +483,8 @@ const connectSse = (broadcastId: number) => {
     sseSource.value.close()
   }
   const user = getAuthUser()
-  const viewerId = user?.id ?? user?.userId ?? user?.user_id ?? user?.sellerId
-  const query = viewerId ? `?viewerId=${encodeURIComponent(String(viewerId))}` : ''
+  const viewerId = resolveViewerId(user)
+  const query = viewerId ? `?viewerId=${encodeURIComponent(viewerId)}` : ''
   const source = new EventSource(`${apiBase}/api/broadcasts/${broadcastId}/subscribe${query}`)
   const events = [
     'BROADCAST_READY',
@@ -518,10 +519,8 @@ const connectSse = (broadcastId: number) => {
 const startStatsPolling = (broadcastId: number) => {
   if (statsTimer.value) window.clearInterval(statsTimer.value)
   statsTimer.value = window.setInterval(() => {
-    if (!sseConnected.value) {
-      void refreshStats(broadcastId)
-      void refreshProducts(broadcastId)
-    }
+    void refreshStats(broadcastId)
+    void refreshProducts(broadcastId)
   }, 30000)
 }
 

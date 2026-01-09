@@ -12,6 +12,7 @@ import {useInfiniteScroll} from '../../composables/useInfiniteScroll'
 import {parseLiveDate} from '../../lib/live/utils'
 import {type BroadcastCategory, fetchAdminBroadcasts, fetchCategories} from '../../lib/live/api'
 import { getAuthUser } from '../../lib/auth'
+import { resolveViewerId } from '../../lib/live/viewer'
 
 type LiveTab = 'all' | 'scheduled' | 'live' | 'vod'
 type LoopKind = 'live' | 'scheduled' | 'vod'
@@ -403,8 +404,8 @@ const scheduleReconnect = () => {
 const connectSse = () => {
   sseSource.value?.close()
   const user = getAuthUser()
-  const viewerId = user?.id ?? user?.userId ?? user?.user_id ?? user?.adminId
-  const query = viewerId ? `?viewerId=${encodeURIComponent(String(viewerId))}` : ''
+  const viewerId = resolveViewerId(user)
+  const query = viewerId ? `?viewerId=${encodeURIComponent(viewerId)}` : ''
   const source = new EventSource(`${apiBase}/api/broadcasts/subscribe/all${query}`)
   const events = [
     'BROADCAST_READY',

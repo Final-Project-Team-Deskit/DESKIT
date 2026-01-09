@@ -7,6 +7,7 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.io.IOException;
 import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
 @Slf4j
@@ -16,11 +17,8 @@ public class SseService {
     private final Map<String, SseEmitter> emitters = new ConcurrentHashMap<>();
 
     public SseEmitter subscribe(Long broadcastId, String userId) {
-        String key = broadcastId + "_" + userId;
-        SseEmitter existing = emitters.remove(key);
-        if (existing != null) {
-            existing.complete();
-        }
+        String resolvedUserId = resolveUserId(userId);
+        String key = buildBroadcastKey(broadcastId, resolvedUserId, UUID.randomUUID().toString());
         SseEmitter emitter = new SseEmitter(10 * 60 * 1000L);
 
         emitters.put(key, emitter);
@@ -41,11 +39,8 @@ public class SseService {
     }
 
     public SseEmitter subscribeAll(String userId) {
-        String key = "ALL_" + userId;
-        SseEmitter existing = emitters.remove(key);
-        if (existing != null) {
-            existing.complete();
-        }
+        String resolvedUserId = resolveUserId(userId);
+        String key = buildAllKey(resolvedUserId, UUID.randomUUID().toString());
         SseEmitter emitter = new SseEmitter(10 * 60 * 1000L);
         emitters.put(key, emitter);
 
@@ -65,8 +60,9 @@ public class SseService {
     }
 
     public void notifyBroadcastUpdate(Long broadcastId, String eventName, Object data) {
+        String prefix = broadcastId + ":";
         emitters.forEach((key, emitter) -> {
-            if (key.startsWith(broadcastId + "_")) {
+            if (key.startsWith(prefix)) {
                 sendToClient(emitter, key, eventName, data);
             }
         });
@@ -82,13 +78,17 @@ public class SseService {
     }
 
     public void notifyTargetUser(Long broadcastId, Long userId, String eventName, Object data) {
-        String key = broadcastId + "_" + userId;
-        SseEmitter emitter = emitters.get(key);
-
-        if (emitter != null) {
-            sendToClient(emitter, key, eventName, data);
-        } else {
-            log.warn("Target user not found or disconnected: key={}", key);
+        String prefix = broadcastId + ":" + userId + ":";
+        boolean delivered = false;
+        for (Map.Entry<String, SseEmitter> entry : emitters.entrySet()) {
+            String key = entry.getKey();
+            if (key.startsWith(prefix)) {
+                sendToClient(entry.getValue(), key, eventName, data);
+                delivered = true;
+            }
+        }
+        if (!delivered) {
+            log.warn("Target user not found or disconnected: keyPrefix={}", prefix);
         }
     }
 
@@ -98,7 +98,7 @@ public class SseService {
                 "payload", data
         );
         emitters.forEach((key, emitter) -> {
-            if (key.startsWith("ALL_")) {
+            if (key.startsWith("ALL:")) {
                 sendToClient(emitter, key, eventName, payload);
             }
         });
@@ -115,5 +115,20 @@ public class SseService {
         } catch (IOException e) {
             emitters.remove(id);
         }
+    }
+
+    private String resolveUserId(String userId) {
+        if (userId == null || userId.isBlank()) {
+            return "anonymous";
+        }
+        return userId;
+    }
+
+    private String buildBroadcastKey(Long broadcastId, String userId, String sessionId) {
+        return broadcastId + ":" + userId + ":" + sessionId;
+    }
+
+    private String buildAllKey(String userId, String sessionId) {
+        return "ALL:" + userId + ":" + sessionId;
     }
 }

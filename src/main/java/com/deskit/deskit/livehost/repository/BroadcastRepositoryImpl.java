@@ -208,6 +208,8 @@ public class BroadcastRepositoryImpl implements BroadcastRepositoryCustom {
         return broadcastStatus.in(
                         BroadcastStatus.ON_AIR.name(),
                         BroadcastStatus.READY.name(),
+                        BroadcastStatus.ENDED.name(),
+                        BroadcastStatus.STOPPED.name(),
                         BroadcastStatus.RESERVED.name()
                 )
                 .or(vodStatus.eq(VodStatus.PUBLIC.name()));
@@ -236,13 +238,18 @@ public class BroadcastRepositoryImpl implements BroadcastRepositoryCustom {
             return trueCondition();
         }
         if ("LIVE".equalsIgnoreCase(tab)) {
-            return broadcastStatus.in(BroadcastStatus.ON_AIR.name(), BroadcastStatus.READY.name());
+            return broadcastStatus.in(
+                    BroadcastStatus.ON_AIR.name(),
+                    BroadcastStatus.READY.name(),
+                    BroadcastStatus.ENDED.name(),
+                    BroadcastStatus.STOPPED.name()
+            );
         }
         if ("RESERVED".equalsIgnoreCase(tab)) {
             return broadcastStatus.in(BroadcastStatus.RESERVED.name(), BroadcastStatus.CANCELED.name());
         }
         if ("VOD".equalsIgnoreCase(tab)) {
-            return broadcastStatus.in(BroadcastStatus.VOD.name(), BroadcastStatus.ENDED.name(), BroadcastStatus.STOPPED.name());
+            return broadcastStatus.in(BroadcastStatus.VOD.name());
         }
         return trueCondition();
     }
