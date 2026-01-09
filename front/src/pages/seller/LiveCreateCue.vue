@@ -8,8 +8,10 @@ import {
   clearDraft,
   createDefaultQuestions,
   createEmptyDraft,
+  getDraftRestoreDecision,
   loadDraft,
   saveDraft,
+  setDraftRestoreDecision,
   type LiveCreateDraft,
 } from '../../composables/useLiveCreateDraft'
 
@@ -38,11 +40,20 @@ const syncDraft = () => {
 const restoreDraft = async () => {
   const saved = loadDraft()
   if (!isEditMode.value && saved && (!saved.reservationId || saved.reservationId === reservationId.value)) {
-    const shouldRestore = window.confirm('이전에 작성 중인 내용을 불러올까요?')
-    if (shouldRestore) {
+    const decision = getDraftRestoreDecision()
+    if (decision === 'accepted') {
       draft.value = { ...draft.value, ...saved }
-    } else {
+    } else if (decision === 'declined') {
       clearDraft()
+    } else {
+      const shouldRestore = window.confirm('이전에 작성 중인 내용을 불러올까요?')
+      if (shouldRestore) {
+        setDraftRestoreDecision('accepted')
+        draft.value = { ...draft.value, ...saved }
+      } else {
+        setDraftRestoreDecision('declined')
+        clearDraft()
+      }
     }
   }
 
