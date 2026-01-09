@@ -141,6 +141,15 @@ const mapLiveProduct = (item: {
   }
 }
 
+const sortedLiveProducts = computed(() => {
+  return [...liveProducts.value].sort((a, b) => {
+    const aSoldOut = a.status === '품절'
+    const bSoldOut = b.status === '품절'
+    if (aSoldOut !== bSoldOut) return aSoldOut ? 1 : -1
+    return 0
+  })
+})
+
 const loadDetail = async () => {
   if (!liveId.value) {
     detail.value = null
@@ -288,6 +297,7 @@ const handleSseEvent = (event: MessageEvent) => {
       scheduleRefresh(idValue)
       break
     case 'PRODUCT_PINNED':
+    case 'PRODUCT_SOLD_OUT':
       scheduleRefresh(idValue)
       break
     case 'SANCTION_UPDATED':
@@ -310,6 +320,7 @@ const handleSseEvent = (event: MessageEvent) => {
       if (detail.value) {
         detail.value.status = 'STOPPED'
       }
+      scheduleRefresh(idValue)
       if (window.confirm(typeof data === 'string' ? data : '관리자에 의해 방송이 중지되었습니다.')) {
         goToList()
       }
@@ -339,6 +350,7 @@ const connectSse = (broadcastId: number) => {
     'BROADCAST_UPDATED',
     'BROADCAST_STARTED',
     'PRODUCT_PINNED',
+    'PRODUCT_SOLD_OUT',
     'SANCTION_UPDATED',
     'BROADCAST_ENDING_SOON',
     'BROADCAST_CANCELED',
@@ -675,7 +687,7 @@ watch(
             <span class="pill">총 {{ liveProducts.length }}개</span>
           </header>
           <div class="product-list">
-            <article v-for="product in liveProducts" :key="product.id" class="product-row">
+            <article v-for="product in sortedLiveProducts" :key="product.id" class="product-row">
               <div class="product-thumb">
                 <img :src="product.thumb" :alt="product.name" loading="lazy" @error="handleImageError" />
               </div>

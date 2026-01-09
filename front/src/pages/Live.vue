@@ -348,6 +348,7 @@ const handleSseEvent = (event: MessageEvent) => {
     case 'BROADCAST_UPDATED':
     case 'BROADCAST_STARTED':
     case 'PRODUCT_PINNED':
+    case 'PRODUCT_SOLD_OUT':
     case 'SANCTION_UPDATED':
     case 'BROADCAST_CANCELED':
     case 'BROADCAST_ENDED':
@@ -381,6 +382,7 @@ const connectSse = () => {
     'BROADCAST_UPDATED',
     'BROADCAST_STARTED',
     'PRODUCT_PINNED',
+    'PRODUCT_SOLD_OUT',
     'SANCTION_UPDATED',
     'BROADCAST_CANCELED',
     'BROADCAST_ENDED',
