@@ -16,7 +16,7 @@ import {
   loadWorkingDraft,
   saveDraft,
   saveWorkingDraft,
-  clearWorkingDraft, getDraftRestoreDecision,
+  clearWorkingDraft,
 } from '../../composables/useLiveCreateDraft'
 import {
   type BroadcastCategory,
@@ -147,24 +147,25 @@ const restoreDraft = async () => {
   const storedDraft = sessionStorage.getItem(DRAFT_KEY)
   const savedDraft = storedDraft ? loadDraft() : null
   let baseDraft = createEmptyDraft()
-  if (!isEditMode.value && savedDraft && (!savedDraft.reservationId || savedDraft.reservationId === reservationId.value)) {
-    const shouldRestore = window.confirm('이전에 작성 중인 내용을 불러올까요?')
-    if (shouldRestore) {
+  if (workingDraft) {
+    baseDraft = { ...createEmptyDraft(), ...workingDraft }
+  } else if (!isEditMode.value) {
+    const savedDraft = loadDraft()
+    const decision = getDraftRestoreDecision()
+    if (savedDraft && decision === 'accepted' && (!savedDraft.reservationId || savedDraft.reservationId === reservationId.value)) {
       baseDraft = { ...createEmptyDraft(), ...savedDraft }
-    } else {
+    } else if (decision === 'declined') {
       clearDraft()
     }
   }
 
-  const reservationDraft = isEditMode.value
+  draft.value = isEditMode.value
       ? {
         ...baseDraft,
         ...(await buildDraftFromReservation(reservationId.value)),
         reservationId: reservationId.value,
       }
       : baseDraft
-
-  draft.value = reservationDraft
   draft.value.products = draft.value.products.map((product) => clampProductQuantity(product))
   modalProducts.value = draft.value.products.map((p) => ({ ...p }))
 }
