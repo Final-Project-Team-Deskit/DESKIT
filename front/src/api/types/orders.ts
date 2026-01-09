@@ -22,6 +22,8 @@ export interface OrderSummaryResponse {
   status: OrderStatus
   order_amount: number
   created_at: string
+  cancel_reason?: string
+  cancel_requested_at?: string
 }
 
 export interface OrderItemResponse {

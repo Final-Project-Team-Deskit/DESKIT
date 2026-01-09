@@ -22,12 +22,18 @@ public record OrderDetailResponse(
   @JsonProperty("created_at")
   LocalDateTime createdAt,
 
+  @JsonProperty("cancel_reason")
+  String cancelReason,
+
+  @JsonProperty("cancel_requested_at")
+  LocalDateTime cancelRequestedAt,
+
   @JsonProperty("items")
   List<OrderItemResponse> items
 ) {
   public static OrderDetailResponse from(Order order, List<OrderItemResponse> items) {
     if (order == null) {
-      return new OrderDetailResponse(null, null, null, null, null, items);
+      return new OrderDetailResponse(null, null, null, null, null, null, null, items);
     }
     return new OrderDetailResponse(
       order.getId(),
@@ -35,6 +41,8 @@ public record OrderDetailResponse(
       order.getStatus(),
       order.getOrderAmount(),
       order.getCreatedAt(),
+      order.getCancelReason(),
+      order.getUpdatedAt(),
       items
     );
   }

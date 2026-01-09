@@ -34,6 +34,7 @@ public class SecurityConfig {
     private final CustomOAuth2FailureHandler customOAuth2FailureHandler;
     private final JWTUtil jwtUtil;
     private final RefreshRepository refreshRepository;
+
     public SecurityConfig(CustomOAuth2UserService customOAuth2UserService,
                           CustomSuccessHandler customSuccessHandler,
                           CustomOAuth2FailureHandler customOAuth2FailureHandler,
@@ -114,52 +115,53 @@ public class SecurityConfig {
                 );
 
         //경로별 인가 작업
-		http
-				.authorizeHttpRequests((auth) -> auth
-						.requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
-						.requestMatchers(HttpMethod.GET,
-								"/api/products/**",
-								"/api/setups/**",
-								"/api/setup/**",
-								"/api/products",
-								"/api/setups",
-								"/api/home/**",
-								"/livechats/**",
-								"/products/**",
-								"/setups/**"
-						).permitAll()
-						.requestMatchers(
-								"/",
-                "/chat",
-                "/chat/**",
-                "/reissue",
-                "/api/home/**",
+        http
+                .authorizeHttpRequests((auth) -> auth
+                        .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
+                        .requestMatchers(HttpMethod.PATCH, "/api/orders/**").hasAuthority("ROLE_MEMBER")
+                        .requestMatchers(HttpMethod.GET,
+                                "/api/products/**",
+                                "/api/setups/**",
+                                "/api/setup/**",
+                                "/api/products",
+                                "/api/setups",
+                                "/api/home/**",
+                                "/livechats/**",
+                                "/products/**",
+                                "/setups/**"
+                        ).permitAll()
+                        .requestMatchers(
+                                "/",
+                                "/chat",
+                                "/chat/**",
+                                "/reissue",
+                                "/api/home/**",
                                 "/api/broadcasts/**",
                                 "/api/categories",
                                 "/api/vods/**",
                                 "/api/webhook/**",
-                "/api/admin/auth/**",
-                "/api/invitations/validate",
-                "/oauth/**",
-								"/login",
-								"/login/**",
-								"/login/oauth2/**",
+                                "/api/admin/auth/**",
+                                "/api/invitations/validate",
+                                "/oauth/**",
+                                "/login",
+                                "/login/**",
+                                "/login/oauth2/**",
                                 "/ws/**"
-						).permitAll()
-						.requestMatchers("/api/admin/**").hasAuthority("ROLE_ADMIN")
-						.requestMatchers("/api/quit").hasAnyAuthority(
-								"ROLE_MEMBER",
-								"ROLE_SELLER_OWNER",
-								"ROLE_SELLER_MANAGER"
-						)
-						.requestMatchers("/my").hasAnyAuthority(
-								"ROLE_MEMBER",
-								"ROLE_SELLER",
-								"ROLE_SELLER_OWNER",
-								"ROLE_SELLER_MANAGER",
-								"ROLE_ADMIN"
-						)
-						.anyRequest().authenticated());
+                        ).permitAll()
+                        .requestMatchers("/api/admin/**").hasAuthority("ROLE_ADMIN")
+                        .requestMatchers("/api/quit").hasAnyAuthority(
+                                "ROLE_MEMBER",
+                                "ROLE_SELLER_OWNER",
+                                "ROLE_SELLER_MANAGER"
+                        )
+                        .requestMatchers("/my").hasAnyAuthority(
+                                "ROLE_MEMBER",
+                                "ROLE_SELLER",
+                                "ROLE_SELLER_OWNER",
+                                "ROLE_SELLER_MANAGER",
+                                "ROLE_ADMIN"
+                        )
+                        .anyRequest().authenticated());
 
         //세션 설정 : STATELESS -> IF_REQUIRED
         http
