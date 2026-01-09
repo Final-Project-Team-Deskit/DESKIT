@@ -42,8 +42,7 @@ const cropperOpen = ref(false)
 const cropperSource = ref('')
 const cropperFileName = ref('')
 const cropTarget = ref<'thumb' | 'standby' | null>(null)
-const thumbFileName = ref('')
-const standbyFileName = ref('')
+const cropperApplied = ref(false)
 const thumbInputRef = ref<HTMLInputElement | null>(null)
 const standbyInputRef = ref<HTMLInputElement | null>(null)
 
@@ -170,6 +169,7 @@ const openCropper = (file: File, target: 'thumb' | 'standby') => {
     cropperSource.value = typeof reader.result === 'string' ? reader.result : ''
     cropperFileName.value = file.name
     cropTarget.value = target
+    cropperApplied.value = false
     cropperOpen.value = true
   }
   reader.readAsDataURL(file)
@@ -202,25 +202,22 @@ const handleStandbyUpload = (event: Event) => {
 }
 
 const applyCroppedImage = (payload: { dataUrl: string; fileName: string }) => {
+  cropperApplied.value = true
   if (cropTarget.value === 'thumb') {
     draft.value.thumb = payload.dataUrl
-    thumbFileName.value = payload.fileName
   }
   if (cropTarget.value === 'standby') {
     draft.value.standbyThumb = payload.dataUrl
-    standbyFileName.value = payload.fileName
   }
 }
 
 const clearThumb = () => {
   draft.value.thumb = ''
-  thumbFileName.value = ''
   if (thumbInputRef.value) thumbInputRef.value.value = ''
 }
 
 const clearStandby = () => {
   draft.value.standbyThumb = ''
-  standbyFileName.value = ''
   if (standbyInputRef.value) standbyInputRef.value.value = ''
 }
 
@@ -234,6 +231,22 @@ const handleStandbyError = () => {
   clearStandby()
 }
 
+const resetCropperState = () => {
+  cropperSource.value = ''
+  cropperFileName.value = ''
+  cropTarget.value = null
+  cropperApplied.value = false
+}
+
+const clearInputForTarget = (target: 'thumb' | 'standby') => {
+  if (target === 'thumb' && thumbInputRef.value) {
+    thumbInputRef.value.value = ''
+  }
+  if (target === 'standby' && standbyInputRef.value) {
+    standbyInputRef.value.value = ''
+  }
+}
+
 const getErrorMessage = (error: unknown, fallback: string) => {
   if (error && typeof error === 'object' && 'message' in error) {
     const message = (error as { message?: unknown }).message
@@ -242,6 +255,16 @@ const getErrorMessage = (error: unknown, fallback: string) => {
     }
   }
   return fallback
+}
+
+const getErrorStatus = (error: unknown) => {
+  if (error && typeof error === 'object' && 'response' in error) {
+    const response = (error as { response?: { status?: number } }).response
+    if (response && typeof response.status === 'number') {
+      return response.status
+    }
+  }
+  return null
 }
 
 const submit = () => {
@@ -403,6 +426,10 @@ const loadProducts = async () => {
   try {
     sellerProducts.value = await fetchSellerProducts()
   } catch (apiError) {
+    if (getErrorStatus(apiError) === 404) {
+      sellerProducts.value = []
+      return
+    }
     error.value = getErrorMessage(apiError, '상품 목록을 불러오지 못했습니다.')
   }
 }
@@ -448,6 +475,15 @@ watch(
     }
   },
 )
+
+watch(cropperOpen, (open, wasOpen) => {
+  if (!open && wasOpen) {
+    if (!cropperApplied.value && cropTarget.value) {
+      clearInputForTarget(cropTarget.value)
+    }
+    resetCropperState()
+  }
+})
 
 onMounted(async () => {
   await loadCategories()
@@ -596,7 +632,6 @@ watch(
             <span class="field__label">방송 썸네일 업로드</span>
             <input ref="thumbInputRef" type="file" accept="image/*" @change="handleThumbUpload" />
             <span v-if="thumbError" class="error">{{ thumbError }}</span>
-            <p class="upload-filename">{{ thumbFileName || '선택된 파일 없음' }}</p>
             <div v-if="draft.thumb" class="preview">
               <img :src="draft.thumb" alt="방송 썸네일 미리보기" @error="handleThumbError" />
             </div>
@@ -606,7 +641,6 @@ watch(
             <span class="field__label">대기화면 업로드</span>
             <input ref="standbyInputRef" type="file" accept="image/*" @change="handleStandbyUpload" />
             <span v-if="standbyError" class="error">{{ standbyError }}</span>
-            <p class="upload-filename">{{ standbyFileName || '선택된 파일 없음' }}</p>
             <div v-if="draft.standbyThumb" class="preview">
               <img :src="draft.standbyThumb" alt="대기화면 미리보기" @error="handleStandbyError" />
             </div>
