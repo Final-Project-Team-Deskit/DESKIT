@@ -1,4 +1,5 @@
 import { getAuthUser } from '../lib/auth'
+import { resolveViewerId } from '../lib/live/viewer'
 import { fetchSellerBroadcastDetail, type BroadcastDetailResponse } from '../lib/live/api'
 
 export type LiveCreateProduct = {
@@ -39,9 +40,7 @@ type StoredDraft = {
 
 const resolveSellerKey = () => {
   const user = getAuthUser()
-  const sellerId = user?.seller_id ?? user?.sellerId ?? user?.id ?? user?.user_id ?? user?.userId
-  if (!sellerId) return ''
-  return String(sellerId)
+  return resolveViewerId(user) ?? ''
 }
 
 const getDraftStorage = () => sessionStorage
@@ -49,13 +48,6 @@ const getDraftStorage = () => sessionStorage
 const clearDraftStorage = () => {
   getDraftStorage().removeItem(DRAFT_KEY)
 }
-
-window.addEventListener('deskit-user-updated', () => {
-  const ownerId = resolveSellerKey()
-  if (!ownerId) {
-    clearDraftStorage()
-  }
-})
 
 const createId = () => `q-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
 
@@ -94,6 +86,14 @@ const parseStoredDraft = (raw: string | null): StoredDraft | null => {
     return null
   }
 }
+
+window.addEventListener('deskit-user-updated', () => {
+  const ownerId = resolveSellerKey()
+  const stored = parseStoredDraft(getDraftStorage().getItem(DRAFT_KEY))
+  if (!ownerId || (stored && stored.ownerId !== ownerId)) {
+    clearDraftStorage()
+  }
+})
 
 const normalizeDraft = (payload: LiveCreateDraft): LiveCreateDraft => {
   const { cueTitle: _ignoredCueTitle, cueNotes: _ignoredCueNotes, ...rest } = payload as Record<string, any>

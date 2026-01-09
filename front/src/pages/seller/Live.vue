@@ -21,6 +21,7 @@ import {
   type BroadcastCategory,
 } from '../../lib/live/api'
 import { getAuthUser } from '../../lib/auth'
+import { resolveViewerId } from '../../lib/live/viewer'
 
 const router = useRouter()
 const route = useRoute()
@@ -414,8 +415,8 @@ const scheduleReconnect = () => {
 const connectSse = () => {
   sseSource.value?.close()
   const user = getAuthUser()
-  const viewerId = user?.id ?? user?.userId ?? user?.user_id ?? user?.sellerId
-  const query = viewerId ? `?viewerId=${encodeURIComponent(String(viewerId))}` : ''
+  const viewerId = resolveViewerId(user)
+  const query = viewerId ? `?viewerId=${encodeURIComponent(viewerId)}` : ''
   const source = new EventSource(`${apiBase}/api/broadcasts/subscribe/all${query}`)
   const events = [
     'BROADCAST_READY',
@@ -454,8 +455,9 @@ const loadCategories = async () => {
 
 const vodItemsWithStatus = computed(() => vodItems.value.map(withLifecycleStatus))
 
-const stoppedVodItems = computed<LiveItem[]>(() =>
-  scheduledWithStatus.value
+const stoppedVodItems = computed<LiveItem[]>(() => {
+  const sources = [...liveItemsWithStatus.value, ...scheduledWithStatus.value]
+  return sources
     .filter(
       (item) =>
         normalizeBroadcastStatus(item.lifecycleStatus ?? item.status) === 'STOPPED' &&
@@ -468,8 +470,8 @@ const stoppedVodItems = computed<LiveItem[]>(() =>
       statusBadge: 'STOPPED',
       visibility: item.visibility ?? 'public',
       datetime: item.datetime || formatDateLabel(item.startAtMs, '종료'),
-    })),
-)
+    }))
+})
 
 const combinedVodItems = computed<LiveItem[]>(() => [...vodItemsWithStatus.value, ...stoppedVodItems.value])
 

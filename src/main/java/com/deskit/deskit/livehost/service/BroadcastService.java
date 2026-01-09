@@ -1170,19 +1170,19 @@ public class BroadcastService {
     private BroadcastAllResponse getOverview(Long sellerId, boolean isAdmin) {
         List<BroadcastListResponse> onAir = broadcastRepository.findTop5ByStatus(
                 sellerId,
-                List.of(BroadcastStatus.ON_AIR, BroadcastStatus.READY),
+                List.of(BroadcastStatus.ON_AIR, BroadcastStatus.READY, BroadcastStatus.ENDED, BroadcastStatus.STOPPED),
                 BroadcastRepositoryCustom.BroadcastSortOrder.STARTED_AT_DESC,
                 isAdmin
         );
         List<BroadcastListResponse> reserved = broadcastRepository.findTop5ByStatus(
                 sellerId,
-                List.of(BroadcastStatus.RESERVED),
+                isAdmin ? List.of(BroadcastStatus.RESERVED, BroadcastStatus.CANCELED) : List.of(BroadcastStatus.RESERVED),
                 BroadcastRepositoryCustom.BroadcastSortOrder.SCHEDULED_AT_ASC,
                 isAdmin
         );
         List<BroadcastListResponse> vod = broadcastRepository.findTop5ByStatus(
                 sellerId,
-                List.of(BroadcastStatus.VOD, BroadcastStatus.ENDED, BroadcastStatus.STOPPED),
+                List.of(BroadcastStatus.VOD),
                 BroadcastRepositoryCustom.BroadcastSortOrder.ENDED_AT_DESC,
                 isAdmin
         );

@@ -9,6 +9,7 @@ import ConfirmModal from '../components/ConfirmModal.vue'
 import { getLiveStatus, parseLiveDate } from '../lib/live/utils'
 import { useNow } from '../lib/live/useNow'
 import { getAuthUser } from '../lib/auth'
+import { resolveViewerId } from '../lib/live/viewer'
 import { fetchBroadcastProducts, fetchBroadcastStats, fetchPublicBroadcastDetail, type BroadcastProductItem } from '../lib/live/api'
 import type { LiveItem } from '../lib/live/types'
 import { computeLifecycleStatus, getScheduledEndMs, normalizeBroadcastStatus } from '../lib/broadcastStatus'
@@ -348,8 +349,8 @@ const scheduleReconnect = (id: number) => {
 const connectSse = (id: number) => {
   sseSource.value?.close()
   const user = getAuthUser()
-  const viewerId = user?.id ?? user?.userId ?? user?.user_id ?? user?.userId
-  const query = viewerId ? `?viewerId=${encodeURIComponent(String(viewerId))}` : ''
+  const viewerId = resolveViewerId(user)
+  const query = viewerId ? `?viewerId=${encodeURIComponent(viewerId)}` : ''
   const source = new EventSource(`${apiBase}/api/broadcasts/${id}/subscribe${query}`)
   const events = [
     'BROADCAST_READY',
@@ -382,10 +383,8 @@ const connectSse = (id: number) => {
 const startStatsPolling = () => {
   if (statsTimer.value) window.clearInterval(statsTimer.value)
   statsTimer.value = window.setInterval(() => {
-    if (!sseConnected.value) {
-      void loadStats()
-      void loadProducts()
-    }
+    void loadStats()
+    void loadProducts()
   }, 30000)
 }
 

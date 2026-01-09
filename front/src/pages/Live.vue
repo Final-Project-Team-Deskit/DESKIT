@@ -16,6 +16,7 @@ import type { LiveItem } from '../lib/live/types'
 import { useNow } from '../lib/live/useNow'
 import { fetchPublicBroadcastOverview } from '../lib/live/api'
 import { getAuthUser } from '../lib/auth'
+import { resolveViewerId } from '../lib/live/viewer'
 
 const router = useRouter()
 const today = new Date()
@@ -108,6 +109,14 @@ const getSectionStatus = (item: LiveItem) => {
   if (status === 'VOD') return 'ENDED'
   return 'LIVE'
 }
+const isPastScheduledEnd = (item: LiveItem): boolean => {
+  const startAtMs = parseLiveDate(item.startAt).getTime()
+  const normalizedStart = Number.isNaN(startAtMs) ? undefined : startAtMs
+  const endAtMs = parseLiveDate(item.endAt).getTime()
+  const normalizedEnd = Number.isNaN(endAtMs) ? getScheduledEndMs(normalizedStart) : endAtMs
+  if (!normalizedEnd) return false
+  return Date.now() > normalizedEnd
+}
 const isRowDisabled = (item: LiveItem) => getLifecycleStatus(item) === 'RESERVED'
 const getCountdownLabel = (item: LiveItem) => {
   if (getSectionStatus(item) !== 'UPCOMING') {
@@ -145,7 +154,14 @@ const getCountdownLabel = (item: LiveItem) => {
 }
 
 const itemsForDay = computed(() => {
-  return sortLivesByStartAt(filterLivesByDay(liveItems.value, selectedDay.value))
+  const filtered = filterLivesByDay(liveItems.value, selectedDay.value)
+  const visible = filtered.filter((item) => {
+    const status = getLifecycleStatus(item)
+    if (status === 'CANCELED') return false
+    if (status === 'STOPPED' && isPastScheduledEnd(item)) return false
+    return true
+  })
+  return sortLivesByStartAt(visible)
 })
 
 const liveItemsForDay = computed(() => itemsForDay.value.filter((item) => getSectionStatus(item) === 'LIVE'))
@@ -357,8 +373,8 @@ const scheduleReconnect = () => {
 const connectSse = () => {
   sseSource.value?.close()
   const user = getAuthUser()
-  const viewerId = user?.id ?? user?.userId ?? user?.user_id ?? user?.sellerId
-  const query = viewerId ? `?viewerId=${encodeURIComponent(String(viewerId))}` : ''
+  const viewerId = resolveViewerId(user)
+  const query = viewerId ? `?viewerId=${encodeURIComponent(viewerId)}` : ''
   const source = new EventSource(`${apiBase}/api/broadcasts/subscribe/all${query}`)
   const events = [
     'BROADCAST_READY',

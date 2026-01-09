@@ -365,10 +365,8 @@ const connectSse = (broadcastId: number) => {
 const startStatsPolling = (broadcastId: number) => {
   if (statsTimer.value) window.clearInterval(statsTimer.value)
   statsTimer.value = window.setInterval(() => {
-    if (!sseConnected.value) {
-      void refreshStats(broadcastId)
-      void refreshProducts(broadcastId)
-    }
+    void refreshStats(broadcastId)
+    void refreshProducts(broadcastId)
   }, 30000)
 }
 
