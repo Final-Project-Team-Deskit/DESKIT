@@ -40,12 +40,37 @@ public class SseService {
         return emitter;
     }
 
+    public SseEmitter subscribeAll(String userId) {
+        String key = "ALL_" + userId;
+        SseEmitter existing = emitters.remove(key);
+        if (existing != null) {
+            existing.complete();
+        }
+        SseEmitter emitter = new SseEmitter(10 * 60 * 1000L);
+        emitters.put(key, emitter);
+
+        emitter.onCompletion(() -> emitters.remove(key));
+        emitter.onTimeout(() -> {
+            emitters.remove(key);
+            emitter.complete();
+        });
+        emitter.onError((e) -> {
+            emitters.remove(key);
+            emitter.completeWithError(e);
+        });
+
+        sendToClient(emitter, key, "connect", "Connected!");
+
+        return emitter;
+    }
+
     public void notifyBroadcastUpdate(Long broadcastId, String eventName, Object data) {
         emitters.forEach((key, emitter) -> {
             if (key.startsWith(broadcastId + "_")) {
                 sendToClient(emitter, key, eventName, data);
             }
         });
+        notifyGlobalUpdate(broadcastId, eventName, data);
     }
 
     public void notifyBroadcastUpdate(Long broadcastId, String eventName) {
@@ -65,6 +90,18 @@ public class SseService {
         } else {
             log.warn("Target user not found or disconnected: key={}", key);
         }
+    }
+
+    private void notifyGlobalUpdate(Long broadcastId, String eventName, Object data) {
+        Map<String, Object> payload = Map.of(
+                "broadcastId", broadcastId,
+                "payload", data
+        );
+        emitters.forEach((key, emitter) -> {
+            if (key.startsWith("ALL_")) {
+                sendToClient(emitter, key, eventName, payload);
+            }
+        });
     }
 
     @Scheduled(fixedRate = 30000)

@@ -11,6 +11,7 @@ import {
 import {useInfiniteScroll} from '../../composables/useInfiniteScroll'
 import {parseLiveDate} from '../../lib/live/utils'
 import {type BroadcastCategory, fetchAdminBroadcasts, fetchCategories} from '../../lib/live/api'
+import { getAuthUser } from '../../lib/auth'
 
 type LiveTab = 'all' | 'scheduled' | 'live' | 'vod'
 type LoopKind = 'live' | 'scheduled' | 'vod'
@@ -137,6 +138,12 @@ const autoTimers = ref<Record<LoopKind, number | null>>({
   scheduled: null,
   vod: null,
 })
+const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080'
+const sseSource = ref<EventSource | null>(null)
+const sseConnected = ref(false)
+const sseRetryCount = ref(0)
+const sseRetryTimer = ref<number | null>(null)
+const refreshTimer = ref<number | null>(null)
 
 const visibleLive = computed(() => activeTab.value === 'all' || activeTab.value === 'live')
 const visibleScheduled = computed(() => activeTab.value === 'all' || activeTab.value === 'scheduled')
@@ -337,6 +344,84 @@ const loadAdminData = async () => {
   }
 }
 
+const parseSseData = (event: MessageEvent) => {
+  if (!event.data) return null
+  try {
+    return JSON.parse(event.data)
+  } catch {
+    return event.data
+  }
+}
+
+const scheduleRefresh = () => {
+  if (refreshTimer.value) window.clearTimeout(refreshTimer.value)
+  refreshTimer.value = window.setTimeout(() => {
+    void loadAdminData()
+  }, 500)
+}
+
+const handleSseEvent = (event: MessageEvent) => {
+  parseSseData(event)
+  switch (event.type) {
+    case 'BROADCAST_READY':
+    case 'BROADCAST_UPDATED':
+    case 'BROADCAST_STARTED':
+    case 'PRODUCT_PINNED':
+    case 'SANCTION_UPDATED':
+    case 'BROADCAST_CANCELED':
+    case 'BROADCAST_ENDED':
+    case 'BROADCAST_SCHEDULED_END':
+    case 'BROADCAST_STOPPED':
+      scheduleRefresh()
+      break
+    default:
+      break
+  }
+}
+
+const scheduleReconnect = () => {
+  if (sseRetryTimer.value) window.clearTimeout(sseRetryTimer.value)
+  const delay = Math.min(30000, 1000 * 2 ** sseRetryCount.value)
+  const jitter = Math.floor(Math.random() * 500)
+  sseRetryTimer.value = window.setTimeout(() => {
+    connectSse()
+  }, delay + jitter)
+  sseRetryCount.value += 1
+}
+
+const connectSse = () => {
+  sseSource.value?.close()
+  const user = getAuthUser()
+  const viewerId = user?.id ?? user?.userId ?? user?.user_id ?? user?.adminId
+  const query = viewerId ? `?viewerId=${encodeURIComponent(String(viewerId))}` : ''
+  const source = new EventSource(`${apiBase}/api/broadcasts/subscribe/all${query}`)
+  const events = [
+    'BROADCAST_READY',
+    'BROADCAST_UPDATED',
+    'BROADCAST_STARTED',
+    'PRODUCT_PINNED',
+    'SANCTION_UPDATED',
+    'BROADCAST_CANCELED',
+    'BROADCAST_ENDED',
+    'BROADCAST_SCHEDULED_END',
+    'BROADCAST_STOPPED',
+  ]
+  events.forEach((name) => source.addEventListener(name, handleSseEvent))
+  source.onopen = () => {
+    sseConnected.value = true
+    sseRetryCount.value = 0
+    scheduleRefresh()
+  }
+  source.onerror = () => {
+    sseConnected.value = false
+    source.close()
+    if (document.visibilityState === 'visible') {
+      scheduleReconnect()
+    }
+  }
+  sseSource.value = source
+}
+
 const loadCategories = async () => {
   try {
     categories.value = await fetchCategories()
@@ -489,9 +574,7 @@ const { sentinelRef: vodSentinelRef } = useInfiniteScroll({
   enabled: () => activeTab.value === 'vod',
 })
 
-const liveCategories = computed(() => Array.from(new Set(liveDisplayItems.value.map((item) => item.category ?? '기타'))))
-const scheduledCategories = computed(() => Array.from(new Set(scheduledItemsWithStatus.value.map((item) => item.category ?? '기타'))))
-const vodCategories = computed(() => Array.from(new Set(vodDisplayItems.value.map((item) => item.category ?? '기타'))))
+const categoryOptions = computed(() => categories.value)
 
 const liveSummary = computed<LiveItem[]>(() =>
   liveDisplayItems.value
@@ -715,6 +798,7 @@ onMounted(() => {
   refreshTabFromQuery()
   void loadCategories()
   loadAdminData()
+  connectSse()
   nextTick(() => {
     resetAllLoops()
     handleResize()
@@ -727,6 +811,11 @@ onBeforeUnmount(() => {
   stopAutoLoop('live')
   stopAutoLoop('scheduled')
   stopAutoLoop('vod')
+  if (sseRetryTimer.value) window.clearTimeout(sseRetryTimer.value)
+  sseRetryTimer.value = null
+  if (refreshTimer.value) window.clearTimeout(refreshTimer.value)
+  refreshTimer.value = null
+  sseSource.value?.close()
 })
 </script>
 
@@ -792,7 +881,7 @@ onBeforeUnmount(() => {
             <span>카테고리</span>
             <select v-model="liveCategory">
               <option value="all">모든 카테고리</option>
-              <option v-for="category in liveCategories" :key="category" :value="category">{{ category }}</option>
+              <option v-for="category in categoryOptions" :key="category.id" :value="category.name">{{ category.name }}</option>
             </select>
           </label>
           <label class="inline-filter">
@@ -941,7 +1030,7 @@ onBeforeUnmount(() => {
             <span>카테고리</span>
             <select v-model="scheduledCategory">
               <option value="all">모든 카테고리</option>
-              <option v-for="category in scheduledCategories" :key="category" :value="category">{{ category }}</option>
+              <option v-for="category in categoryOptions" :key="category.id" :value="category.name">{{ category.name }}</option>
             </select>
           </label>
           <label class="inline-filter">
@@ -1107,7 +1196,7 @@ onBeforeUnmount(() => {
             <span>카테고리</span>
             <select v-model="vodCategory">
               <option value="all">모든 카테고리</option>
-              <option v-for="category in vodCategories" :key="category" :value="category">{{ category }}</option>
+              <option v-for="category in categoryOptions" :key="category.id" :value="category.name">{{ category.name }}</option>
             </select>
           </label>
           <label class="inline-filter">

@@ -98,6 +98,15 @@ public class BroadcastPublicController {
         return sseService.subscribe(broadcastId, userId);
     }
 
+    @GetMapping(value = "/broadcasts/subscribe/all", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public SseEmitter subscribeAll(
+            @RequestHeader(value = "X-Viewer-Id", required = false) String viewerId,
+            @RequestParam(value = "viewerId", required = false) String viewerIdParam
+    ) {
+        String userId = (viewerId != null) ? viewerId : (viewerIdParam != null ? viewerIdParam : "anonymous");
+        return sseService.subscribeAll(userId);
+    }
+
     @PostMapping("/webhook/openvidu")
     public ResponseEntity<Void> handleWebhook(@RequestBody OpenViduRecordingWebhook payload) {
         if ("recordingStatusChanged".equals(payload.getEvent()) && "ready".equals(payload.getStatus())) {

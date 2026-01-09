@@ -15,6 +15,7 @@ import { computeLifecycleStatus, getScheduledEndMs, normalizeBroadcastStatus, ty
 import type { LiveItem } from '../lib/live/types'
 import { useNow } from '../lib/live/useNow'
 import { fetchPublicBroadcastOverview } from '../lib/live/api'
+import { getAuthUser } from '../lib/auth'
 
 const router = useRouter()
 const today = new Date()
@@ -29,6 +30,12 @@ const showWatchHistoryConsent = ref(false)
 const pendingLiveId = ref<string | null>(null)
 const liveItems = ref<LiveItem[]>([])
 let toastTimer: ReturnType<typeof setTimeout> | null = null
+const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080'
+const sseSource = ref<EventSource | null>(null)
+const sseConnected = ref(false)
+const sseRetryCount = ref(0)
+const sseRetryTimer = ref<number | null>(null)
+const refreshTimer = ref<number | null>(null)
 
 const hasWatchHistoryConsent = () => {
   try {
@@ -293,6 +300,84 @@ const loadBroadcasts = async () => {
   }
 }
 
+const parseSseData = (event: MessageEvent) => {
+  if (!event.data) return null
+  try {
+    return JSON.parse(event.data)
+  } catch {
+    return event.data
+  }
+}
+
+const scheduleRefresh = () => {
+  if (refreshTimer.value) window.clearTimeout(refreshTimer.value)
+  refreshTimer.value = window.setTimeout(() => {
+    void loadBroadcasts()
+  }, 500)
+}
+
+const handleSseEvent = (event: MessageEvent) => {
+  parseSseData(event)
+  switch (event.type) {
+    case 'BROADCAST_READY':
+    case 'BROADCAST_UPDATED':
+    case 'BROADCAST_STARTED':
+    case 'PRODUCT_PINNED':
+    case 'SANCTION_UPDATED':
+    case 'BROADCAST_CANCELED':
+    case 'BROADCAST_ENDED':
+    case 'BROADCAST_SCHEDULED_END':
+    case 'BROADCAST_STOPPED':
+      scheduleRefresh()
+      break
+    default:
+      break
+  }
+}
+
+const scheduleReconnect = () => {
+  if (sseRetryTimer.value) window.clearTimeout(sseRetryTimer.value)
+  const delay = Math.min(30000, 1000 * 2 ** sseRetryCount.value)
+  const jitter = Math.floor(Math.random() * 500)
+  sseRetryTimer.value = window.setTimeout(() => {
+    connectSse()
+  }, delay + jitter)
+  sseRetryCount.value += 1
+}
+
+const connectSse = () => {
+  sseSource.value?.close()
+  const user = getAuthUser()
+  const viewerId = user?.id ?? user?.userId ?? user?.user_id ?? user?.sellerId
+  const query = viewerId ? `?viewerId=${encodeURIComponent(String(viewerId))}` : ''
+  const source = new EventSource(`${apiBase}/api/broadcasts/subscribe/all${query}`)
+  const events = [
+    'BROADCAST_READY',
+    'BROADCAST_UPDATED',
+    'BROADCAST_STARTED',
+    'PRODUCT_PINNED',
+    'SANCTION_UPDATED',
+    'BROADCAST_CANCELED',
+    'BROADCAST_ENDED',
+    'BROADCAST_SCHEDULED_END',
+    'BROADCAST_STOPPED',
+  ]
+  events.forEach((name) => source.addEventListener(name, handleSseEvent))
+  source.onopen = () => {
+    sseConnected.value = true
+    sseRetryCount.value = 0
+    scheduleRefresh()
+  }
+  source.onerror = () => {
+    sseConnected.value = false
+    source.close()
+    if (document.visibilityState === 'visible') {
+      scheduleReconnect()
+    }
+  }
+  sseSource.value = source
+}
+
 watchEffect(() => {
   localStorage.setItem(NOTIFY_KEY, JSON.stringify(Array.from(notifiedIds.value)))
 })
@@ -301,10 +386,16 @@ onBeforeUnmount(() => {
   if (toastTimer) {
     clearTimeout(toastTimer)
   }
+  if (sseRetryTimer.value) window.clearTimeout(sseRetryTimer.value)
+  sseRetryTimer.value = null
+  if (refreshTimer.value) window.clearTimeout(refreshTimer.value)
+  refreshTimer.value = null
+  sseSource.value?.close()
 })
 
 onMounted(() => {
   void loadBroadcasts()
+  connectSse()
 })
 </script>
 

@@ -64,9 +64,9 @@ const formatViewerCount = (value: number) => `${value.toLocaleString('ko-KR')}ык
 const loadRevenueStats = async () => {
   try {
     const payload = await fetchSellerStatistics(periodMap[revenueRange.value])
-    revenueChart.value = mapChart(payload.salesChart)
-    revenueRanks.value = mapRankGroup(payload.bestBroadcasts, payload.worstBroadcasts)
-    viewerRanks.value = mapViewerRankGroup(payload.topViewerBroadcasts, payload.worstViewerBroadcasts ?? [])
+    revenueChart.value = mapChart(payload.salesChart ?? [])
+    revenueRanks.value = mapRankGroup(payload.bestBroadcasts ?? [], payload.worstBroadcasts ?? [])
+    viewerRanks.value = mapViewerRankGroup(payload.topViewerBroadcasts ?? [], payload.worstViewerBroadcasts ?? [])
   } catch {
     revenueChart.value = []
     revenueRanks.value = { best: [], worst: [] }
@@ -77,7 +77,7 @@ const loadRevenueStats = async () => {
 const loadViewerStats = async () => {
   try {
     const payload = await fetchSellerStatistics(periodMap[perViewerRange.value])
-    perViewerChart.value = mapChart(payload.arpuChart)
+    perViewerChart.value = mapChart(payload.arpuChart ?? [])
   } catch {
     perViewerChart.value = []
   }
