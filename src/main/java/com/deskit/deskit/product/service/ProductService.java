@@ -78,6 +78,33 @@ public class ProductService {
     return Optional.of(ProductResponse.from(product.get(), tags, tagsFlat));
   }
 
+  public List<ProductResponse> getProductsByIds(List<Long> ids) {
+    if (ids == null || ids.isEmpty()) {
+      return Collections.emptyList();
+    }
+
+    List<Product> products = productRepository.findAllByIdInAndDeletedAtIsNull(ids);
+    if (products.isEmpty()) {
+      return Collections.emptyList();
+    }
+
+    List<Long> productIds = products.stream()
+            .map(Product::getId)
+            .collect(Collectors.toList());
+
+    List<ProductTagRow> rows = productTagRepository.findActiveTagsByProductIds(productIds);
+    Map<Long, TagsBundle> tagsByProductId = buildTagsByProductId(rows);
+
+    return products.stream()
+            .map(product -> {
+              TagsBundle bundle = tagsByProductId.get(product.getId());
+              ProductTags tags = bundle == null ? ProductTags.empty() : bundle.getTags();
+              List<String> tagsFlat = bundle == null ? Collections.emptyList() : bundle.getTagsFlat();
+              return ProductResponse.from(product, tags, tagsFlat);
+            })
+            .collect(Collectors.toList());
+  }
+
   // DB에서 가져온 tag row들을 productId별로 묶어서 tags/tagsFlat을 만든다
   // - TagCode별 리스트 유지(space/tone/situation/mood)
   // - 중복 태그 제거(LinkedHashSet) + 순서 안정적으로 유지
