@@ -8,12 +8,14 @@ import {
   clearDraft,
   createDefaultQuestions,
   createEmptyDraft,
-  DRAFT_KEY,
+  getDraftRestoreDecision,
   loadDraft,
   saveDraft,
   saveWorkingDraft,
   clearWorkingDraft,
-  type LiveCreateDraft, clearDraftRestoreDecision,
+  type LiveCreateDraft,
+  clearDraftRestoreDecision,
+  setDraftRestoreDecision,
 } from '../../composables/useLiveCreateDraft'
 
 const router = useRouter()
@@ -39,14 +41,22 @@ const syncDraft = () => {
 }
 
 const restoreDraft = async () => {
-  const storedDraft = sessionStorage.getItem(DRAFT_KEY)
-  const saved = storedDraft ? loadDraft() : null
+  const saved = loadDraft()
   if (!isEditMode.value && saved && (!saved.reservationId || saved.reservationId === reservationId.value)) {
-    const shouldRestore = window.confirm('이전에 작성 중인 내용을 불러올까요?')
-    if (shouldRestore) {
+    const decision = getDraftRestoreDecision()
+    if (decision === 'accepted') {
       draft.value = { ...draft.value, ...saved }
+    } else if (decision === 'declined') {
+      clearDraft()
     } else {
+      const shouldRestore = window.confirm('이전에 작성 중인 내용을 불러올까요?')
+      if (shouldRestore) {
+        setDraftRestoreDecision('accepted')
+        draft.value = { ...draft.value, ...saved }
+      } else {
+        setDraftRestoreDecision('declined')
         clearDraft()
+      }
     }
   }
 

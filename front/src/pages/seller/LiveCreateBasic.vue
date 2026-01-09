@@ -9,14 +9,14 @@ import {
   clearDraft,
   clearDraftRestoreDecision,
   createEmptyDraft,
-  DRAFT_KEY,
   type LiveCreateDraft,
   type LiveCreateProduct,
   loadDraft,
-  loadWorkingDraft,
   saveDraft,
   saveWorkingDraft,
-  clearWorkingDraft, getDraftRestoreDecision,
+  clearWorkingDraft,
+  getDraftRestoreDecision,
+  setDraftRestoreDecision,
 } from '../../composables/useLiveCreateDraft'
 import {
   type BroadcastCategory,
@@ -144,15 +144,23 @@ const syncDraft = () => {
 }
 
 const restoreDraft = async () => {
-  const storedDraft = sessionStorage.getItem(DRAFT_KEY)
-  const savedDraft = storedDraft ? loadDraft() : null
+  const savedDraft = loadDraft()
   let baseDraft = createEmptyDraft()
   if (!isEditMode.value && savedDraft && (!savedDraft.reservationId || savedDraft.reservationId === reservationId.value)) {
-    const shouldRestore = window.confirm('이전에 작성 중인 내용을 불러올까요?')
-    if (shouldRestore) {
+    const decision = getDraftRestoreDecision()
+    if (decision === 'accepted') {
       baseDraft = { ...createEmptyDraft(), ...savedDraft }
-    } else {
+    } else if (decision === 'declined') {
       clearDraft()
+    } else {
+      const shouldRestore = window.confirm('이전에 작성 중인 내용을 불러올까요?')
+      if (shouldRestore) {
+        setDraftRestoreDecision('accepted')
+        baseDraft = { ...createEmptyDraft(), ...savedDraft }
+      } else {
+        setDraftRestoreDecision('declined')
+        clearDraft()
+      }
     }
   }
 
