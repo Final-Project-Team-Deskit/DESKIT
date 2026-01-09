@@ -211,20 +211,28 @@ public class BroadcastService {
 
     @Transactional
     public void cancelBroadcast(Long sellerId, Long broadcastId) {
-        Broadcast broadcast = broadcastRepository.findById(broadcastId)
-                .orElseThrow(() -> new BusinessException(ErrorCode.BROADCAST_NOT_FOUND));
-
-        if (!broadcast.getSeller().getSellerId().equals(sellerId)) {
-            throw new BusinessException(ErrorCode.FORBIDDEN_ACCESS);
+        String lockKey = "lock:broadcast_transition:" + broadcastId;
+        if (!Boolean.TRUE.equals(redisService.acquireLock(lockKey, 3000))) {
+            throw new BusinessException(ErrorCode.TOO_MANY_REQUESTS);
         }
+        try {
+            Broadcast broadcast = broadcastRepository.findById(broadcastId)
+                    .orElseThrow(() -> new BusinessException(ErrorCode.BROADCAST_NOT_FOUND));
 
-        if (broadcast.getStatus() != BroadcastStatus.RESERVED && broadcast.getStatus() != BroadcastStatus.READY) {
-            throw new BusinessException(ErrorCode.INVALID_INPUT_VALUE);
+            if (!broadcast.getSeller().getSellerId().equals(sellerId)) {
+                throw new BusinessException(ErrorCode.FORBIDDEN_ACCESS);
+            }
+
+            if (broadcast.getStatus() != BroadcastStatus.RESERVED && broadcast.getStatus() != BroadcastStatus.READY) {
+                throw new BusinessException(ErrorCode.INVALID_INPUT_VALUE);
+            }
+
+            validateTransition(broadcast.getStatus(), BroadcastStatus.CANCELED);
+            broadcast.cancelBroadcast("판매자 예약 취소");
+            log.info("방송 취소 처리 완료: id={}, status={}", broadcastId, broadcast.getStatus());
+        } finally {
+            redisService.releaseLock(lockKey);
         }
-
-        validateTransition(broadcast.getStatus(), BroadcastStatus.CANCELED);
-        broadcast.cancelBroadcast("판매자 예약 취소");
-        log.info("방송 취소 처리 완료: id={}, status={}", broadcastId, broadcast.getStatus());
     }
 
     @Transactional(readOnly = true)
@@ -234,6 +242,7 @@ public class BroadcastService {
         var productName = field(name("p", "product_name"), String.class);
         var price = field(name("p", "price"), Integer.class);
         var stockQty = field(name("p", "stock_qty"), Integer.class);
+        var safetyStock = field(name("p", "safety_stock"), Integer.class);
         var sellerField = field(name("p", "seller_id"), Long.class);
         var statusField = field(name("p", "status"), String.class);
         var deletedAt = field(name("p", "deleted_at"), LocalDateTime.class);
@@ -242,13 +251,13 @@ public class BroadcastService {
 
         var condition = sellerField.eq(sellerId)
                 .and(statusField.in(statuses))
-                .and(stockQty.gt(0))
+                .and(stockQty.sub(safetyStock).gt(0))
                 .and(deletedAt.isNull());
         if (keyword != null && !keyword.isBlank()) {
             condition = condition.and(productName.containsIgnoreCase(keyword));
         }
 
-        return dsl.select(productId, productName, price, stockQty)
+        return dsl.select(productId, productName, price, stockQty, safetyStock)
                 .from(productTable)
                 .where(condition)
                 .orderBy(productId.asc())
@@ -257,6 +266,7 @@ public class BroadcastService {
                         .productName(record.get(productName))
                         .price(record.get(price))
                         .stockQty(record.get(stockQty))
+                        .safetyStock(record.get(safetyStock))
                         .imageUrl(null)
                         .build());
     }
@@ -742,7 +752,7 @@ public class BroadcastService {
     public List<BroadcastProductResponse> getBroadcastProducts(Long broadcastId) {
         List<BroadcastProduct> products = broadcastProductRepository.findAllWithProductByBroadcastId(broadcastId);
         List<Long> soldOutProductIds = products.stream()
-                .filter(bp -> bp.markSoldOutIfNeeded(bp.getProduct().getStockQty(), bp.getProduct().getSafetyStock()))
+                .filter(bp -> bp.markSoldOutIfNeeded(bp.getBpQuantity()))
                 .map(bp -> bp.getProduct().getId())
                 .distinct()
                 .collect(Collectors.toList());
@@ -1031,6 +1041,13 @@ public class BroadcastService {
 
             if (!product.getSellerId().equals(sellerId)) {
                 throw new BusinessException(ErrorCode.FORBIDDEN_ACCESS);
+            }
+
+            int stockQty = product.getStockQty() == null ? 0 : product.getStockQty();
+            int safetyStock = product.getSafetyStock() == null ? 0 : product.getSafetyStock();
+            int maxQuantity = stockQty - safetyStock;
+            if (dto.getBpQuantity() == null || dto.getBpQuantity() > maxQuantity) {
+                throw new BusinessException(ErrorCode.PRODUCT_SOLD_OUT);
             }
 
             BroadcastProduct bp = BroadcastProduct.builder()

@@ -207,9 +207,8 @@ const mapScheduledSortType = () => {
 }
 
 const mapScheduledStatusFilter = () => {
-  if (scheduledStatus.value === 'reserved') return 'RESERVED'
   if (scheduledStatus.value === 'canceled') return 'CANCELED'
-  return undefined
+  return 'RESERVED'
 }
 
 const mapVodSortType = () => {
@@ -521,9 +520,8 @@ const filteredScheduled = computed(() => {
       return aDate - bDate
     })
 
-  if (scheduledStatus.value === 'reserved') return sortScheduled(reserved)
   if (scheduledStatus.value === 'canceled') return sortScheduled(canceled)
-  return [...sortScheduled(reserved), ...sortScheduled(canceled)]
+  return sortScheduled(reserved)
 })
 
 const filteredVods = computed(() => {

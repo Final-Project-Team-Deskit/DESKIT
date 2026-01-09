@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import PageContainer from '../components/PageContainer.vue'
 import PageHeader from '../components/PageHeader.vue'
 import { getLiveStatus, parseLiveDate } from '../lib/live/utils'
+import { getScheduledEndMs } from '../lib/broadcastStatus'
 import { useNow } from '../lib/live/useNow'
 import { fetchBroadcastProducts, fetchPublicBroadcastDetail, type BroadcastProductItem } from '../lib/live/api'
 import type { LiveItem } from '../lib/live/types'
@@ -130,7 +131,9 @@ const scheduledLabel = computed(() => {
 
 const buildVodItem = (detail: { broadcastId: number; title: string; notice?: string; thumbnailUrl?: string; scheduledAt?: string; startedAt?: string; sellerName?: string }) => {
   const startAt = detail.startedAt ?? detail.scheduledAt ?? ''
-  const endAt = startAt ? new Date(parseLiveDate(startAt).getTime() + 60 * 60 * 1000).toISOString() : ''
+  const startAtMs = startAt ? parseLiveDate(startAt).getTime() : NaN
+  const endAtMs = Number.isNaN(startAtMs) ? undefined : getScheduledEndMs(startAtMs)
+  const endAt = endAtMs ? new Date(endAtMs).toISOString() : ''
   return {
     id: String(detail.broadcastId),
     title: detail.title,

@@ -78,9 +78,12 @@ public class BroadcastListResponse {
         if (status == BroadcastStatus.RESERVED) {
             this.startAt = scheduledAt;
             this.endAt = (scheduledAt != null) ? scheduledAt.plusMinutes(30) : null;
-        } else if (status == BroadcastStatus.ON_AIR || status == BroadcastStatus.READY) {
-            this.startAt = (startedAt != null) ? startedAt : LocalDateTime.now();
+        } else if (status == BroadcastStatus.ON_AIR) {
+            this.startAt = (startedAt != null) ? startedAt : scheduledAt;
             this.endAt = null; // 진행 중이라 끝나는 시간 없음
+        } else if (status == BroadcastStatus.READY) {
+            this.startAt = scheduledAt;
+            this.endAt = (scheduledAt != null) ? scheduledAt.plusMinutes(30) : null;
         } else {
             this.startAt = startedAt;
             this.endAt = endedAt;
