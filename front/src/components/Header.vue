@@ -5,7 +5,6 @@ import {getAuthUser, hydrateSessionUser, isAdmin, isLoggedIn as checkLoggedIn, i
 
 const route = useRoute()
 const router = useRouter()
-const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080'
 const isScrolled = ref(false)
 const isMenuOpen = ref(false)
 const panelRef = ref<HTMLElement | null>(null)

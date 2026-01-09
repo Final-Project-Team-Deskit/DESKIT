@@ -17,7 +17,10 @@ export const parseLiveDate = (value: string): Date => {
     return new Date(value)
   }
 
-  const [year, month, day] = datePart.split('-').map((part) => Number(part))
+  const [yearRaw, monthRaw = '1', dayRaw = '1'] = datePart.split('-')
+  const year = Number(yearRaw)
+  const month = Number(monthRaw)
+  const day = Number(dayRaw)
   if ([year, month, day].some((part) => Number.isNaN(part))) {
     return new Date(value)
   }
@@ -29,7 +32,7 @@ export const parseLiveDate = (value: string): Date => {
   const seconds = Number(secPart) || 0
   const milliseconds = Number(msPart) || 0
 
-  return new Date(year, (month ?? 1) - 1, day ?? 1, hours, minutes, seconds, milliseconds)
+  return new Date(year, month - 1, day, hours, minutes, seconds, milliseconds)
 }
 
 export const getLiveStatus = (item: LiveItem, now: Date = new Date()): LiveStatus => {
