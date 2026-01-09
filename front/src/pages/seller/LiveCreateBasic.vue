@@ -150,15 +150,13 @@ const restoreDraft = async () => {
     }
   }
 
-  const reservationDraft = isEditMode.value
-    ? {
-      ...baseDraft,
-      ...(await buildDraftFromReservation(reservationId.value)),
-      reservationId: reservationId.value,
-    }
-    : baseDraft
-
-  draft.value = reservationDraft
+  draft.value = isEditMode.value
+      ? {
+        ...baseDraft,
+        ...(await buildDraftFromReservation(reservationId.value)),
+        reservationId: reservationId.value,
+      }
+      : baseDraft
   draft.value.products = draft.value.products.map((product) => clampProductQuantity(product))
   modalProducts.value = draft.value.products.map((p) => ({ ...p }))
 }
