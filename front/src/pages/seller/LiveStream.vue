@@ -52,7 +52,7 @@ type EditableBroadcastInfo = {
   waitingScreen?: string
 }
 
-const defaultNotice = '판매 상품 외 다른 상품 문의는 받지 않습니다.'
+const defaultNotice = ''
 
 const route = useRoute()
 const router = useRouter()
@@ -279,7 +279,7 @@ const hydrateStream = async () => {
     streamStatus.value = normalizeBroadcastStatus(detail.status)
 
     const products = (detail.products ?? []).map((product) => ({
-      id: String(product.productId),
+      id: String(product.bpId ?? product.productId),
       title: product.name,
       option: product.name,
       status: product.status === 'SOLDOUT' ? '품절' : '판매중',
@@ -355,7 +355,7 @@ const refreshProducts = async (broadcastId: number) => {
   try {
     const detail = await fetchSellerBroadcastDetail(broadcastId)
     const products = (detail.products ?? []).map((product) => ({
-      id: String(product.productId),
+      id: String(product.bpId ?? product.productId),
       title: product.name,
       option: product.name,
       status: product.status === 'SOLDOUT' ? '품절' : '판매중',

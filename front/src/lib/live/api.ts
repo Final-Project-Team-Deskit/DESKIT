@@ -62,6 +62,8 @@ export type BroadcastProductItem = {
   name: string
   imageUrl: string
   price: number
+  totalQty?: number
+  isPinned?: boolean
   isSoldOut: boolean
   stockQty: number
 }
@@ -307,14 +309,16 @@ export const fetchPublicBroadcastDetail = async (broadcastId: number): Promise<B
 
 export const fetchBroadcastProducts = async (broadcastId: number): Promise<BroadcastProductItem[]> => {
   const { data } = await http.get<
-    ApiResult<Array<{ productId: number; name: string; imageUrl?: string; bpPrice: number; bpQuantity: number; stockQty?: number; status: string }>>
+    ApiResult<Array<{ productId: number; name: string; imageUrl?: string; bpPrice: number; bpQuantity: number; stockQty?: number; status: string; isPinned?: boolean }>>
   >(`/api/broadcasts/${broadcastId}/products`)
   const payload = ensureSuccess(data)
   return payload.map((item) => ({
     id: String(item.productId),
     name: item.name,
-    imageUrl: item.imageUrl ?? '/placeholder-product.jpg',
+    imageUrl: item.imageUrl ?? '',
     price: item.bpPrice,
+    totalQty: item.bpQuantity,
+    isPinned: item.isPinned ?? false,
     isSoldOut: item.status === 'SOLDOUT' || item.bpQuantity <= 0,
     stockQty: item.stockQty ?? item.bpQuantity,
   }))
@@ -435,5 +439,25 @@ export const createBroadcast = async (payload: BroadcastPayload): Promise<number
 
 export const updateBroadcast = async (broadcastId: number, payload: BroadcastPayload): Promise<number> => {
   const { data } = await http.put<ApiResult<number>>(`/api/seller/broadcasts/${broadcastId}`, payload)
+  return ensureSuccess(data)
+}
+
+export const updateSellerVodVisibility = async (broadcastId: number, status: 'PUBLIC' | 'PRIVATE'): Promise<string> => {
+  const { data } = await http.put<ApiResult<string>>(`/api/seller/broadcasts/${broadcastId}/vod/visibility`, { status })
+  return ensureSuccess(data)
+}
+
+export const deleteSellerVod = async (broadcastId: number) => {
+  const { data } = await http.delete<ApiResult<void>>(`/api/seller/broadcasts/${broadcastId}/vod`)
+  return ensureSuccess(data)
+}
+
+export const updateAdminVodVisibility = async (broadcastId: number, status: 'PUBLIC' | 'PRIVATE'): Promise<string> => {
+  const { data } = await http.put<ApiResult<string>>(`/api/admin/broadcasts/${broadcastId}/vod/visibility`, { status })
+  return ensureSuccess(data)
+}
+
+export const deleteAdminVod = async (broadcastId: number) => {
+  const { data } = await http.delete<ApiResult<void>>(`/api/admin/broadcasts/${broadcastId}/vod`)
   return ensureSuccess(data)
 }

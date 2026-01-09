@@ -24,6 +24,8 @@ const sseRetryTimer = ref<number | null>(null)
 const statsTimer = ref<number | null>(null)
 const refreshTimer = ref<number | null>(null)
 
+const FALLBACK_IMAGE = 'data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs='
+
 const liveId = computed(() => {
   const value = route.params.id
   return Array.isArray(value) ? value[0] : value
@@ -75,6 +77,13 @@ const statusLabel = computed(() => {
   }
   return '예정'
 })
+
+const handleImageError = (event: Event) => {
+  const target = event.target as HTMLImageElement | null
+  if (!target || target.dataset.fallbackApplied) return
+  target.dataset.fallbackApplied = 'true'
+  target.src = FALLBACK_IMAGE
+}
 
 const scheduledLabel = computed(() => {
   if (!liveItem.value) {
@@ -145,11 +154,7 @@ const loadProducts = async () => {
 const products = ref<BroadcastProductItem[]>([])
 const sortedProducts = computed(() => {
   const list = products.value.slice()
-  const withPinned = list.map((item, index) => ({
-    ...item,
-    isPinned: index === 0,
-  }))
-  return withPinned.sort((a, b) => {
+  return list.sort((a, b) => {
     if (a.isPinned && !b.isPinned) return -1
     if (!a.isPinned && b.isPinned) return 1
     if (a.isSoldOut && !b.isSoldOut) return 1
@@ -930,7 +935,7 @@ onBeforeUnmount(() => {
             class="product-card"
             @click="handleProductClick(product.id)"
           >
-            <img class="product-card__thumb" :src="product.imageUrl" :alt="product.name" />
+            <img class="product-card__thumb" :src="product.imageUrl" :alt="product.name" @error="handleImageError" />
             <div class="product-card__info">
               <p class="product-card__name">{{ product.name }}</p>
               <p class="product-card__price">{{ formatPrice(product.price) }}</p>

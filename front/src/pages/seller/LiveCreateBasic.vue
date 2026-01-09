@@ -250,6 +250,12 @@ const submit = () => {
     return
   }
 
+  if (!timeOptions.value.includes(draft.value.time)) {
+    alert('선택한 시간대의 예약이 마감되었습니다. 다른 시간대를 선택해주세요.')
+    void reloadReservationSlots(draft.value.date)
+    return
+  }
+
   const confirmed = window.confirm(isEditMode.value ? '예약 수정을 진행할까요?' : '방송 등록을 진행할까요?')
   if (!confirmed) return
 
@@ -331,17 +337,22 @@ const confirmRemoveProduct = (productId: string) => {
   }
 }
 
-const minDate = computed(() => {
-  const date = new Date()
-  date.setDate(date.getDate() + 1)
-  return date.toISOString().split('T')[0] ?? ''
-})
+const formatLocalDate = (date: Date) => {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
 
-const maxDate = computed(() => {
-  const date = new Date()
-  date.setDate(date.getDate() + 14)
-  return date.toISOString().split('T')[0] ?? ''
-})
+const addDays = (date: Date, days: number) => {
+  const next = new Date(date)
+  next.setDate(next.getDate() + days)
+  return next
+}
+
+const minDate = computed(() => formatLocalDate(addDays(new Date(), 1)))
+
+const maxDate = computed(() => formatLocalDate(addDays(new Date(), 15)))
 
 const normalizeCategorySelection = () => {
   if (!draft.value.category) return

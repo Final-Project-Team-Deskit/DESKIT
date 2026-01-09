@@ -66,7 +66,7 @@ const getBaseScale = () => {
   if (!imageElement.value) return 1
   const { width, height } = frameRect.value
   if (!width || !height) return 1
-  return Math.min(width / imageElement.value.width, height / imageElement.value.height)
+  return Math.min(1, width / imageElement.value.width, height / imageElement.value.height)
 }
 
 const drawPreview = () => {
@@ -233,12 +233,11 @@ onUnmounted(() => {
 
 .cropper__frame {
   position: absolute;
-  left: 0;
-  right: 0;
-  top: 30px;
-  margin: 0 auto;
-  width: 100%;
-  height: 360px;
+  left: 50%;
+  top: 50%;
+  width: min(100%, 640px);
+  aspect-ratio: 16 / 9;
+  transform: translate(-50%, -50%);
   border: 2px solid rgba(255, 255, 255, 0.9);
   box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.55);
   pointer-events: none;

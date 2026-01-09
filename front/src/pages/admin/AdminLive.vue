@@ -107,6 +107,8 @@ const vodCategory = ref<string>('all')
 const VOD_PAGE_SIZE = 12
 const vodPage = ref(1)
 
+const FALLBACK_IMAGE = 'data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs='
+
 const liveItems = ref<LiveItem[]>([])
 const scheduledItems = ref<ReservationItem[]>([])
 const vodItems = ref<AdminVodItem[]>([])
@@ -155,6 +157,13 @@ const toDateMs = (raw: string | undefined) => {
 const toNumber = (value: unknown, fallback = 0) => {
   const parsed = Number(value)
   return Number.isNaN(parsed) ? fallback : parsed
+}
+
+const handleImageError = (event: Event) => {
+  const target = event.target as HTMLImageElement | null
+  if (!target || target.dataset.fallbackApplied) return
+  target.dataset.fallbackApplied = 'true'
+  target.src = FALLBACK_IMAGE
 }
 
 const formatDateTime = (value?: string) => {
@@ -821,7 +830,7 @@ onBeforeUnmount(() => {
             @click="openLiveDetail(item.id)"
           >
             <div class="live-thumb">
-              <img class="live-thumb__img" :src="item.thumb" :alt="item.title" loading="lazy" />
+              <img class="live-thumb__img" :src="item.thumb" :alt="item.title" loading="lazy" @error="handleImageError" />
               <div class="live-badges">
                 <span class="badge badge--live">{{ getLifecycleStatus(item) }}</span>
                 <span class="badge badge--viewer">시청자 {{ item.viewers }}명</span>
@@ -875,7 +884,7 @@ onBeforeUnmount(() => {
                 @click="openLiveDetail(item.id)"
               >
                 <div class="live-thumb">
-                  <img class="live-thumb__img" :src="item.thumb" :alt="item.title" loading="lazy" />
+                  <img class="live-thumb__img" :src="item.thumb" :alt="item.title" loading="lazy" @error="handleImageError" />
                   <div class="live-badges">
                     <span class="badge badge--live">{{ getLifecycleStatus(item) }}</span>
                     <span class="badge badge--viewer">시청자 {{ item.viewers }}명</span>
@@ -969,7 +978,7 @@ onBeforeUnmount(() => {
             @click="openReservationDetail(item.id)"
           >
               <div class="live-thumb">
-                <img class="live-thumb__img" :src="item.thumb" :alt="item.title" loading="lazy" />
+                <img class="live-thumb__img" :src="item.thumb" :alt="item.title" loading="lazy" @error="handleImageError" />
                 <div class="live-badges">
                   <span
                     class="badge badge--scheduled"
@@ -1028,7 +1037,7 @@ onBeforeUnmount(() => {
                 @click="openReservationDetail(item.id)"
               >
                 <div class="live-thumb">
-                  <img class="live-thumb__img" :src="item.thumb" :alt="item.title" loading="lazy" />
+                  <img class="live-thumb__img" :src="item.thumb" :alt="item.title" loading="lazy" @error="handleImageError" />
                   <div class="live-badges">
                     <span
                       class="badge badge--scheduled"
@@ -1141,7 +1150,7 @@ onBeforeUnmount(() => {
             @click="openVodDetail(item.id)"
           >
             <div class="live-thumb">
-              <img class="live-thumb__img" :src="item.thumb" :alt="item.title" loading="lazy" />
+              <img class="live-thumb__img" :src="item.thumb" :alt="item.title" loading="lazy" @error="handleImageError" />
               <div class="live-badges">
                 <span class="badge badge--vod">{{ item.statusLabel }}</span>
                 <span class="badge badge--viewer">신고 {{ item.metrics.reports }}</span>
@@ -1195,7 +1204,7 @@ onBeforeUnmount(() => {
                 @click="openVodDetail(item.id)"
               >
                 <div class="live-thumb">
-                  <img class="live-thumb__img" :src="item.thumb" :alt="item.title" loading="lazy" />
+                  <img class="live-thumb__img" :src="item.thumb" :alt="item.title" loading="lazy" @error="handleImageError" />
                   <div class="live-badges">
                     <span class="badge badge--vod">{{ item.statusLabel }}</span>
                     <span class="badge badge--viewer">신고 {{ item.metrics.reports }}</span>
