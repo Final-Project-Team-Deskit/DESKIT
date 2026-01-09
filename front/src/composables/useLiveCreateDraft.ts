@@ -41,8 +41,12 @@ type StoredDraft = {
 
 const resolveSellerKey = () => {
   const user = getAuthUser()
-  if (!user || !isSeller()) return ''
-  return resolveViewerId(user) ?? ''
+  if (user) {
+    if (!isSeller()) return ''
+    return resolveViewerId(user) ?? ''
+  }
+  if (!allowToken) return ''
+  return resolveViewerId(null) ?? ''
 }
 
 const getDraftStorage = () => sessionStorage
@@ -90,7 +94,7 @@ const parseStoredDraft = (raw: string | null): StoredDraft | null => {
 }
 
 window.addEventListener('deskit-user-updated', () => {
-  const ownerId = resolveSellerKey()
+  const ownerId = resolveSellerKey({ allowToken: true })
   const stored = parseStoredDraft(getDraftStorage().getItem(DRAFT_KEY))
   if (!ownerId || (stored && stored.ownerId !== ownerId)) {
     clearDraftStorage()
