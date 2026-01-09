@@ -13,6 +13,7 @@ type UserInfo = {
   memberCategory: string
   mbti: string
   job: string
+  profileUrl: string
 }
 
 const EMPTY_USER: UserInfo = {
@@ -22,11 +23,13 @@ const EMPTY_USER: UserInfo = {
   memberCategory: '',
   mbti: '',
   job: '',
+  profileUrl: '',
 }
 
 const router = useRouter()
 const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080'
 const user = ref<UserInfo | null>(null)
+const profileImageFailed = ref(false)
 
 const loadUser = () => {
   const parsed = getAuthUser()
@@ -41,7 +44,9 @@ const loadUser = () => {
     memberCategory: parsed.memberCategory || '',
     mbti: parsed.mbti || '',
     job: parsed.job || '',
+    profileUrl: parsed.profileUrl || '',
   }
+  profileImageFailed.value = false
 }
 
 const hasUser = computed(() => !!user.value)
@@ -54,6 +59,9 @@ const initials = computed(() => {
   if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase()
   return `${parts[0][0]}${parts[1][0]}`.toUpperCase()
 })
+
+const profileImageUrl = computed(() => (display.value.profileUrl || '').trim())
+const showProfileImage = computed(() => !!profileImageUrl.value && !profileImageFailed.value)
 
 const handleWithdraw = async () => {
   if (!hasUser.value) {
@@ -91,9 +99,11 @@ const mbtiKeywordsMap: Record<string, string[]> = {
 }
 
 const jobKeywordsMap: Record<string, string[]> = {
-  직장인: ['오피스', '재택근무', '화상회의'],
-  프리랜서: ['홈카페', '재택근무', '따뜻한'],
-  크리에이터: ['영상편집', '집중', '게이밍룸'],
+  '크리에이티브': ['영상편집', '집중', '게이밍룸'],
+  '프리랜서/유연근무': ['홈카페', '재택근무', '따뜻한'],
+  '교육/연구': ['오피스', '재택근무', '집중'],
+  '의료/전문직': ['오피스', '집중', '모던'],
+  '기획/관리': ['오피스', '재택근무', '화상회의'],
 }
 
 const recommendedProducts = computed(() => {
@@ -140,14 +150,21 @@ onMounted(() => {
 
       <section v-if="hasUser" class="profile-banner">
         <div class="profile-top">
-          <div class="avatar">{{ initials }}</div>
+          <div class="avatar">
+            <img
+              v-if="showProfileImage"
+              :src="profileImageUrl"
+              :alt="`${display.name} 프로필`"
+              @error="profileImageFailed = true"
+            />
+            <span v-else>{{ initials }}</span>
+          </div>
           <div class="profile-meta">
             <div class="name-row">
               <p class="name">{{ display.name }}</p>
             </div>
             <div class="meta-row">
               <span class="meta">{{ display.email }}</span>
-              <span class="dot">?</span>
               <span class="meta">{{ display.signupType }}</span>
             </div>
             <div class="chip-row">
@@ -326,6 +343,13 @@ onMounted(() => {
   color: #111827;
   letter-spacing: 0.04em;
   font-size: 16px;
+  overflow: hidden;
+}
+
+.avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 .profile-meta {

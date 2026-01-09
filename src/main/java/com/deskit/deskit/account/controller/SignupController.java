@@ -229,7 +229,7 @@ public class SignupController {
         // 폰 인증 세션 삭제
         clearPhoneSession(session);
 
-        return new ResponseEntity<>("signup completed", HttpStatus.OK);
+        return new ResponseEntity<>("회원가입이 완료되었어요!", HttpStatus.OK);
     }
 
     // 판매자 회원 가입 완성
