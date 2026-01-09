@@ -665,7 +665,7 @@ watch(
                   <div class="chat-meta">
                     <span class="chat-user">{{ msg.user }}</span>
                     <span class="chat-time">{{ msg.time }}</span>
-                    <span v-if="msg.user !== 'SYSTEM' && moderatedUsers[msg.user]" class="chat-badge">{{ moderatedUsers[msg.user].type }}</span>
+                    <span v-if="msg.user !== 'SYSTEM' && moderatedUsers[msg.user]" class="chat-badge">{{ moderatedUsers[msg.user]?.type }}</span>
                   </div>
                   <p class="chat-text">{{ msg.text }}</p>
                 </div>

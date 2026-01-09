@@ -101,6 +101,13 @@ const liveProducts = ref<
 >([])
 
 const liveStats = ref<{ status: string; viewers: string; likes: string; revenue: string; hasData: boolean } | null>(null)
+const displayLiveStats = computed(() => liveStats.value ?? {
+  status: '-',
+  viewers: '-',
+  likes: '-',
+  revenue: '-',
+  hasData: false,
+})
 
 const scheduledItems = ref<LiveItem[]>([])
 const vodItems = ref<LiveItem[]>([])
@@ -954,22 +961,22 @@ onBeforeUnmount(() => {
           <div class="live-stats-grid">
             <article class="live-stat-card ds-surface">
               <p class="stat-label">방송 상태</p>
-              <p class="stat-value">{{ liveStats.status }}</p>
+              <p class="stat-value">{{ displayLiveStats.status }}</p>
               <p class="stat-sub">정상 송출 중</p>
             </article>
             <article class="live-stat-card ds-surface">
               <p class="stat-label">시청자 수</p>
-              <p class="stat-value">{{ liveStats.viewers }}</p>
+              <p class="stat-value">{{ displayLiveStats.viewers }}</p>
               <p class="stat-sub">누적 기준</p>
             </article>
             <article class="live-stat-card ds-surface">
               <p class="stat-label">좋아요 수</p>
-              <p class="stat-value">{{ liveStats.likes }}</p>
+              <p class="stat-value">{{ displayLiveStats.likes }}</p>
               <p class="stat-sub">최근 5분</p>
             </article>
             <article class="live-stat-card ds-surface">
               <p class="stat-label">현재 매출</p>
-              <p class="stat-value">{{ liveStats.revenue }}</p>
+              <p class="stat-value">{{ displayLiveStats.revenue }}</p>
               <p class="stat-sub">실시간 집계</p>
             </article>
           </div>

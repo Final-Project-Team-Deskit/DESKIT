@@ -80,8 +80,8 @@ const resolveMinQuantity = (product: LiveCreateProduct) => (resolveMaxQuantity(p
 const clampProductQuantity = (product: LiveCreateProduct, value?: number) => {
   const maxQuantity = resolveMaxQuantity(product)
   const minQuantity = resolveMinQuantity(product)
-  const rawValue = Number.isFinite(value) ? value : product.quantity
-  const normalized = Number.isFinite(rawValue) ? rawValue : minQuantity
+  const rawValue = typeof value === 'number' && Number.isFinite(value) ? value : product.quantity
+  const normalized = typeof rawValue === 'number' && Number.isFinite(rawValue) ? rawValue : minQuantity
   const nextValue = maxQuantity > 0
     ? Math.min(Math.max(normalized, minQuantity), maxQuantity)
     : minQuantity

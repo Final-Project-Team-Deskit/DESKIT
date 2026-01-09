@@ -20,9 +20,10 @@ export const resolveViewerId = (user: AuthUser | null): string | null => {
     sessionStorage.getItem('access_token')
   if (!access) return null
   const tokenParts = access.split('.')
-  if (tokenParts.length < 2) return null
+  const tokenPart = tokenParts[1]
+  if (!tokenPart) return null
   try {
-    const normalized = tokenParts[1].replace(/-/g, '+').replace(/_/g, '/')
+    const normalized = tokenPart.replace(/-/g, '+').replace(/_/g, '/')
     const padded = normalized.padEnd(normalized.length + ((4 - (normalized.length % 4)) % 4), '=')
     const payload = JSON.parse(atob(padded))
     const tokenId =
