@@ -64,7 +64,7 @@ const handleCancelWatchHistory = () => {
 }
 
 const dayWindow = computed(() => getDayWindow(today))
-const selectedDay = ref(normalizeDay(dayWindow.value[3]))
+const selectedDay = ref(normalizeDay(dayWindow.value[3] ?? today))
 
 const formatTime = (value: string) => {
   const time = parseLiveDate(value)
@@ -581,6 +581,7 @@ onMounted(() => {
   overflow: hidden;
   display: -webkit-box;
   -webkit-line-clamp: 2;
+  line-clamp: 2;
   -webkit-box-orient: vertical;
   white-space: normal;
   line-height: 1.4;
