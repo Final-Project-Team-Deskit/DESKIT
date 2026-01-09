@@ -16,7 +16,7 @@ import {
   loadWorkingDraft,
   saveDraft,
   saveWorkingDraft,
-  clearWorkingDraft,
+  clearWorkingDraft, getDraftRestoreDecision,
 } from '../../composables/useLiveCreateDraft'
 import {
   type BroadcastCategory,
@@ -72,7 +72,7 @@ const filteredProducts = computed(() => {
 })
 
 const isSelected = (productId: string, source: LiveCreateProduct[] = draft.value.products) =>
-  source.some((item) => item.id === productId)
+    source.some((item) => item.id === productId)
 
 const resolveMaxQuantity = (product: LiveCreateProduct) => {
   const stock = Number.isFinite(product.stock) ? product.stock : 0
@@ -88,8 +88,8 @@ const clampProductQuantity = (product: LiveCreateProduct, value?: number) => {
   const rawValue = typeof value === 'number' && Number.isFinite(value) ? value : product.quantity
   const normalized = typeof rawValue === 'number' && Number.isFinite(rawValue) ? rawValue : minQuantity
   const nextValue = maxQuantity > 0
-    ? Math.min(Math.max(normalized, minQuantity), maxQuantity)
-    : minQuantity
+      ? Math.min(Math.max(normalized, minQuantity), maxQuantity)
+      : minQuantity
   return { ...product, quantity: nextValue }
 }
 
@@ -106,27 +106,27 @@ const removeProduct = (productId: string, target: LiveCreateProduct[]) => target
 
 const toggleProductInModal = (product: LiveCreateProduct) => {
   modalProducts.value = isSelected(product.id, modalProducts.value)
-    ? removeProduct(product.id, modalProducts.value)
-    : addProduct(product, modalProducts.value)
+      ? removeProduct(product.id, modalProducts.value)
+      : addProduct(product, modalProducts.value)
 }
 
 const updateProductPrice = (productId: string, value: number) => {
   draft.value.products = draft.value.products.map((product) =>
-    product.id === productId ? { ...product, broadcastPrice: value < 0 ? 0 : value } : product,
+      product.id === productId ? { ...product, broadcastPrice: value < 0 ? 0 : value } : product,
   )
 }
 
 const updateProductQuantity = (productId: string, value: number) => {
   draft.value.products = draft.value.products.map((product) =>
-    product.id === productId ? clampProductQuantity(product, value) : product,
+      product.id === productId ? clampProductQuantity(product, value) : product,
   )
 }
 
 const syncDraft = () => {
   const trimmedQuestions = draft.value.questions.map((q) => ({ ...q, text: q.text.trim() })).filter((q) => q.text.length > 0)
   const shouldUpdateQuestions =
-    trimmedQuestions.length !== draft.value.questions.length ||
-    trimmedQuestions.some((item, index) => item.text !== draft.value.questions[index]?.text)
+      trimmedQuestions.length !== draft.value.questions.length ||
+      trimmedQuestions.some((item, index) => item.text !== draft.value.questions[index]?.text)
 
   if (shouldUpdateQuestions) {
     draft.value.questions = trimmedQuestions
@@ -147,25 +147,24 @@ const restoreDraft = async () => {
   const storedDraft = sessionStorage.getItem(DRAFT_KEY)
   const savedDraft = storedDraft ? loadDraft() : null
   let baseDraft = createEmptyDraft()
-  if (workingDraft) {
-    baseDraft = { ...createEmptyDraft(), ...workingDraft }
-  } else if (!isEditMode.value) {
-    const savedDraft = loadDraft()
-    const decision = getDraftRestoreDecision()
-    if (savedDraft && decision === 'accepted' && (!savedDraft.reservationId || savedDraft.reservationId === reservationId.value)) {
+  if (!isEditMode.value && savedDraft && (!savedDraft.reservationId || savedDraft.reservationId === reservationId.value)) {
+    const shouldRestore = window.confirm('이전에 작성 중인 내용을 불러올까요?')
+    if (shouldRestore) {
       baseDraft = { ...createEmptyDraft(), ...savedDraft }
-    } else if (decision === 'declined') {
+    } else {
       clearDraft()
     }
   }
 
-  draft.value = isEditMode.value
+  const reservationDraft = isEditMode.value
       ? {
         ...baseDraft,
         ...(await buildDraftFromReservation(reservationId.value)),
         reservationId: reservationId.value,
       }
       : baseDraft
+
+  draft.value = reservationDraft
   draft.value.products = draft.value.products.map((product) => clampProductQuantity(product))
   modalProducts.value = draft.value.products.map((p) => ({ ...p }))
 }
@@ -335,27 +334,27 @@ const submit = () => {
   }
 
   const request = isEditMode.value
-    ? updateBroadcast(Number(reservationId.value), payload)
-    : createBroadcast(payload)
+      ? updateBroadcast(Number(reservationId.value), payload)
+      : createBroadcast(payload)
 
   request
-    .then((broadcastId) => {
-      clearDraft()
-      alert(isEditMode.value ? '예약 수정이 완료되었습니다.' : '방송 등록이 완료되었습니다.')
-      const id = broadcastId ?? reservationId.value
-      const redirectPath = isEditMode.value
-        ? `/seller/broadcasts/reservations/${id}`
-        : '/seller/live?tab=scheduled'
-      router.push(redirectPath).catch(() => {})
-    })
-    .catch((apiError) => {
-      if (apiError?.code === 'B005') {
-        alert('선택한 시간대의 예약이 마감되었습니다. 다른 시간대를 선택해주세요.')
-        void reloadReservationSlots(draft.value.date)
-        return
-      }
-      error.value = getErrorMessage(apiError, '방송 등록에 실패했습니다.')
-    })
+      .then((broadcastId) => {
+        clearDraft()
+        alert(isEditMode.value ? '예약 수정이 완료되었습니다.' : '방송 등록이 완료되었습니다.')
+        const id = broadcastId ?? reservationId.value
+        const redirectPath = isEditMode.value
+            ? `/seller/broadcasts/reservations/${id}`
+            : '/seller/live?tab=scheduled'
+        router.push(redirectPath).catch(() => {})
+      })
+      .catch((apiError) => {
+        if (apiError?.code === 'B005') {
+          alert('선택한 시간대의 예약이 마감되었습니다. 다른 시간대를 선택해주세요.')
+          void reloadReservationSlots(draft.value.date)
+          return
+        }
+        error.value = getErrorMessage(apiError, '방송 등록에 실패했습니다.')
+      })
 }
 
 const goPrev = () => {
@@ -369,8 +368,8 @@ const cancel = () => {
   clearDraftRestoreDecision()
   clearWorkingDraft()
   const redirect = isEditMode.value && reservationId.value
-    ? `/seller/broadcasts/reservations/${reservationId.value}`
-    : '/seller/live?tab=scheduled'
+      ? `/seller/broadcasts/reservations/${reservationId.value}`
+      : '/seller/live?tab=scheduled'
   router.push(redirect).catch(() => {})
 }
 
@@ -460,30 +459,30 @@ const reloadReservationSlots = async (date: string) => {
 const timeOptions = computed(() => reservationSlots.value.map((slot) => slot.time))
 
 watch(
-  () => [isEditMode.value, reservationId.value],
-  () => {
-    restoreDraft()
-  },
-  { immediate: true },
+    () => [isEditMode.value, reservationId.value],
+    () => {
+      restoreDraft()
+    },
+    { immediate: true },
 )
 
 watch(
-  () => draft.value.date,
-  (value) => {
-    if (!value) return
-    if (value < minDate.value) {
-      draft.value.date = minDate.value
-      return
-    }
-    if (value > maxDate.value) {
-      draft.value.date = maxDate.value
-      return
-    }
-    if (value !== activeDate.value) {
-      activeDate.value = value
-      void reloadReservationSlots(value)
-    }
-  },
+    () => draft.value.date,
+    (value) => {
+      if (!value) return
+      if (value < minDate.value) {
+        draft.value.date = minDate.value
+        return
+      }
+      if (value > maxDate.value) {
+        draft.value.date = maxDate.value
+        return
+      }
+      if (value !== activeDate.value) {
+        activeDate.value = value
+        void reloadReservationSlots(value)
+      }
+    },
 )
 
 watch(cropperOpen, (open, wasOpen) => {
@@ -506,23 +505,23 @@ onMounted(async () => {
 })
 
 watch(
-  draft,
-  () => {
-    syncDraft()
-  },
-  { deep: true },
+    draft,
+    () => {
+      syncDraft()
+    },
+    { deep: true },
 )
 </script>
 
 <template>
-    <PageContainer>
-      <PageHeader :eyebrow="isEditMode ? 'DESKIT' : 'DESKIT'" :title="isEditMode ? '예약 수정 - 기본 정보' : '방송 등록 - 기본 정보'" />
-      <LiveImageCropModal
+  <PageContainer>
+    <PageHeader :eyebrow="isEditMode ? 'DESKIT' : 'DESKIT'" :title="isEditMode ? '예약 수정 - 기본 정보' : '방송 등록 - 기본 정보'" />
+    <LiveImageCropModal
         v-model="cropperOpen"
         :image-src="cropperSource"
         :file-name="cropperFileName"
         @confirm="applyCroppedImage"
-      />
+    />
     <section class="create-card ds-surface">
       <div class="step-meta">
         <span class="step-indicator">2 / 2 단계</span>
@@ -547,10 +546,10 @@ watch(
       <label class="field">
         <span class="field__label">공지사항</span>
         <textarea
-          v-model="draft.notice"
-          rows="3"
-          maxlength="50"
-          placeholder="시청자에게 안내할 공지를 입력하세요 (최대 50자)"
+            v-model="draft.notice"
+            rows="3"
+            maxlength="50"
+            placeholder="시청자에게 안내할 공지를 입력하세요 (최대 50자)"
         ></textarea>
         <span class="field__hint">{{ draft.notice.length }}/50</span>
       </label>
@@ -579,55 +578,55 @@ watch(
         <div v-if="draft.products.length" class="product-table-wrap">
           <table>
             <thead>
-              <tr>
-                <th>상품명</th>
-                <th>정가</th>
-                <th>방송 할인가</th>
-                <th>판매 수량</th>
-                <th>재고</th>
-                <th></th>
-              </tr>
+            <tr>
+              <th>상품명</th>
+              <th>정가</th>
+              <th>방송 할인가</th>
+              <th>판매 수량</th>
+              <th>재고</th>
+              <th></th>
+            </tr>
             </thead>
             <tbody>
-              <tr v-for="product in draft.products" :key="product.id">
-                <td>
-                  <div class="product-cell">
-                    <div class="thumb" v-if="product.thumb">
-                      <img :src="product.thumb" :alt="product.name" />
-                    </div>
-                    <div class="product-text">
-                      <strong>{{ product.name }}</strong>
-                      <span class="product-option__meta">{{ product.option }}</span>
-                    </div>
+            <tr v-for="product in draft.products" :key="product.id">
+              <td>
+                <div class="product-cell">
+                  <div class="thumb" v-if="product.thumb">
+                    <img :src="product.thumb" :alt="product.name" />
                   </div>
-                </td>
-                <td class="numeric">{{ product.price.toLocaleString() }}원</td>
-                <td>
-                  <input
+                  <div class="product-text">
+                    <strong>{{ product.name }}</strong>
+                    <span class="product-option__meta">{{ product.option }}</span>
+                  </div>
+                </div>
+              </td>
+              <td class="numeric">{{ product.price.toLocaleString() }}원</td>
+              <td>
+                <input
                     class="table-input"
                     type="number"
                     min="0"
                     :value="product.broadcastPrice"
                     @input="updateProductPrice(product.id, Number(($event.target as HTMLInputElement).value))"
-                  />
-                </td>
-                <td>
-                  <input
+                />
+              </td>
+              <td>
+                <input
                     class="table-input"
                     type="number"
                     :min="resolveMinQuantity(product)"
                     :max="resolveMaxQuantity(product)"
                     :value="product.quantity"
                     @input="updateProductQuantity(product.id, Number(($event.target as HTMLInputElement).value))"
-                  />
-                </td>
-                <td class="numeric">{{ product.stock }}</td>
-                <td>
-                  <button type="button" class="btn ghost" @click="confirmRemoveProduct(product.id)">
+                />
+              </td>
+              <td class="numeric">{{ product.stock }}</td>
+              <td>
+                <button type="button" class="btn ghost" @click="confirmRemoveProduct(product.id)">
                   제거
                 </button>
-                </td>
-              </tr>
+              </td>
+            </tr>
             </tbody>
           </table>
           <p class="table-hint">{{ draft.products.length }}/10 개 선택됨 (최소 1개 필수)</p>
@@ -687,15 +686,15 @@ watch(
               </div>
               <div class="product-grid">
                 <label
-                  v-for="product in filteredProducts"
-                  :key="product.id"
-                  class="product-card"
-                  :class="{ checked: isSelected(product.id, modalProducts) }"
+                    v-for="product in filteredProducts"
+                    :key="product.id"
+                    class="product-card"
+                    :class="{ checked: isSelected(product.id, modalProducts) }"
                 >
                   <input
-                    type="checkbox"
-                    :checked="isSelected(product.id, modalProducts)"
-                    @change="toggleProductInModal(product)"
+                      type="checkbox"
+                      :checked="isSelected(product.id, modalProducts)"
+                      @change="toggleProductInModal(product)"
                   />
                   <div class="product-thumb" v-if="product.thumb">
                     <img :src="product.thumb" :alt="product.name" />

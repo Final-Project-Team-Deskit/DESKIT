@@ -10,11 +10,10 @@ import {
   createEmptyDraft,
   DRAFT_KEY,
   loadDraft,
-  loadWorkingDraft,
   saveDraft,
   saveWorkingDraft,
   clearWorkingDraft,
-  type LiveCreateDraft, setDraftRestoreDecision,
+  type LiveCreateDraft, clearDraftRestoreDecision,
 } from '../../composables/useLiveCreateDraft'
 
 const router = useRouter()
@@ -46,17 +45,8 @@ const restoreDraft = async () => {
     const shouldRestore = window.confirm('이전에 작성 중인 내용을 불러올까요?')
     if (shouldRestore) {
       draft.value = { ...draft.value, ...saved }
-    } else if (decision === 'declined') {
-      clearDraft()
     } else {
-      const shouldRestore = window.confirm('이전에 작성 중인 내용을 불러올까요?')
-      if (shouldRestore) {
-        setDraftRestoreDecision('accepted')
-        draft.value = { ...draft.value, ...saved }
-      } else {
-        setDraftRestoreDecision('declined')
         clearDraft()
-      }
     }
   }
 
