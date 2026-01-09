@@ -951,7 +951,7 @@ watch(
   height: 18px;
   stroke: currentColor;
   fill: none;
-  stroke-width: 1.8px;
+  stroke-width: 2px;
 }
 
 .chat-panel {

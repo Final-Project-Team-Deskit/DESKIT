@@ -94,13 +94,7 @@ export const loadProductDraft = (): SellerProductDraft | null => {
   const draft = safeParse<SellerProductDraft | null>(localStorage.getItem(DRAFT_KEY), null)
   if (!draft) return null
   if (
-    typeof draft.name !== 'string' ||
-    typeof draft.shortDesc !== 'string' ||
-    typeof draft.costPrice !== 'number' ||
-    typeof draft.price !== 'number' ||
-    typeof draft.stock !== 'number' ||
-    !Array.isArray(draft.images) ||
-    typeof draft.detailHtml !== 'string'
+    !Array.isArray(draft.images)
   ) {
     return null
   }

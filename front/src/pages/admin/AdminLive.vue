@@ -1,16 +1,16 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch, type ComponentPublicInstance } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import {type ComponentPublicInstance, computed, nextTick, onBeforeUnmount, onMounted, ref, watch} from 'vue'
+import {useRoute, useRouter} from 'vue-router'
 import PageHeader from '../../components/PageHeader.vue'
 import {
+  type BroadcastStatus,
   computeLifecycleStatus,
   getScheduledEndMs,
   normalizeBroadcastStatus,
-  type BroadcastStatus,
 } from '../../lib/broadcastStatus'
-import { useInfiniteScroll } from '../../composables/useInfiniteScroll'
-import { parseLiveDate } from '../../lib/live/utils'
-import { fetchAdminBroadcasts, fetchCategories, type BroadcastCategory } from '../../lib/live/api'
+import {useInfiniteScroll} from '../../composables/useInfiniteScroll'
+import {parseLiveDate} from '../../lib/live/utils'
+import {type BroadcastCategory, fetchAdminBroadcasts, fetchCategories} from '../../lib/live/api'
 
 type LiveTab = 'all' | 'scheduled' | 'live' | 'vod'
 type LoopKind = 'live' | 'scheduled' | 'vod'
@@ -416,8 +416,7 @@ const filteredVods = computed(() => {
     if (startMs && dateMs < startMs) return false
     if (endMs && dateMs > endMs) return false
     if (vodVisibility.value !== 'all' && vodVisibility.value !== item.visibility) return false
-    if (vodCategory.value !== 'all' && item.category !== vodCategory.value) return false
-    return true
+    return !(vodCategory.value !== 'all' && item.category !== vodCategory.value);
   })
 
   const sortVod = (items: AdminVodItem[]) =>
@@ -546,9 +545,7 @@ const refreshTabFromQuery = () => {
 }
 
 const setCarouselRef = (kind: LoopKind) => (el: Element | ComponentPublicInstance | null) => {
-  const target =
-    el && typeof el === 'object' && '$el' in el ? ((el as ComponentPublicInstance).$el as HTMLElement | null) : ((el as HTMLElement) || null)
-  carouselRefs.value[kind] = target
+  carouselRefs.value[kind] = el && typeof el === 'object' && '$el' in el ? ((el as ComponentPublicInstance).$el as HTMLElement | null) : ((el as HTMLElement) || null)
   nextTick(() => updateSlideWidth(kind))
 }
 

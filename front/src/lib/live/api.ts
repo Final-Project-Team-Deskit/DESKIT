@@ -1,5 +1,5 @@
-import { http } from '../../api/http'
-import { parseLiveDate } from './utils'
+import {http} from '../../api/http'
+import {parseLiveDate} from './utils'
 
 export type BroadcastCategory = {
   id: number
@@ -221,8 +221,7 @@ const ensureSuccess = <T>(response: ApiResult<T>) => {
   if (response?.success) return response.data
   const error = response?.error
   const message = error?.message ?? '요청 처리에 실패했습니다.'
-  const apiError = { message, code: error?.code }
-  throw apiError
+  throw {message, code: error?.code}
 }
 
 const inflight = new Map<string, Promise<any>>()

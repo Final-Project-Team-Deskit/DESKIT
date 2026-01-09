@@ -146,7 +146,7 @@ watch(vodId, () => {
       </div>
       <div class="vod-player">
         <video v-if="detail.vod.url" :src="detail.vod.url" controls></video>
-        <div v-else class="vod-placeholder">VOD 미리보기 영역</div>
+        <div v-else class="vod-placeholder">VOD가 존재하지 않습니다.</div>
       </div>
       <p class="vod-note">관리자가 비공개로 전환한 VOD는 판매자가 다시 공개로 바꿀 수 없습니다.</p>
     </section>
