@@ -26,6 +26,7 @@ type SellerReservationDetail = {
 }
 
 const detail = ref<SellerReservationDetail | null>(null)
+const isLoading = ref(false)
 const qCardIndex = ref(0)
 
 const goBack = () => {
@@ -112,8 +113,15 @@ const loadDetail = async () => {
     detail.value = null
     return
   }
-  const payload = await fetchSellerBroadcastDetail(idValue)
-  detail.value = mapDetail(payload)
+  isLoading.value = true
+  try {
+    const payload = await fetchSellerBroadcastDetail(idValue)
+    detail.value = mapDetail(payload)
+  } catch {
+    detail.value = null
+  } finally {
+    isLoading.value = false
+  }
 }
 
 watch(reservationId, () => {
@@ -215,6 +223,13 @@ watch(reservationId, () => {
       :initial-index="qCardIndex"
       @update:initialIndex="qCardIndex = $event"
     />
+  </PageContainer>
+  <PageContainer v-else>
+    <h2 class="page-title">예약 상세</h2>
+    <section class="detail-card ds-surface empty-state">
+      <p>{{ isLoading ? '예약 정보를 불러오는 중입니다.' : '예약 정보를 찾을 수 없습니다.' }}</p>
+      <button type="button" class="btn" @click="goToList">목록으로</button>
+    </section>
   </PageContainer>
 </template>
 
@@ -476,6 +491,17 @@ watch(reservationId, () => {
   display: flex;
   gap: 10px;
   align-items: center;
+}
+
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 32px;
+  color: var(--text-muted);
 }
 
 @media (max-width: 720px) {
