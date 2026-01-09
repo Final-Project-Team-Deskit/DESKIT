@@ -7,11 +7,16 @@ import LiveImageCropModal from '../../components/LiveImageCropModal.vue'
 import {
   buildDraftFromReservation,
   clearDraft,
+  clearDraftRestoreDecision,
   createEmptyDraft,
+  getDraftRestoreDecision,
   type LiveCreateDraft,
   type LiveCreateProduct,
   loadDraft,
+  loadWorkingDraft,
   saveDraft,
+  saveWorkingDraft,
+  clearWorkingDraft,
 } from '../../composables/useLiveCreateDraft'
 import {
   type BroadcastCategory,
@@ -127,7 +132,7 @@ const syncDraft = () => {
     draft.value.questions = trimmedQuestions
   }
 
-  saveDraft({
+  saveWorkingDraft({
     ...draft.value,
     title: draft.value.title.trim(),
     subtitle: draft.value.subtitle?.trim() ?? '',
@@ -139,13 +144,16 @@ const syncDraft = () => {
 }
 
 const restoreDraft = async () => {
-  const savedDraft = loadDraft()
+  const workingDraft = loadWorkingDraft()
   let baseDraft = createEmptyDraft()
-  if (!isEditMode.value && savedDraft && (!savedDraft.reservationId || savedDraft.reservationId === reservationId.value)) {
-    const shouldRestore = window.confirm('이전에 작성 중인 내용을 불러올까요?')
-    if (shouldRestore) {
+  if (workingDraft) {
+    baseDraft = { ...createEmptyDraft(), ...workingDraft }
+  } else if (!isEditMode.value) {
+    const savedDraft = loadDraft()
+    const decision = getDraftRestoreDecision()
+    if (savedDraft && decision === 'accepted' && (!savedDraft.reservationId || savedDraft.reservationId === reservationId.value)) {
       baseDraft = { ...createEmptyDraft(), ...savedDraft }
-    } else {
+    } else if (decision === 'declined') {
       clearDraft()
     }
   }
@@ -358,6 +366,9 @@ const goPrev = () => {
 const cancel = () => {
   const ok = window.confirm('작성 중인 내용을 취소하시겠어요?')
   if (!ok) return
+  saveDraft(draft.value)
+  clearDraftRestoreDecision()
+  clearWorkingDraft()
   const redirect = isEditMode.value && reservationId.value
     ? `/seller/broadcasts/reservations/${reservationId.value}`
     : '/seller/live?tab=scheduled'
