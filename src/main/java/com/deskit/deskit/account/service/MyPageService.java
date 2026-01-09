@@ -4,6 +4,7 @@ import com.deskit.deskit.account.controller.MyPageController;
 import com.deskit.deskit.account.dto.MyPageResponse;
 import com.deskit.deskit.account.entity.Member;
 import com.deskit.deskit.account.entity.Seller;
+import com.deskit.deskit.account.enums.JobCategory;
 import com.deskit.deskit.account.oauth.CustomOAuth2User;
 import com.deskit.deskit.account.repository.MemberRepository;
 import com.deskit.deskit.account.repository.SellerRepository;
@@ -26,6 +27,8 @@ public class MyPageService {
 		String name = safe(user.getName());
 		String email = safe(user.getEmail());
 		String profileUrl = safe(user.getProfileUrl());
+		String mbti = "";
+		String job = "";
 
 		if (email.isEmpty() && !loginId.isEmpty()) {
 			email = loginId;
@@ -39,12 +42,26 @@ public class MyPageService {
 			profileUrl = resolveProfileUrl(normalizedRole, loginId);
 		}
 
+		if ("ROLE_MEMBER".equals(normalizedRole) && !loginId.isEmpty()) {
+			Member member = memberRepository.findByLoginId(loginId);
+			if (member != null) {
+				if (member.getMbti() != null) {
+					mbti = member.getMbti().name();
+				}
+				if (member.getJobCategory() != null) {
+					job = mapJobCategory(member.getJobCategory());
+				}
+			}
+		}
+
 		return new MyPageResponse(
 				name,
 				email,
 				normalizedRole,
 				resolveMemberCategory(normalizedRole),
 				resolveSellerRole(normalizedRole),
+				mbti,
+				job,
 				profileUrl
 		);
 	}
@@ -94,6 +111,17 @@ public class MyPageService {
 				}
 				yield "";
 			}
+		};
+	}
+
+	private String mapJobCategory(JobCategory category) {
+		return switch (category) {
+			case CREATIVE_TYPE -> "크리에이티브";
+			case FLEXIBLE_TYPE -> "프리랜서/유연근무";
+			case EDU_RES_TYPE -> "교육/연구";
+			case MED_PRO_TYPE -> "의료/전문직";
+			case ADMIN_PLAN_TYPE -> "기획/관리";
+			default -> "";
 		};
 	}
 

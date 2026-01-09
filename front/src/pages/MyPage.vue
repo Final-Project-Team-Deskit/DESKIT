@@ -99,9 +99,11 @@ const mbtiKeywordsMap: Record<string, string[]> = {
 }
 
 const jobKeywordsMap: Record<string, string[]> = {
-  직장인: ['오피스', '재택근무', '화상회의'],
-  프리랜서: ['홈카페', '재택근무', '따뜻한'],
-  크리에이터: ['영상편집', '집중', '게이밍룸'],
+  '크리에이티브': ['영상편집', '집중', '게이밍룸'],
+  '프리랜서/유연근무': ['홈카페', '재택근무', '따뜻한'],
+  '교육/연구': ['오피스', '재택근무', '집중'],
+  '의료/전문직': ['오피스', '집중', '모던'],
+  '기획/관리': ['오피스', '재택근무', '화상회의'],
 }
 
 const recommendedProducts = computed(() => {
@@ -163,7 +165,6 @@ onMounted(() => {
             </div>
             <div class="meta-row">
               <span class="meta">{{ display.email }}</span>
-              <span class="dot">?</span>
               <span class="meta">{{ display.signupType }}</span>
             </div>
             <div class="chip-row">
