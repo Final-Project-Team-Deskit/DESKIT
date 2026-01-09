@@ -63,8 +63,8 @@ const formatCurrency = (value: number) => `₩${value.toLocaleString('ko-KR')}`
 const loadRevenueStats = async () => {
   try {
     const payload = await fetchAdminStatistics(periodMap[revenueRange.value])
-    revenueChart.value = mapChart(payload.salesChart)
-    broadcastRanks.value = mapRankGroup(payload.bestBroadcasts, payload.worstBroadcasts)
+    revenueChart.value = mapChart(payload.salesChart ?? [])
+    broadcastRanks.value = mapRankGroup(payload.bestBroadcasts ?? [], payload.worstBroadcasts ?? [])
     productRanks.value = mapProductRanks(payload.bestProducts ?? [], payload.worstProducts ?? [])
   } catch {
     revenueChart.value = []
@@ -76,7 +76,7 @@ const loadRevenueStats = async () => {
 const loadViewerStats = async () => {
   try {
     const payload = await fetchAdminStatistics(periodMap[perViewerRange.value])
-    perViewerChart.value = mapChart(payload.arpuChart)
+    perViewerChart.value = mapChart(payload.arpuChart ?? [])
   } catch {
     perViewerChart.value = []
   }

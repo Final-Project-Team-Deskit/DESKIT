@@ -20,6 +20,7 @@ import {
   fetchSellerBroadcasts,
   type BroadcastCategory,
 } from '../../lib/live/api'
+import { getAuthUser } from '../../lib/auth'
 
 const router = useRouter()
 const route = useRoute()
@@ -125,6 +126,12 @@ const autoTimers = ref<Record<LoopKind, number | null>>({
   scheduled: null,
   vod: null,
 })
+const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080'
+const sseSource = ref<EventSource | null>(null)
+const sseConnected = ref(false)
+const sseRetryCount = ref(0)
+const sseRetryTimer = ref<number | null>(null)
+const refreshTimer = ref<number | null>(null)
 
 const toDateMs = (item: LiveItem) => {
   const raw = item.createdAt || item.datetime || ''
@@ -323,6 +330,8 @@ const liveItemsSorted = computed(() => {
 })
 
 const currentLive = computed(() => liveItemsSorted.value[0] ?? null)
+const showLiveStats = computed(() => Boolean(currentLive.value && liveStats.value?.hasData))
+const showLiveProducts = computed(() => Boolean(currentLive.value && liveProducts.value.length))
 
 const loadSellerData = async () => {
   try {
@@ -355,6 +364,84 @@ const loadSellerData = async () => {
     scheduledItems.value = []
     vodItems.value = []
   }
+}
+
+const parseSseData = (event: MessageEvent) => {
+  if (!event.data) return null
+  try {
+    return JSON.parse(event.data)
+  } catch {
+    return event.data
+  }
+}
+
+const scheduleRefresh = () => {
+  if (refreshTimer.value) window.clearTimeout(refreshTimer.value)
+  refreshTimer.value = window.setTimeout(() => {
+    void loadSellerData()
+  }, 500)
+}
+
+const handleSseEvent = (event: MessageEvent) => {
+  parseSseData(event)
+  switch (event.type) {
+    case 'BROADCAST_READY':
+    case 'BROADCAST_UPDATED':
+    case 'BROADCAST_STARTED':
+    case 'PRODUCT_PINNED':
+    case 'SANCTION_UPDATED':
+    case 'BROADCAST_CANCELED':
+    case 'BROADCAST_ENDED':
+    case 'BROADCAST_SCHEDULED_END':
+    case 'BROADCAST_STOPPED':
+      scheduleRefresh()
+      break
+    default:
+      break
+  }
+}
+
+const scheduleReconnect = () => {
+  if (sseRetryTimer.value) window.clearTimeout(sseRetryTimer.value)
+  const delay = Math.min(30000, 1000 * 2 ** sseRetryCount.value)
+  const jitter = Math.floor(Math.random() * 500)
+  sseRetryTimer.value = window.setTimeout(() => {
+    connectSse()
+  }, delay + jitter)
+  sseRetryCount.value += 1
+}
+
+const connectSse = () => {
+  sseSource.value?.close()
+  const user = getAuthUser()
+  const viewerId = user?.id ?? user?.userId ?? user?.user_id ?? user?.sellerId
+  const query = viewerId ? `?viewerId=${encodeURIComponent(String(viewerId))}` : ''
+  const source = new EventSource(`${apiBase}/api/broadcasts/subscribe/all${query}`)
+  const events = [
+    'BROADCAST_READY',
+    'BROADCAST_UPDATED',
+    'BROADCAST_STARTED',
+    'PRODUCT_PINNED',
+    'SANCTION_UPDATED',
+    'BROADCAST_CANCELED',
+    'BROADCAST_ENDED',
+    'BROADCAST_SCHEDULED_END',
+    'BROADCAST_STOPPED',
+  ]
+  events.forEach((name) => source.addEventListener(name, handleSseEvent))
+  source.onopen = () => {
+    sseConnected.value = true
+    sseRetryCount.value = 0
+    scheduleRefresh()
+  }
+  source.onerror = () => {
+    sseConnected.value = false
+    source.close()
+    if (document.visibilityState === 'visible') {
+      scheduleReconnect()
+    }
+  }
+  sseSource.value = source
 }
 
 const loadCategories = async () => {
@@ -445,8 +532,7 @@ const filteredScheduledItems = computed(() => {
   return [...sortScheduled(reserved), ...sortScheduled(canceled)]
 })
 
-const scheduledCategories = computed(() => Array.from(new Set(filteredScheduledItems.value.map((item) => item.category ?? '기타'))))
-const vodCategories = computed(() => Array.from(new Set(filteredVodItems.value.map((item) => item.category ?? '기타'))))
+const categoryOptions = computed(() => categories.value)
 
 const scheduledSummary = computed(() =>
   scheduledWithStatus.value
@@ -746,6 +832,7 @@ onMounted(() => {
   void loadCategories()
   loadSellerData()
   syncTabFromRoute()
+  connectSse()
   nextTick(() => {
     resetAllLoops()
     handleResize()
@@ -757,6 +844,11 @@ onBeforeUnmount(() => {
   stopAutoLoop('scheduled')
   stopAutoLoop('vod')
   window.removeEventListener('resize', handleResize)
+  if (sseRetryTimer.value) window.clearTimeout(sseRetryTimer.value)
+  sseRetryTimer.value = null
+  if (refreshTimer.value) window.clearTimeout(refreshTimer.value)
+  refreshTimer.value = null
+  sseSource.value?.close()
 })
 </script>
 
@@ -850,7 +942,7 @@ onBeforeUnmount(() => {
         </article>
         <p v-else class="section-empty live-pane">현재 진행 중인 방송이 없습니다.</p>
 
-        <section v-if="currentLive && liveStats" class="live-stats live-stats--stacked live-pane">
+        <section v-if="showLiveStats" class="live-stats live-stats--stacked live-pane">
           <div class="live-stats__head">
             <h4>실시간 통계</h4>
             <span class="live-stats__badge">
@@ -882,7 +974,7 @@ onBeforeUnmount(() => {
           </div>
         </section>
 
-        <article v-if="currentLive && liveProducts.length" class="live-products ds-surface live-pane">
+        <article v-if="showLiveProducts" class="live-products ds-surface live-pane">
           <div class="live-products__head">
             <div>
               <h4>판매 상품</h4>
@@ -970,8 +1062,8 @@ onBeforeUnmount(() => {
           <span class="filter-label">카테고리</span>
           <select v-model="scheduledCategory">
             <option value="all">전체</option>
-            <option v-for="category in scheduledCategories" :key="category" :value="category">
-              {{ category }}
+            <option v-for="category in categoryOptions" :key="category.id" :value="category.name">
+              {{ category.name }}
             </option>
           </select>
         </label>
@@ -1123,7 +1215,7 @@ onBeforeUnmount(() => {
           <span class="filter-label">카테고리</span>
           <select v-model="vodCategory">
             <option value="all">전체</option>
-            <option v-for="category in vodCategories" :key="category" :value="category">{{ category }}</option>
+            <option v-for="category in categoryOptions" :key="category.id" :value="category.name">{{ category.name }}</option>
           </select>
         </label>
         <label class="filter-field">

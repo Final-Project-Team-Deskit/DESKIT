@@ -100,6 +100,7 @@ public class BroadcastService {
     private final RedisService redisService;
     private final SseService sseService;
     private final OpenViduService openViduService;
+    private final BroadcastScheduleEmailService broadcastScheduleEmailService;
     private final AwsS3Service s3Service;
     private final DSLContext dsl;
 
@@ -956,12 +957,24 @@ public class BroadcastService {
         List<BroadcastRepositoryCustom.BroadcastScheduleInfo> schedules = broadcastRepository.findBroadcastSchedules(
                 now.minusHours(2),
                 now.plusHours(2),
-                List.of(BroadcastStatus.ON_AIR, BroadcastStatus.READY, BroadcastStatus.ENDED)
+                List.of(BroadcastStatus.ON_AIR, BroadcastStatus.READY, BroadcastStatus.ENDED, BroadcastStatus.RESERVED)
         );
 
         for (BroadcastRepositoryCustom.BroadcastScheduleInfo schedule : schedules) {
             if (schedule.scheduledAt() == null) {
                 continue;
+            }
+            if (schedule.status() == BroadcastStatus.RESERVED) {
+                LocalDateTime startNoticeAt = schedule.scheduledAt().minusMinutes(30);
+                if (!startNoticeAt.isAfter(now) && schedule.scheduledAt().isAfter(now)) {
+                    String noticeKey = redisService.getScheduleNoticeKey(schedule.broadcastId(), "start_30m");
+                    if (redisService.setIfAbsent(noticeKey, "sent", java.time.Duration.ofHours(2))) {
+                        Broadcast broadcast = broadcastRepository.findById(schedule.broadcastId()).orElse(null);
+                        if (broadcast != null) {
+                            broadcastScheduleEmailService.sendStartReminder(broadcast);
+                        }
+                    }
+                }
             }
             LocalDateTime scheduledEnd = schedule.scheduledAt().plusMinutes(30);
             if (!scheduledEnd.isAfter(now)) {
