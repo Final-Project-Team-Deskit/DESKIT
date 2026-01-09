@@ -39,7 +39,7 @@ type StoredDraft = {
   data: LiveCreateDraft
 }
 
-const resolveSellerKey = ({ allowToken }: { allowToken: boolean }) => {
+const resolveSellerKey = () => {
   const user = getAuthUser()
   if (user) {
     if (!isSeller()) return ''
@@ -131,7 +131,7 @@ const normalizeDraft = (payload: LiveCreateDraft): LiveCreateDraft => {
 }
 
 export const loadDraft = (): LiveCreateDraft | null => {
-  const ownerId = resolveSellerKey({ allowToken: true })
+  const ownerId = resolveSellerKey()
   if (!ownerId) return null
   const stored = parseStoredDraft(getDraftStorage().getItem(DRAFT_KEY))
   if (!stored) {
@@ -146,7 +146,7 @@ export const loadDraft = (): LiveCreateDraft | null => {
 }
 
 export const saveDraft = (draft: LiveCreateDraft) => {
-  const ownerId = resolveSellerKey({ allowToken: true })
+  const ownerId = resolveSellerKey()
   if (!ownerId) return
   const payload: StoredDraft = {
     version: DRAFT_SCHEMA_VERSION,
