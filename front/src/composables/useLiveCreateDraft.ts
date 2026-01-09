@@ -30,6 +30,7 @@ export type LiveCreateDraft = {
 }
 
 export const DRAFT_KEY = 'deskit_seller_broadcast_draft_v3'
+const DRAFT_RESTORE_KEY = 'deskit_seller_broadcast_draft_restore_v1'
 const DRAFT_SCHEMA_VERSION = 1
 
 type StoredDraft = {
@@ -56,10 +57,31 @@ const resolveSellerKey = ({ allowToken = false }: { allowToken?: boolean } = {})
 }
 
 const getDraftStorage = () => sessionStorage
+let workingDraft: LiveCreateDraft | null = null
 
 const clearDraftStorage = () => {
-  getDraftStorage().removeItem(DRAFT_KEY)
+  const storage = getDraftStorage()
+  storage.removeItem(DRAFT_KEY)
+  storage.removeItem(DRAFT_RESTORE_KEY)
+  workingDraft = null
 }
+
+type DraftRestoreDecision = 'accepted' | 'declined'
+
+export const getDraftRestoreDecision = (): DraftRestoreDecision | null => {
+  const stored = getDraftStorage().getItem(DRAFT_RESTORE_KEY)
+  if (stored === 'accepted' || stored === 'declined') return stored
+  return null
+}
+
+export const setDraftRestoreDecision = (decision: DraftRestoreDecision) => {
+  getDraftStorage().setItem(DRAFT_RESTORE_KEY, decision)
+}
+
+export const clearDraftRestoreDecision = () => {
+  getDraftStorage().removeItem(DRAFT_RESTORE_KEY)
+}
+
 
 const createId = () => `q-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
 
@@ -139,6 +161,19 @@ const normalizeDraft = (payload: LiveCreateDraft): LiveCreateDraft => {
           }))
       : [],
   }
+}
+
+export const loadWorkingDraft = (): LiveCreateDraft | null => {
+  if (!workingDraft) return null
+  return normalizeDraft(workingDraft)
+}
+
+export const saveWorkingDraft = (draft: LiveCreateDraft) => {
+  workingDraft = normalizeDraft(draft)
+}
+
+export const clearWorkingDraft = () => {
+  workingDraft = null
 }
 
 export const loadDraft = (): LiveCreateDraft | null => {
