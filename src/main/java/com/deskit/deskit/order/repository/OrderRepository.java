@@ -2,6 +2,11 @@ package com.deskit.deskit.order.repository;
 
 import com.deskit.deskit.order.entity.Order;
 import java.util.List;
+import java.util.Optional;
+import jakarta.persistence.LockModeType;
+import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 /**
@@ -25,4 +30,8 @@ public interface OrderRepository extends JpaRepository<Order, Long> {
    *   List<Order> orders = orderRepository.findByMemberIdOrderByCreatedAtDesc(memberId);
    */
   List<Order> findByMemberIdOrderByCreatedAtDesc(Long memberId);
+
+  @Lock(LockModeType.PESSIMISTIC_WRITE)
+  @Query("select o from Order o where o.id = :id")
+  Optional<Order> findByIdForUpdate(@Param("id") Long id);
 }

@@ -1,4 +1,4 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { RouterLink, useRouter } from 'vue-router'
 import PageContainer from '../components/PageContainer.vue'
@@ -79,26 +79,26 @@ const selectedOrderId = ref<string | null>(null)
 const cancelReasonCategory = ref('')
 const cancelError = ref('')
 const cancelReasons = [
-  '단순 변심',
-  '가격/혜택(쿠폰·프로모션) 불만',
-  '옵션/수량/정보를 잘못 선택',
-  '배송이 늦을 것 같아서(일정 문제)',
-  '재고 없음/판매자 사정으로 취소(품절 포함)',
-  '기타',
+  '?⑥닚 蹂??,
+  '媛寃??쒗깮(荑좏룿쨌?꾨줈紐⑥뀡) 遺덈쭔',
+  '?듭뀡/?섎웾/?뺣낫瑜??섎せ ?좏깮',
+  '諛곗넚????쓣 寃?媛숈븘???쇱젙 臾몄젣)',
+  '?ш퀬 ?놁쓬/?먮ℓ???ъ젙?쇰줈 痍⑥냼(?덉젅 ?ы븿)',
+  '湲고?',
 ]
 
 const statusLabel = (status?: OrderStatus) => {
   const map: Record<string, string> = {
-    CREATED: '주문 생성',
-    PAID: '결제 완료',
-    CANCEL_REQUESTED: '취소 요청',
-    CANCELLED: '취소 완료',
-    COMPLETED: '구매 확정',
-    REFUND_REQUESTED: '환불 요청',
-    REFUND_REJECTED: '환불 거절',
-    REFUNDED: '환불 완료',
+    CREATED: '二쇰Ц ?앹꽦',
+    PAID: '寃곗젣 ?꾨즺',
+    CANCEL_REQUESTED: '痍⑥냼 ?붿껌',
+    CANCELLED: '痍⑥냼 ?꾨즺',
+    COMPLETED: '援щℓ ?뺤젙',
+    REFUND_REQUESTED: '?섎텋 ?붿껌',
+    REFUND_REJECTED: '?섎텋 嫄곗젅',
+    REFUNDED: '?섎텋 ?꾨즺',
   }
-  return map[status ?? 'PAID'] ?? '결제 완료'
+  return map[status ?? 'PAID'] ?? '寃곗젣 ?꾨즺'
 }
 
 const totalCount = computed(() => orders.value.length)
@@ -116,7 +116,7 @@ const mapOrderSummaryToView = (order: OrderSummaryResponse): OrderViewModel => (
     address1: '',
     address2: '',
   },
-  paymentMethodLabel: '토스페이 (예정)',
+  paymentMethodLabel: '토스페이',
   totals: {
     listPriceTotal: Number(order.order_amount ?? 0) || 0,
     salePriceTotal: Number(order.order_amount ?? 0) || 0,
@@ -162,17 +162,17 @@ const formatDateTime = (value: string) => {
   return `${yy}.${mm}.${dd} ${hh}:${mi}`
 }
 
-const formatPrice = (value: number) => `${value.toLocaleString('ko-KR')}원`
+const formatPrice = (value: number) => `${value.toLocaleString('ko-KR')}??
 
 const titleOf = (order: { items: OrderItemView[] }) => {
-  const base = order.items[0]?.name ?? '상품'
-  if (order.items.length > 1) return `${base} 외 ${order.items.length - 1}건`
+  const base = order.items[0]?.name ?? '?곹뭹'
+  if (order.items.length > 1) return `${base} ??${order.items.length - 1}嫄?
   return base
 }
 
 const fallbackTitleItem: OrderItemView = {
   productId: '',
-  name: '상품',
+  name: '?곹뭹',
   quantity: 1,
   price: 0,
   originalPrice: 0,
@@ -217,7 +217,7 @@ const isTerminalStatus = (status?: OrderStatus) =>
   (status ?? 'PAID') === 'REFUNDED' ||
   (status ?? 'PAID') === 'COMPLETED'
 const cancelReasonTitle = (status?: OrderStatus) =>
-  (status ?? 'PAID') === 'REFUND_REQUESTED' ? '환불 사유 보기' : '취소 사유 보기'
+  (status ?? 'PAID') === 'REFUND_REQUESTED' ? '?섎텋 ?ъ쑀 蹂닿린' : '痍⑥냼 ?ъ쑀 蹂닿린'
 
 const openModal = (orderId: string) => {
   selectedOrderId.value = orderId
@@ -236,13 +236,13 @@ const closeModal = () => {
 const submitCancel = async () => {
   if (!selectedOrderId.value) return
   if (!cancelReasonCategory.value.trim()) {
-    cancelError.value = '취소 사유를 선택해주세요.'
+    cancelError.value = '痍⑥냼 ?ъ쑀瑜??좏깮?댁＜?몄슂.'
     return
   }
   const targetOrder = orders.value.find((order) => order.orderId === selectedOrderId.value)
   const numericId = Number(targetOrder?.orderPk)
   if (!Number.isFinite(numericId)) {
-    cancelError.value = '주문 정보를 확인할 수 없습니다.'
+    cancelError.value = '二쇰Ц ?뺣낫瑜??뺤씤?????놁뒿?덈떎.'
     return
   }
   try {
@@ -250,16 +250,16 @@ const submitCancel = async () => {
     await load()
     closeModal()
   } catch {
-    cancelError.value = '취소 요청에 실패했습니다.'
+    cancelError.value = '痍⑥냼 ?붿껌???ㅽ뙣?덉뒿?덈떎.'
   }
 }
 
 const resolveItemName = (productId: string, index: number) => {
   const p = productsData.find((x: any) => String(x.product_id) === String(productId))
-  return String(p?.name ?? `상품 ${index + 1}`)
+  return String(p?.name ?? `?곹뭹 ${index + 1}`)
 }
 
-const itemLoadErrorMessage = '상품 정보를 불러올 수 없습니다. 다시 시도해주세요.'
+const itemLoadErrorMessage = '?곹뭹 ?뺣낫瑜?遺덈윭?????놁뒿?덈떎. ?ㅼ떆 ?쒕룄?댁＜?몄슂.'
 
 const handleItemsToggle = async (order: OrderViewModel, event: Event) => {
   const target = event.target
@@ -357,12 +357,12 @@ onMounted(() => {
 
 <template>
   <PageContainer>
-    <PageHeader eyebrow="DESKIT" title="주문내역" />
-    <p class="count">나의 주문 내역 ({{ totalCount }})</p>
+    <PageHeader eyebrow="DESKIT" title="二쇰Ц?댁뿭" />
+    <p class="count">?섏쓽 二쇰Ц ?댁뿭 ({{ totalCount }})</p>
 
     <div v-if="!orders.length" class="history-empty">
-      <p>주문 내역이 없습니다.</p>
-      <RouterLink to="/products" class="link">상품 보러가기</RouterLink>
+      <p>二쇰Ц ?댁뿭???놁뒿?덈떎.</p>
+      <RouterLink to="/products" class="link">?곹뭹 蹂대윭媛湲?/RouterLink>
     </div>
 
     <section v-else class="history-list">
@@ -374,14 +374,14 @@ onMounted(() => {
                 <img
                   v-if="thumbOf(order)"
                   :src="thumbOf(order)"
-                  :alt="order.items[0]?.name || '상품'"
+                  :alt="order.items[0]?.name || '?곹뭹'"
                 />
                 <span v-else class="thumb__ph">DESKIT</span>
               </div>
               <div class="header-block">
                 <h3 class="title">{{ titleOf(order) }}</h3>
                 <div class="meta-row">
-                  <span class="order-id">주문번호 · {{ order.orderId }}</span>
+                  <span class="order-id">二쇰Ц踰덊샇 쨌 {{ order.orderId }}</span>
                   <span class="date">{{ formatDate(order.createdAt) }}</span>
                 </div>
               </div>
@@ -390,7 +390,7 @@ onMounted(() => {
               <summary class="reason-summary">{{ cancelReasonTitle(order.status) }}</summary>
               <div class="reason-panel">
                 <div class="reason-meta">
-                  <span class="reason-meta__label">취소 요청</span>
+                  <span class="reason-meta__label">痍⑥냼 ?붿껌</span>
                   <span class="reason-meta__time">
                     {{
                       formatDateTime(
@@ -400,27 +400,27 @@ onMounted(() => {
                   </span>
                 </div>
                 <p class="reason-text">
-                  {{ order.cancelReason?.trim() ? order.cancelReason : '사유가 입력되지 않았습니다.' }}
+                  {{ order.cancelReason?.trim() ? order.cancelReason : '?ъ쑀媛 ?낅젰?섏? ?딆븯?듬땲??' }}
                 </p>
               </div>
             </details>
 
             <details class="items-dropdown" @toggle="handleItemsToggle(order, $event)">
-              <summary>주문 상품 보기 ({{ order.items.length }})</summary>
+              <summary>二쇰Ц ?곹뭹 蹂닿린 ({{ order.items.length }})</summary>
               <div class="items-list">
                 <div class="items-meta">
-                  <span>총 금액 · {{ formatPrice(order.totals.total) }}</span>
-                  <span>수량 · {{ quantityOf(order) }}개</span>
+                  <span>珥?湲덉븸 쨌 {{ formatPrice(order.totals.total) }}</span>
+                  <span>?섎웾 쨌 {{ quantityOf(order) }}媛?/span>
                 </div>
                 <div class="items-header">
-                  <span>상품</span>
-                  <span>구매가(합계)</span>
+                  <span>?곹뭹</span>
+                  <span>援щℓ媛(?⑷퀎)</span>
                 </div>
                 <p v-if="order.itemsError" class="error">
                   {{ order.itemsError }}
                 </p>
                 <p v-else-if="order.itemsLoading" class="error">
-                  상품 정보를 불러오는 중입니다.
+                  ?곹뭹 ?뺣낫瑜?遺덈윭?ㅻ뒗 以묒엯?덈떎.
                 </p>
                 <div
                   v-for="(item, idx) in order.items"
@@ -433,14 +433,14 @@ onMounted(() => {
                     class="item-link"
                   >
                     {{ item.name }}
-                    <span v-if="item.quantity > 1" class="item-qty">×{{ item.quantity }}</span>
+                    <span v-if="item.quantity > 1" class="item-qty">횞{{ item.quantity }}</span>
                   </RouterLink>
                   <span v-else class="item-name">
                     {{ item.name }}
-                    <span v-if="item.quantity > 1" class="item-qty">×{{ item.quantity }}</span>
+                    <span v-if="item.quantity > 1" class="item-qty">횞{{ item.quantity }}</span>
                   </span>
                   <span class="item-price">
-                    {{ (item.price * item.quantity).toLocaleString('ko-KR') }}원
+                    {{ (item.price * item.quantity).toLocaleString('ko-KR') }}??
                   </span>
                 </div>
               </div>
@@ -460,7 +460,7 @@ onMounted(() => {
                 class="btn cancel"
                 @click="openModal(order.orderId)"
               >
-                취소 요청
+                痍⑥냼 ?붿껌
               </button>
             </div>
           </div>
@@ -471,16 +471,16 @@ onMounted(() => {
     <transition name="fade">
       <div v-if="isModalOpen" class="modal-overlay" @click.self="closeModal">
         <div class="modal">
-          <h3 class="modal__title">주문 취소</h3>
-          <p class="modal__subtitle">취소 사유를 입력해주세요.</p>
+          <h3 class="modal__title">二쇰Ц 痍⑥냼</h3>
+          <p class="modal__subtitle">痍⑥냼 ?ъ쑀瑜??낅젰?댁＜?몄슂.</p>
           <div v-if="selectedOrderId" class="modal__summary">
-            <p>주문번호: {{ selectedOrderId }}</p>
+            <p>二쇰Ц踰덊샇: {{ selectedOrderId }}</p>
             <p>{{ modalTitle(selectedOrderId) }}</p>
           </div>
           <label class="field">
-            <span class="field__label">취소 사유</span>
+            <span class="field__label">痍⑥냼 ?ъ쑀</span>
             <select v-model="cancelReasonCategory">
-              <option value="" disabled>사유를 선택해주세요</option>
+              <option value="" disabled>?ъ쑀瑜??좏깮?댁＜?몄슂</option>
               <option v-for="reason in cancelReasons" :key="reason" :value="reason">
                 {{ reason }}
               </option>
@@ -488,8 +488,8 @@ onMounted(() => {
             <p v-if="cancelError" class="error">{{ cancelError }}</p>
           </label>
           <div class="modal__actions">
-            <button type="button" class="btn ghost" @click="closeModal">닫기</button>
-            <button type="button" class="btn primary" @click="submitCancel">신청</button>
+            <button type="button" class="btn ghost" @click="closeModal">?リ린</button>
+            <button type="button" class="btn primary" @click="submitCancel">?좎껌</button>
           </div>
         </div>
       </div>
@@ -657,13 +657,13 @@ onMounted(() => {
 }
 
 .reason-summary::after {
-  content: '▾';
+  content: '??;
   font-weight: 900;
   opacity: 0.7;
 }
 
 .reason-disclosure[open] .reason-summary::after {
-  content: '▴';
+  content: '??;
 }
 
 .reason-summary:hover,

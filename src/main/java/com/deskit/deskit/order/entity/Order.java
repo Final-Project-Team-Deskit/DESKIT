@@ -146,6 +146,19 @@ public class Order extends BaseEntity {
     return order;
   }
 
+  public void markPaid() {
+    if (this.status == OrderStatus.PAID) {
+      return;
+    }
+    if (this.status != OrderStatus.CREATED) {
+      throw new IllegalStateException("invalid status for paid");
+    }
+    this.status = OrderStatus.PAID;
+    if (this.paidAt == null) {
+      this.paidAt = LocalDateTime.now();
+    }
+  }
+
   public void requestCancel(String reason) {
     if (this.status == OrderStatus.CREATED) {
       if (this.cancelReason == null && reason != null) {

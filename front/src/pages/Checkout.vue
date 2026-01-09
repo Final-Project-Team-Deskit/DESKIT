@@ -1,23 +1,29 @@
-<script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+﻿<script setup lang="ts">
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import PageContainer from '../components/PageContainer.vue'
 import PageHeader from '../components/PageHeader.vue'
 import {
   loadCheckout,
-  clearCheckout,
   updateShipping,
   updatePaymentMethod,
   type CheckoutDraft,
+  type CheckoutItem,
   type ShippingInfo,
   type PaymentMethod,
 } from '../lib/checkout/checkout-storage'
-import { removeCartItemsByProductIds } from '../lib/cart/cart-storage'
 import { createOrder } from '../api/orders'
-import { saveLastOrder, appendOrder, type OrderReceipt } from '../lib/order/order-storage'
+import {
+  clearPendingTossPayment,
+  savePendingTossPayment,
+  type PendingTossPayment,
+} from '../lib/checkout/toss-payment-storage'
 
 const router = useRouter()
 const route = useRoute()
+
+const TOSS_CLIENT_KEY =
+  import.meta.env.VITE_TOSS_CLIENT_KEY || 'test_gck_docs_Ovk5rk1EwkEbP0W43n07xlzm'
 
 const draft = ref<CheckoutDraft | null>(null)
 const isSubmitting = ref(false)
@@ -39,6 +45,14 @@ const errors = reactive<Record<keyof ShippingInfo, string>>({
   address1: '',
   address2: '',
 })
+
+const isTossReady = ref(false)
+const tossError = ref('')
+const tossRendered = ref(false)
+let tossWidgets: any = null
+let tossPaymentsClient: any = null
+let tossScriptPromise: Promise<void> | null = null
+let tossInitPromise: Promise<void> | null = null
 
 const step = computed<'shipping' | 'payment'>(() =>
     route.query.step === 'payment' ? 'payment' : 'shipping',
@@ -131,7 +145,7 @@ const openPostcode = async () => {
       const jibunAddr = data.jibunAddress || ''
       let extraRoadAddr = ''
 
-      if (data.bname && /[동로가]$/g.test(data.bname)) {
+      if (data.bname && /[?숇줈媛]$/g.test(data.bname)) {
         extraRoadAddr += data.bname
       }
       if (data.buildingName && data.apartment === 'Y') {
@@ -168,7 +182,7 @@ const validate = () => {
   const addr2 = form.address2.trim()
 
   if (!name) errors.buyerName = '주문자 이름을 입력해주세요.'
-  else if (!/^[a-zA-Z가-힣 ]{1,6}$/.test(name)) {
+  else if (!/^[a-zA-Z가-힣]{1,6}$/.test(name)) {
     errors.buyerName = '이름은 한글/영문 6글자 이내로 입력해주세요.'
   }
 
@@ -191,7 +205,7 @@ const canProceed = computed(() => {
   const zip = form.zipcode.trim()
   const addr1 = form.address1.trim()
   return (
-      /^[a-zA-Z가-힣 ]{1,6}$/.test(name) &&
+      /^[a-zA-Z가-힣]{1,6}$/.test(name) &&
       /^[0-9]{5}$/.test(zip) &&
       !!addr1 &&
       paymentMethod.value !== null
@@ -214,16 +228,85 @@ const goShipping = () => {
   })
 }
 
-const generateOrderId = () => {
-  const now = new Date()
-  const yy = String(now.getFullYear()).slice(2)
-  const mm = String(now.getMonth() + 1).padStart(2, '0')
-  const dd = String(now.getDate()).padStart(2, '0')
-  const rand = Math.random().toString(16).slice(2, 6).toUpperCase()
-  return `ORD-${yy}${mm}${dd}-${rand}`
+const loadTossScript = () => {
+  if (typeof window === 'undefined') return Promise.reject(new Error('window missing'))
+  if ((window as any).TossPayments) return Promise.resolve()
+  if (!tossScriptPromise) {
+    tossScriptPromise = new Promise<void>((resolve, reject) => {
+      const script = document.createElement('script')
+      script.src = 'https://js.tosspayments.com/v2/standard'
+      script.async = true
+      script.onload = () => resolve()
+      script.onerror = () => reject(new Error('toss script load failed'))
+      document.head.appendChild(script)
+    })
+  }
+  return tossScriptPromise
 }
 
-const handlePaymentComplete = async () => {
+const ensureTossWidgets = async () => {
+  if (tossRendered.value && isTossReady.value) {
+    return
+  }
+  if (tossInitPromise) {
+    await tossInitPromise
+    return
+  }
+  tossInitPromise = (async () => {
+    await loadTossScript()
+    const tossPayments = (window as any).TossPayments
+    if (!tossPayments) {
+      throw new Error('toss payments missing')
+    }
+    if (!tossPaymentsClient) {
+      tossPaymentsClient = tossPayments(TOSS_CLIENT_KEY)
+    }
+    if (!tossWidgets) {
+      const customerKey = tossPayments.ANONYMOUS
+      tossWidgets = tossPaymentsClient.widgets({ customerKey })
+    }
+
+    await nextTick()
+    const paymentMethodEl = document.querySelector('#payment-method')
+    const agreementEl = document.querySelector('#agreement')
+    if (!paymentMethodEl || !agreementEl) {
+      throw new Error('toss mount missing')
+    }
+    await tossWidgets.setAmount({
+      currency: 'KRW',
+      value: total.value,
+    })
+
+    await Promise.all([
+      tossWidgets.renderPaymentMethods({
+        selector: '#payment-method',
+        variantKey: 'DEFAULT',
+      }),
+      tossWidgets.renderAgreement({
+        selector: '#agreement',
+        variantKey: 'AGREEMENT',
+      }),
+    ])
+    isTossReady.value = true
+    tossRendered.value = true
+  })()
+  try {
+    await tossInitPromise
+  } catch (error) {
+    isTossReady.value = false
+    tossError.value = '결제 위젯을 불러오지 못했습니다.'
+    throw error
+  } finally {
+    tossInitPromise = null
+  }
+}
+
+const orderNameOf = (items: CheckoutItem[]) => {
+  const base = items[0]?.name ?? 'DESKIT'
+  if (items.length <= 1) return base
+  return `${base} \uC678 ${items.length - 1}\uAC74`
+}
+const handleTossPayment = async () => {
   if (inflight) return
   const current = draft.value ?? loadCheckout()
   if (!current || !current.items || current.items.length === 0) {
@@ -242,66 +325,103 @@ const handlePaymentComplete = async () => {
     return
   }
 
-  const listPriceTotal = current.items.reduce((sum, item) => {
-    const base =
-        item.originalPrice && item.originalPrice > item.price ? item.originalPrice : item.price
-    return sum + base * item.quantity
-  }, 0)
-  const salePriceTotal = current.items.reduce(
-      (sum, item) => sum + item.price * item.quantity,
-      0,
-  )
-  const discountTotal = Math.max(0, listPriceTotal - salePriceTotal)
-  const shippingFee =
-      salePriceTotal >= 50000 ? 0 : current.items.length > 0 ? 3000 : 0
-
-  const receipt: OrderReceipt = {
-    orderId: generateOrderId(),
-    createdAt: new Date().toISOString(),
-    items: current.items.map((item) => ({
-      productId: item.productId,
-      name: item.name,
-      quantity: item.quantity,
-      price: item.price,
-      originalPrice:
-          item.originalPrice && item.originalPrice > item.price
-              ? item.originalPrice
-              : item.price,
-      discountRate: item.discountRate ?? 0,
-    })),
-    shipping: {...current.shipping},
-    // 결제 완료 여부는 추후 결제 연동 단계에서 확정 처리
-    status: 'CREATED',
-    paymentMethodLabel: '토스페이(예정)',
-    totals: {
-      listPriceTotal,
-      salePriceTotal,
-      discountTotal,
-      shippingFee,
-      total: salePriceTotal + shippingFee,
-    },
-  }
-
   isSubmitting.value = true
+  tossError.value = ''
   inflight = (async () => {
+    clearPendingTossPayment()
     const response = await createOrder({ items: orderItems })
     if (!response?.order_id) {
       throw new Error('invalid order response')
     }
-    receipt.orderId = response.order_number || String(response.order_id)
-    saveLastOrder(receipt)
-    appendOrder(receipt)
-    removeCartItemsByProductIds(current.items.map((it) => it.productId))
-    clearCheckout()
-    router.push({ name: 'order-complete' }).catch(() => router.push('/order/complete'))
+
+    const pending: PendingTossPayment = {
+      orderId: response.order_id,
+      orderNumber: response.order_number ?? undefined,
+      orderAmount: Number(response.order_amount ?? total.value) || 0,
+      paymentMethod: current.paymentMethod ?? 'CARD',
+      createdAt: new Date().toISOString(),
+      items: current.items,
+      shipping: { ...current.shipping },
+      totals: {
+        listPriceTotal: listPriceTotal.value,
+        salePriceTotal: salePriceTotal.value,
+        discountTotal: discountTotal.value,
+        shippingFee: shippingFee.value,
+        total: total.value,
+      },
+    }
+    savePendingTossPayment(pending)
+
+    await ensureTossWidgets()
+    await tossWidgets.setAmount({
+      currency: 'KRW',
+      value: pending.orderAmount,
+    })
+
+    await tossWidgets.requestPayment({
+      orderId: String(pending.orderId),
+      orderName: orderNameOf(current.items),
+      successUrl: `${window.location.origin}/payments/success`,
+      failUrl: `${window.location.origin}/payments/fail`,
+      customerName: current.shipping?.buyerName || '고객',
+    })
   })()
   try {
     await inflight
+  } catch (error) {
+    console.error(error)
+    tossError.value = '결제 요청에 실패했습니다. 잠시 후 다시 시도해주세요.'
   } finally {
     inflight = null
     isSubmitting.value = false
   }
 }
+watch(
+  () => step.value,
+  async (current) => {
+    if (current !== 'payment') {
+      isTossReady.value = false
+      tossRendered.value = false
+      tossError.value = ''
+      tossWidgets = null
+      return
+    }
+    if (!draft.value) return
+    tossError.value = ''
+    try {
+      await ensureTossWidgets()
+    } catch (error) {
+      console.error(error)
+      return
+    }
+  },
+  { immediate: true },
+)
+
+watch(
+  () => total.value,
+  async (value) => {
+    if (step.value !== 'payment' || !tossWidgets) return
+    try {
+      await tossWidgets.setAmount({ currency: 'KRW', value })
+    } catch {
+      return
+    }
+  },
+)
+
+watch(
+  () => draft.value,
+  async (current) => {
+    if (step.value !== 'payment' || !current || tossRendered.value) return
+    try {
+      await ensureTossWidgets()
+    } catch (error) {
+      console.error(error)
+      return
+    }
+  },
+)
 
 const storageRefreshHandler = () => refreshDraft()
 
@@ -319,7 +439,7 @@ onBeforeUnmount(() => {
 
 <template>
   <PageContainer>
-    <PageHeader eyebrow="DESKIT" title="주문/결제"/>
+    <PageHeader eyebrow="DESKIT" title="주문/결제" />
 
     <div class="checkout-steps">
       <span class="checkout-step">01 장바구니</span>
@@ -349,13 +469,13 @@ onBeforeUnmount(() => {
               <div class="field">
                 <label for="buyerName">주문자 이름</label>
                 <input
-                    id="buyerName"
-                    type="text"
-                    :value="form.buyerName"
-                    placeholder="한글 6글자 이내"
-                    maxlength="6"
-                    @input="persistField('buyerName', ($event.target as HTMLInputElement).value)"
-                    @blur="validate"
+                  id="buyerName"
+                  type="text"
+                  :value="form.buyerName"
+                  placeholder="한글/영문 6글자 이내"
+                  maxlength="6"
+                  @input="persistField('buyerName', ($event.target as HTMLInputElement).value)"
+                  @blur="validate"
                 />
                 <p v-if="errors.buyerName" class="error">{{ errors.buyerName }}</p>
               </div>
@@ -364,15 +484,15 @@ onBeforeUnmount(() => {
                 <label for="zipcode">우편번호</label>
                 <div class="field-row">
                   <input
-                      id="zipcode"
-                      type="text"
-                      :value="form.zipcode"
-                      placeholder="12345"
-                      maxlength="5"
-                      inputmode="numeric"
-                      pattern="\\d{5}"
-                      readonly
-                      @blur="validate"
+                    id="zipcode"
+                    type="text"
+                    :value="form.zipcode"
+                    placeholder="12345"
+                    maxlength="5"
+                    inputmode="numeric"
+                    pattern="\\d{5}"
+                    readonly
+                    @blur="validate"
                   />
                   <button type="button" class="btn ghost btn-inline" @click="openPostcode">
                     우편번호 찾기
@@ -384,12 +504,12 @@ onBeforeUnmount(() => {
               <div class="field">
                 <label for="address1">주소</label>
                 <input
-                    id="address1"
-                    type="text"
-                    :value="form.address1"
-                    placeholder="서울시 강남구 강남대로 123"
-                    readonly
-                    @blur="validate"
+                  id="address1"
+                  type="text"
+                  :value="form.address1"
+                  placeholder="서울시 강남구 강남대로 123"
+                  readonly
+                  @blur="validate"
                 />
                 <p v-if="errors.address1" class="error">{{ errors.address1 }}</p>
               </div>
@@ -397,12 +517,12 @@ onBeforeUnmount(() => {
               <div class="field">
                 <label for="address2">상세주소</label>
                 <input
-                    id="address2"
-                    type="text"
-                    :value="form.address2"
-                    placeholder="아파트 101호"
-                    ref="address2Ref"
-                    @input="persistField('address2', ($event.target as HTMLInputElement).value)"
+                  id="address2"
+                  type="text"
+                  :value="form.address2"
+                  placeholder="예) 101동 101호"
+                  ref="address2Ref"
+                  @input="persistField('address2', ($event.target as HTMLInputElement).value)"
                 />
               </div>
             </div>
@@ -417,52 +537,43 @@ onBeforeUnmount(() => {
             </div>
 
             <div class="payment-options">
-              <label
-                  class="payment-option"
-                  :class="{ 'payment-option--active': paymentMethod === 'CARD' }"
-              >
+              <label class="payment-option" :class="{ 'payment-option--active': paymentMethod === 'CARD' }">
                 <input
-                    type="radio"
-                    name="payment"
-                    value="CARD"
-                    :checked="paymentMethod === 'CARD'"
-                    @change="persistPayment('CARD')"
+                  type="radio"
+                  name="payment"
+                  value="CARD"
+                  :checked="paymentMethod === 'CARD'"
+                  @change="persistPayment('CARD')"
                 />
                 <div>
                   <p class="option-title">신용카드</p>
                   <p class="option-desc">일반 카드 결제</p>
                 </div>
               </label>
-              <label
-                  class="payment-option"
-                  :class="{ 'payment-option--active': paymentMethod === 'EASY_PAY' }"
-              >
+              <label class="payment-option" :class="{ 'payment-option--active': paymentMethod === 'EASY_PAY' }">
                 <input
-                    type="radio"
-                    name="payment"
-                    value="EASY_PAY"
-                    :checked="paymentMethod === 'EASY_PAY'"
-                    @change="persistPayment('EASY_PAY')"
+                  type="radio"
+                  name="payment"
+                  value="EASY_PAY"
+                  :checked="paymentMethod === 'EASY_PAY'"
+                  @change="persistPayment('EASY_PAY')"
                 />
                 <div>
                   <p class="option-title">간편결제</p>
                   <p class="option-desc">간편 결제 서비스</p>
                 </div>
               </label>
-              <label
-                  class="payment-option"
-                  :class="{ 'payment-option--active': paymentMethod === 'TRANSFER' }"
-              >
+              <label class="payment-option" :class="{ 'payment-option--active': paymentMethod === 'TRANSFER' }">
                 <input
-                    type="radio"
-                    name="payment"
-                    value="TRANSFER"
-                    :checked="paymentMethod === 'TRANSFER'"
-                    @change="persistPayment('TRANSFER')"
+                  type="radio"
+                  name="payment"
+                  value="TRANSFER"
+                  :checked="paymentMethod === 'TRANSFER'"
+                  @change="persistPayment('TRANSFER')"
                 />
                 <div>
                   <p class="option-title">계좌이체</p>
-                  <p class="option-desc">무통장/계좌이체</p>
+                  <p class="option-desc">무통장 계좌이체</p>
                 </div>
               </label>
             </div>
@@ -470,7 +581,7 @@ onBeforeUnmount(() => {
         </div>
 
         <div class="actions actions--left">
-          <button type="button" class="btn ghost" @click="handleBack">뒤로가기</button>
+          <button type="button" class="btn ghost" @click="handleBack">이전</button>
           <button type="button" class="btn primary" :disabled="!canProceed" @click="handleNext">
             다음
           </button>
@@ -481,22 +592,30 @@ onBeforeUnmount(() => {
         <div class="panel__header">
           <div>
             <p class="eyebrow">결제 방법</p>
-            <h3 class="panel__title">결제 영역은 토스페이 API 연동 후 구성됩니다.</h3>
+            <h3 class="panel__title">결제 영역은 토스페이먼츠 위젯으로 표시됩니다.</h3>
           </div>
         </div>
 
-        <div class="payment-placeholder">
-          <p>결제 영역은 토스페이 API 연동 후 구성됩니다.</p>
+        <div class="payment-widget">
+          <div id="payment-method"></div>
+          <div id="agreement"></div>
         </div>
+        <p v-if="tossError" class="error">{{ tossError }}</p>
 
         <div class="actions">
-          <button type="button" class="btn ghost" @click="goShipping">뒤로가기</button>
-          <button type="button" class="btn primary" @click="handlePaymentComplete">결제 완료</button>
+          <button type="button" class="btn ghost" @click="goShipping">이전</button>
+          <button
+            type="button"
+            class="btn primary"
+            :disabled="!isTossReady || isSubmitting"
+            @click="handleTossPayment"
+          >
+            결제 진행
+          </button>
         </div>
       </section>
 
       <aside class="panel panel--summary">
-
         <h3 class="panel__title">주문 예상 금액</h3>
         <p class="summary-meta-text">총 {{ items.length }}종 / {{ totalQuantity }}개</p>
 
@@ -704,11 +823,10 @@ onBeforeUnmount(() => {
   cursor: not-allowed;
 }
 
-.payment-placeholder {
+.payment-widget {
   border: 1px dashed var(--border-color);
   border-radius: 12px;
   padding: 16px;
-  color: var(--text-muted);
   background: var(--surface-weak);
   margin-top: 10px;
 }

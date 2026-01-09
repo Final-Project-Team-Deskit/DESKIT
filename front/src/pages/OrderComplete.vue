@@ -1,4 +1,4 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import PageContainer from '../components/PageContainer.vue'
@@ -31,23 +31,23 @@ const receipt = ref<{
 const isLoading = ref(false)
 const errorMessage = ref('')
 
-const formatPrice = (value: number) => `${value.toLocaleString('ko-KR')}원`
+const formatPrice = (value: number) => `${value.toLocaleString('ko-KR')}??
 
 const statusConfig = computed(() => {
   const status = receipt.value?.status
   if (status === 'PAYMENT_PENDING' || status === 'CREATED') {
     return {
-      title: '결제 대기 중',
-      description: '결제 확인 후 주문이 완료됩니다.',
-      ctaLabel: '주문 내역 보기',
+      title: '寃곗젣 ?湲?以?,
+      description: '寃곗젣 ?뺤씤 ??二쇰Ц???꾨즺?⑸땲??',
+      ctaLabel: '二쇰Ц ?댁뿭 蹂닿린',
       ctaPath: '/my/orders',
     }
   }
   if (status === 'COMPLETED' || status === 'PAID') {
     return {
-      title: '주문이 완료되었습니다',
-      description: '주문 내역에서 배송 정보를 확인하세요.',
-      ctaLabel: '주문 내역 보기',
+      title: '二쇰Ц???꾨즺?섏뿀?듬땲??,
+      description: '二쇰Ц ?댁뿭?먯꽌 諛곗넚 ?뺣낫瑜??뺤씤?섏꽭??',
+      ctaLabel: '二쇰Ц ?댁뿭 蹂닿린',
       ctaPath: '/my/orders',
     }
   }
@@ -59,30 +59,30 @@ const statusConfig = computed(() => {
     status === 'REFUND_REJECTED'
   ) {
     return {
-      title: '주문이 취소되었습니다',
-      description: '취소된 주문입니다.',
-      ctaLabel: '메인으로 이동',
+      title: '二쇰Ц??痍⑥냼?섏뿀?듬땲??,
+      description: '痍⑥냼??二쇰Ц?낅땲??',
+      ctaLabel: '硫붿씤?쇰줈 ?대룞',
       ctaPath: '/',
     }
   }
   return {
-    title: '결제가 완료되었어요.',
-    description: '주문 정보가 준비되었습니다.',
-    ctaLabel: '메인으로 이동',
+    title: '寃곗젣媛 ?꾨즺?섏뿀?댁슂.',
+    description: '二쇰Ц ?뺣낫媛 以鍮꾨릺?덉뒿?덈떎.',
+    ctaLabel: '硫붿씤?쇰줈 ?대룞',
     ctaPath: '/',
   }
 })
 
 const loadOrderDetail = async (orderId: string) => {
   if (!orderId) {
-    errorMessage.value = '주문 정보를 찾을 수 없습니다.'
+    errorMessage.value = '二쇰Ц ?뺣낫瑜?李얠쓣 ???놁뒿?덈떎.'
     receipt.value = null
     return
   }
 
   const numericId = Number(orderId)
   if (!Number.isFinite(numericId)) {
-    errorMessage.value = '주문 정보를 찾을 수 없습니다.'
+    errorMessage.value = '二쇰Ц ?뺣낫瑜?李얠쓣 ???놁뒿?덈떎.'
     receipt.value = null
     return
   }
@@ -93,13 +93,13 @@ const loadOrderDetail = async (orderId: string) => {
   try {
     const response = await getMyOrderDetail(numericId)
     if (!response?.order_id) {
-      errorMessage.value = '주문 정보를 찾을 수 없습니다.'
+      errorMessage.value = '二쇰Ц ?뺣낫瑜?李얠쓣 ???놁뒿?덈떎.'
       receipt.value = null
       return
     }
     const items = response.items.map((item, index) => ({
       productId: String(item.product_id),
-      name: `상품 ${index + 1}`,
+      name: `?곹뭹 ${index + 1}`,
       quantity: item.quantity,
       price: item.unit_price,
     }))
@@ -115,7 +115,7 @@ const loadOrderDetail = async (orderId: string) => {
         address1: '',
         address2: '',
       },
-      paymentMethodLabel: '토스페이(예정)',
+      paymentMethodLabel: '토스페이',
       totals: {
         total,
       },
@@ -127,11 +127,11 @@ const loadOrderDetail = async (orderId: string) => {
       return
     }
     if (status === 404) {
-      errorMessage.value = '주문 정보를 찾을 수 없습니다.'
+      errorMessage.value = '二쇰Ц ?뺣낫瑜?李얠쓣 ???놁뒿?덈떎.'
       receipt.value = null
       return
     }
-    errorMessage.value = '주문 정보를 불러올 수 없습니다.'
+    errorMessage.value = '二쇰Ц ?뺣낫瑜?遺덈윭?????놁뒿?덈떎.'
     receipt.value = null
   } finally {
     isLoading.value = false
@@ -153,47 +153,47 @@ const handlePrimaryAction = () => {
 
 <template>
   <PageContainer>
-    <PageHeader eyebrow="DESKIT" title="주문 완료" />
+    <PageHeader eyebrow="DESKIT" title="二쇰Ц ?꾨즺" />
 
     <div class="checkout-steps">
-      <span class="checkout-step">01 장바구니</span>
+      <span class="checkout-step">01 ?λ컮援щ땲</span>
       <span class="checkout-step__divider">></span>
-      <span class="checkout-step">02 주문/결제</span>
+      <span class="checkout-step">02 二쇰Ц/寃곗젣</span>
       <span class="checkout-step__divider">></span>
-      <span class="checkout-step checkout-step--active">03 주문 완료</span>
+      <span class="checkout-step checkout-step--active">03 二쇰Ц ?꾨즺</span>
     </div>
 
     <div v-if="isLoading" class="checkout-empty">
-      <p>주문 정보를 불러오는 중입니다.</p>
+      <p>二쇰Ц ?뺣낫瑜?遺덈윭?ㅻ뒗 以묒엯?덈떎.</p>
     </div>
 
     <div v-else-if="!receipt" class="checkout-empty">
-      <p>{{ errorMessage || '주문 정보가 없습니다.' }}</p>
-      <RouterLink to="/cart" class="link">장바구니로 이동</RouterLink>
-      <RouterLink to="/" class="link">메인으로 이동</RouterLink>
+      <p>{{ errorMessage || '二쇰Ц ?뺣낫媛 ?놁뒿?덈떎.' }}</p>
+      <RouterLink to="/cart" class="link">?λ컮援щ땲濡??대룞</RouterLink>
+      <RouterLink to="/" class="link">硫붿씤?쇰줈 ?대룞</RouterLink>
     </div>
 
     <section v-else class="panel">
       <div class="success">
-        <div class="success-icon">✅</div>
+        <div class="success-icon">??/div>
         <div>
           <h2 class="success-title">{{ statusConfig.title }}</h2>
-          <p class="success-desc">{{ statusConfig.description }} 주문번호 : {{ receipt.orderId }}</p>
+          <p class="success-desc">{{ statusConfig.description }} 二쇰Ц踰덊샇 : {{ receipt.orderId }}</p>
         </div>
       </div>
 
       <p class="meta">
-        {{ receipt.shipping.buyerName || '고객' }} 고객님의
-        {{ receipt.items[0]?.name }} 외 {{ Math.max(receipt.items.length - 1, 0) }}건에 대한 결제 내역입니다.
+        {{ receipt.shipping.buyerName || '怨좉컼' }} 怨좉컼?섏쓽
+        {{ receipt.items[0]?.name }} ??{{ Math.max(receipt.items.length - 1, 0) }}嫄댁뿉 ???寃곗젣 ?댁뿭?낅땲??
       </p>
 
       <div class="table">
         <div class="table-head">
-          <span>순번</span>
-          <span>상품명</span>
-          <span>개수</span>
-          <span>가격</span>
-          <span>결제 금액</span>
+          <span>?쒕쾲</span>
+          <span>?곹뭹紐?/span>
+          <span>媛쒖닔</span>
+          <span>媛寃?/span>
+          <span>寃곗젣 湲덉븸</span>
         </div>
         <div
           v-for="(item, idx) in receipt.items"
@@ -210,22 +210,22 @@ const handlePrimaryAction = () => {
 
       <div class="summary">
         <div class="summary-row">
-          <span>총 결제 금액</span>
+          <span>珥?寃곗젣 湲덉븸</span>
           <strong>{{ formatPrice(receipt.totals.total) }}</strong>
         </div>
         <div class="summary-row">
-          <span>결제 수단</span>
+          <span>寃곗젣 ?섎떒</span>
           <strong>{{ receipt.paymentMethodLabel }}</strong>
         </div>
         <div class="summary-row">
-          <span>배송 장소</span>
+          <span>諛곗넚 ?μ냼</span>
           <strong>
             {{ receipt.shipping.zipcode }} {{ receipt.shipping.address1 }} {{ receipt.shipping.address2 }}
           </strong>
         </div>
         <div class="summary-row">
-          <span>수령인</span>
-          <strong>{{ receipt.shipping.buyerName || '고객' }}</strong>
+          <span>?섎졊??/span>
+          <strong>{{ receipt.shipping.buyerName || '怨좉컼' }}</strong>
         </div>
       </div>
 
