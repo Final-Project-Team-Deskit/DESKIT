@@ -30,6 +30,8 @@ const form = reactive<ShippingInfo>({
   address2: '',
 })
 const paymentMethod = ref<PaymentMethod | null>(null)
+const address2Ref = ref<HTMLInputElement | null>(null)
+let postcodeScriptPromise: Promise<void> | null = null
 
 const errors = reactive<Record<keyof ShippingInfo, string>>({
   buyerName: '',
@@ -100,6 +102,58 @@ const persistPayment = (method: PaymentMethod) => {
   if (updated) {
     draft.value = updated
   }
+}
+
+const loadPostcodeScript = () => {
+  if (typeof window === 'undefined') return Promise.reject(new Error('window missing'))
+  if ((window as any).daum?.Postcode) return Promise.resolve()
+  if (!postcodeScriptPromise) {
+    postcodeScriptPromise = new Promise<void>((resolve, reject) => {
+      const script = document.createElement('script')
+      script.src = '//t1.daumcdn.net/mapjsapi/bundle/postcode/prod/postcode.v2.js'
+      script.async = true
+      script.onload = () => resolve()
+      script.onerror = () => reject(new Error('postcode script load failed'))
+      document.head.appendChild(script)
+    })
+  }
+  return postcodeScriptPromise
+}
+
+const openPostcode = async () => {
+  await loadPostcodeScript()
+  const daumPostcode = (window as any).daum?.Postcode
+  if (!daumPostcode) return
+
+  new daumPostcode({
+    oncomplete: (data: any) => {
+      const roadAddr = data.roadAddress || ''
+      const jibunAddr = data.jibunAddress || ''
+      let extraRoadAddr = ''
+
+      if (data.bname && /[동로가]$/g.test(data.bname)) {
+        extraRoadAddr += data.bname
+      }
+      if (data.buildingName && data.apartment === 'Y') {
+        extraRoadAddr += extraRoadAddr ? `, ${data.buildingName}` : data.buildingName
+      }
+      if (extraRoadAddr) {
+        extraRoadAddr = ` (${extraRoadAddr})`
+      }
+
+      const address1 = roadAddr ? `${roadAddr}${extraRoadAddr}` : jibunAddr
+      const updated = updateShipping({
+        zipcode: data.zonecode,
+        address1,
+      })
+      form.zipcode = data.zonecode
+      form.address1 = address1
+      if (updated) {
+        draft.value = updated
+      }
+      address2Ref.value?.focus()
+    },
+  }).open()
 }
 
 const validate = () => {
@@ -308,17 +362,22 @@ onBeforeUnmount(() => {
 
               <div class="field">
                 <label for="zipcode">우편번호</label>
-                <input
-                    id="zipcode"
-                    type="text"
-                    :value="form.zipcode"
-                    placeholder="12345"
-                    maxlength="5"
-                    inputmode="numeric"
-                    pattern="\\d{5}"
-                    @input="persistField('zipcode', ($event.target as HTMLInputElement).value)"
-                    @blur="validate"
-                />
+                <div class="field-row">
+                  <input
+                      id="zipcode"
+                      type="text"
+                      :value="form.zipcode"
+                      placeholder="12345"
+                      maxlength="5"
+                      inputmode="numeric"
+                      pattern="\\d{5}"
+                      readonly
+                      @blur="validate"
+                  />
+                  <button type="button" class="btn ghost btn-inline" @click="openPostcode">
+                    우편번호 찾기
+                  </button>
+                </div>
                 <p v-if="errors.zipcode" class="error">{{ errors.zipcode }}</p>
               </div>
 
@@ -329,7 +388,7 @@ onBeforeUnmount(() => {
                     type="text"
                     :value="form.address1"
                     placeholder="서울시 강남구 강남대로 123"
-                    @input="persistField('address1', ($event.target as HTMLInputElement).value)"
+                    readonly
                     @blur="validate"
                 />
                 <p v-if="errors.address1" class="error">{{ errors.address1 }}</p>
@@ -342,6 +401,7 @@ onBeforeUnmount(() => {
                     type="text"
                     :value="form.address2"
                     placeholder="아파트 101호"
+                    ref="address2Ref"
                     @input="persistField('address2', ($event.target as HTMLInputElement).value)"
                 />
               </div>
@@ -585,6 +645,20 @@ onBeforeUnmount(() => {
   color: var(--text-strong);
   outline: none;
   box-sizing: border-box;
+}
+
+.field-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.field-row input {
+  flex: 1;
+}
+
+.btn-inline {
+  white-space: nowrap;
 }
 
 .field input:focus {

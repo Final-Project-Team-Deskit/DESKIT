@@ -513,7 +513,7 @@ CREATE TABLE toss_payment (
     total_amount        BIGINT          NOT NULL,
     created_at          DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at          DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    order_id            VARCHAR(36)     NOT NULL
+    order_id            BIGINT UNSIGNED NOT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='토스 결제 정보';
 
 CREATE TABLE toss_refund (
@@ -526,7 +526,7 @@ CREATE TABLE toss_refund (
     approved_at         DATETIME        NULL,
     created_at          DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
     payment_id          BIGINT UNSIGNED NOT NULL COMMENT 'toss_payment의 PK와 타입 일치시킴',
-    toss_payment_key    VARCHAR(64)     NOT NULL UNIQUE COMMENT 'FK: toss_payment (UNIQUE Key 참조)',
+    toss_payment_key    VARCHAR(64)     NOT NULL COMMENT 'FK: toss_payment (UNIQUE Key 참조)',
     PRIMARY KEY (refund_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='토스 환불 정보';
 
@@ -535,8 +535,8 @@ CREATE TABLE toss_webhook_log (
     event_type          VARCHAR(50)     NOT NULL,
     raw_body            JSON            NOT NULL,
     created_at          DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    toss_payment_key    VARCHAR(64)     NOT NULL UNIQUE,
-    order_id            VARCHAR(36)     NOT NULL,
+    toss_payment_key    VARCHAR(64)     NOT NULL,
+    order_id            BIGINT UNSIGNED NOT NULL,
     PRIMARY KEY (webhook_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='토스 웹훅 로그';
 
