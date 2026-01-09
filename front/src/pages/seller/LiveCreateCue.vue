@@ -51,6 +51,15 @@ const restoreDraft = async () => {
       draft.value = { ...draft.value, ...saved }
     } else if (decision === 'declined') {
       clearDraft()
+    } else {
+      const shouldRestore = window.confirm('이전에 작성 중인 내용을 불러올까요?')
+      if (shouldRestore) {
+        setDraftRestoreDecision('accepted')
+        draft.value = { ...draft.value, ...saved }
+      } else {
+        setDraftRestoreDecision('declined')
+        clearDraft()
+      }
     }
   }
 
