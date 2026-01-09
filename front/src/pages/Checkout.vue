@@ -1,4 +1,4 @@
-﻿<script setup lang="ts">
+<script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import PageContainer from '../components/PageContainer.vue'
@@ -304,7 +304,22 @@ const ensureTossWidgets = async () => {
 const orderNameOf = (items: CheckoutItem[]) => {
   const base = items[0]?.name ?? 'DESKIT'
   if (items.length <= 1) return base
-  return `${base} \uC678 ${items.length - 1}\uAC74`
+  return `${base} 외 ${items.length - 1}건`
+}
+
+const buildTossOrderId = (orderNumber?: string, orderId?: number) => {
+  const base =
+    orderNumber && orderNumber.trim()
+      ? orderNumber.trim()
+      : `ORD-${Date.now()}-${orderId ?? '0000'}`
+  const sanitized = base.replace(/[^a-zA-Z0-9-_]/g, '_')
+  if (sanitized.length < 6) {
+    return sanitized.padEnd(6, '0')
+  }
+  if (sanitized.length > 64) {
+    return sanitized.slice(0, 64)
+  }
+  return sanitized
 }
 const handleTossPayment = async () => {
   if (inflight) return
@@ -334,9 +349,11 @@ const handleTossPayment = async () => {
       throw new Error('invalid order response')
     }
 
+    const tossOrderId = buildTossOrderId(response.order_number, response.order_id ?? undefined)
     const pending: PendingTossPayment = {
       orderId: response.order_id,
       orderNumber: response.order_number ?? undefined,
+      tossOrderId,
       orderAmount: Number(response.order_amount ?? total.value) || 0,
       paymentMethod: current.paymentMethod ?? 'CARD',
       createdAt: new Date().toISOString(),
@@ -359,7 +376,7 @@ const handleTossPayment = async () => {
     })
 
     await tossWidgets.requestPayment({
-      orderId: String(pending.orderId),
+      orderId: pending.tossOrderId,
       orderName: orderNameOf(current.items),
       successUrl: `${window.location.origin}/payments/success`,
       failUrl: `${window.location.origin}/payments/fail`,

@@ -100,7 +100,7 @@ public class OrderService {
       totalProductAmount += product.getPrice() * quantity;
     }
 
-    int shippingFee = 0;
+    int shippingFee = totalProductAmount >= 50000 ? 0 : 3000;
     int discountFee = 0;
     int orderAmount = totalProductAmount - discountFee + shippingFee;
     String orderNumber = generateOrderNumber();
