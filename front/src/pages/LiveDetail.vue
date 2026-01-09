@@ -1207,7 +1207,7 @@ onBeforeUnmount(() => {
   height: 18px;
   stroke: currentColor;
   fill: none;
-  stroke-width: 1.7px;
+  stroke-width: 2px;
 }
 
 .chat-panel {
