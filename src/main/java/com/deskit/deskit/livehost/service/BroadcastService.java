@@ -39,6 +39,9 @@ import com.deskit.deskit.livehost.repository.SanctionRepository;
 import com.deskit.deskit.livehost.repository.SanctionRepositoryCustom;
 import com.deskit.deskit.livehost.repository.ViewHistoryRepository;
 import com.deskit.deskit.livehost.repository.VodRepository;
+import com.deskit.deskit.livechat.dto.LiveMessageType;
+import com.deskit.deskit.livechat.repository.LiveChatRepository;
+import com.deskit.deskit.order.enums.OrderStatus;
 import com.deskit.deskit.product.entity.Product;
 import com.deskit.deskit.product.entity.Product.Status;
 import com.deskit.deskit.product.repository.ProductRepository;
@@ -96,6 +99,7 @@ public class BroadcastService {
     private final ProductRepository productRepository;
     private final SanctionRepository sanctionRepository;
     private final ViewHistoryRepository viewHistoryRepository;
+    private final LiveChatRepository liveChatRepository;
 
     private final RedisService redisService;
     private final SseService sseService;
@@ -651,6 +655,8 @@ public class BroadcastService {
         int mv = redisService.getMaxViewers(broadcastId);
         LocalDateTime peak = redisService.getMaxViewersTime(broadcastId);
         Double avg = viewHistoryRepository.getAverageWatchTime(broadcastId);
+        SalesSummary salesSummary = fetchBroadcastSalesSummary(broadcast);
+        int totalChats = countBroadcastChats(broadcastId);
 
         BroadcastResult result = BroadcastResult.builder()
                 .broadcast(broadcast)
@@ -660,8 +666,8 @@ public class BroadcastService {
                 .avgWatchTime(avg != null ? avg.intValue() : 0)
                 .maxViews(mv)
                 .pickViewsAt(peak)
-                .totalChats(0)
-                .totalSales(BigDecimal.ZERO)
+                .totalChats(totalChats)
+                .totalSales(salesSummary.totalSales())
                 .build();
         broadcastResultRepository.save(result);
 
@@ -814,7 +820,6 @@ public class BroadcastService {
         if (result != null) {
             views = result.getTotalViews();
             likes = result.getTotalLikes();
-            sales = result.getTotalSales();
             chats = result.getTotalChats();
             maxV = result.getMaxViews();
             maxTime = result.getPickViewsAt();
@@ -823,16 +828,23 @@ public class BroadcastService {
         }
         sanctions = sanctionRepository.countByBroadcast(broadcast);
 
+        SalesSummary salesSummary = fetchBroadcastSalesSummary(broadcast);
+        sales = salesSummary.totalSales();
+
         List<BroadcastResultResponse.ProductSalesStat> productStats = broadcastProductRepository
                 .findAllWithProductByBroadcastId(broadcastId)
                 .stream()
-                .map(bp -> BroadcastResultResponse.ProductSalesStat.builder()
-                        .productId(bp.getProduct().getId())
-                        .productName(bp.getProduct().getProductName())
-                        .salesAmount(BigDecimal.ZERO)
-                        .price(bp.getBpPrice())
-                        .salesQuantity(0)
-                        .build())
+                .map(bp -> {
+                    SalesMetric metric = salesSummary.productMetrics().get(bp.getProduct().getId());
+                    int effectivePrice = bp.getBpPrice() != null ? bp.getBpPrice() : bp.getProduct().getPrice();
+                    return BroadcastResultResponse.ProductSalesStat.builder()
+                            .productId(bp.getProduct().getId())
+                            .productName(bp.getProduct().getProductName())
+                            .salesAmount(metric != null ? metric.salesAmount() : BigDecimal.ZERO)
+                            .price(effectivePrice)
+                            .salesQuantity(metric != null ? metric.salesQuantity() : 0)
+                            .build();
+                })
                 .collect(Collectors.toList());
 
         long duration = 0;
@@ -902,32 +914,54 @@ public class BroadcastService {
     }
 
     private List<StatisticsResponse.ProductRank> getProductSalesRanking(String period, boolean desc, int limit) {
+        var orderTable = org.jooq.impl.DSL.table(name("order")).as("o");
+        var orderItemTable = org.jooq.impl.DSL.table(name("order_item")).as("oi");
         var bpTable = org.jooq.impl.DSL.table(name("broadcast_product")).as("bp");
         var broadcastTable = org.jooq.impl.DSL.table(name("broadcast")).as("b");
         var productTable = org.jooq.impl.DSL.table(name("product")).as("p");
 
-        var bpBroadcastId = field(name("bp", "broadcast_id"), Long.class);
-        var bpProductId = field(name("bp", "product_id"), Long.class);
-        var bpPrice = field(name("bp", "bp_price"), BigDecimal.class);
-        var bpQuantity = field(name("bp", "bp_quantity"), BigDecimal.class);
+        var orderIdField = field(name("o", "order_id"), Long.class);
+        var orderStatusField = field(name("o", "status"), String.class);
+        var orderPaidAtField = field(name("o", "paid_at"), LocalDateTime.class);
+        var orderDeletedAtField = field(name("o", "deleted_at"), LocalDateTime.class);
+
+        var orderItemOrderIdField = field(name("oi", "order_id"), Long.class);
+        var orderItemProductIdField = field(name("oi", "product_id"), Long.class);
+        var orderItemQuantityField = field(name("oi", "quantity"), Integer.class);
+        var orderItemUnitPriceField = field(name("oi", "unit_price"), Integer.class);
+        var orderItemDeletedAtField = field(name("oi", "deleted_at"), LocalDateTime.class);
+
+        var bpBroadcastIdField = field(name("bp", "broadcast_id"), Long.class);
+        var bpProductIdField = field(name("bp", "product_id"), Long.class);
+        var bpPriceField = field(name("bp", "bp_price"), Integer.class);
+
         var broadcastIdField = field(name("b", "broadcast_id"), Long.class);
-        var startedAtField = field(name("b", "started_at"), LocalDateTime.class);
-        var endedAtField = field(name("b", "ended_at"), LocalDateTime.class);
+        var broadcastStartedAtField = field(name("b", "started_at"), LocalDateTime.class);
+        var broadcastEndedAtField = field(name("b", "ended_at"), LocalDateTime.class);
+
         var productIdField = field(name("p", "product_id"), Long.class);
         var productNameField = field(name("p", "product_name"), String.class);
 
         LocalDateTime startDate = resolveRankingStartDate(period);
-        var salesExpr = org.jooq.impl.DSL.sum(bpPrice.mul(bpQuantity)).as("sales_amount");
+        var effectivePrice = org.jooq.impl.DSL.coalesce(bpPriceField, orderItemUnitPriceField).cast(BigDecimal.class);
+        var salesExpr = org.jooq.impl.DSL.sum(effectivePrice.mul(orderItemQuantityField.cast(BigDecimal.class))).as("sales_amount");
 
         var orderField = desc ? salesExpr.desc().nullsLast() : salesExpr.asc().nullsLast();
 
         return dsl.select(productIdField, productNameField, salesExpr)
-                .from(bpTable)
-                .join(broadcastTable).on(bpBroadcastId.eq(broadcastIdField))
-                .join(productTable).on(bpProductId.eq(productIdField))
+                .from(orderItemTable)
+                .join(orderTable).on(orderItemOrderIdField.eq(orderIdField))
+                .join(bpTable).on(bpProductIdField.eq(orderItemProductIdField))
+                .join(broadcastTable).on(bpBroadcastIdField.eq(broadcastIdField))
+                .join(productTable).on(bpProductIdField.eq(productIdField))
                 .where(
-                        endedAtField.isNotNull(),
-                        startedAtField.ge(startDate)
+                        orderStatusField.eq(OrderStatus.PAID.name()),
+                        orderPaidAtField.isNotNull(),
+                        orderPaidAtField.ge(startDate),
+                        orderPaidAtField.between(broadcastStartedAtField, broadcastEndedAtField),
+                        broadcastEndedAtField.isNotNull(),
+                        orderDeletedAtField.isNull(),
+                        orderItemDeletedAtField.isNull()
                 )
                 .groupBy(productIdField, productNameField)
                 .orderBy(orderField)
@@ -948,6 +982,80 @@ public class BroadcastService {
             return now.withDayOfMonth(1).withHour(0).withMinute(0).withSecond(0).withNano(0);
         }
         return now.withDayOfYear(1).withHour(0).withMinute(0).withSecond(0).withNano(0);
+    }
+
+    private SalesSummary fetchBroadcastSalesSummary(Broadcast broadcast) {
+        if (broadcast.getStartedAt() == null || broadcast.getEndedAt() == null) {
+            return new SalesSummary(BigDecimal.ZERO, Map.of());
+        }
+
+        var orderTable = org.jooq.impl.DSL.table(name("order")).as("o");
+        var orderItemTable = org.jooq.impl.DSL.table(name("order_item")).as("oi");
+        var bpTable = org.jooq.impl.DSL.table(name("broadcast_product")).as("bp");
+
+        var orderIdField = field(name("o", "order_id"), Long.class);
+        var orderStatusField = field(name("o", "status"), String.class);
+        var orderPaidAtField = field(name("o", "paid_at"), LocalDateTime.class);
+        var orderDeletedAtField = field(name("o", "deleted_at"), LocalDateTime.class);
+
+        var orderItemOrderIdField = field(name("oi", "order_id"), Long.class);
+        var orderItemProductIdField = field(name("oi", "product_id"), Long.class);
+        var orderItemQuantityField = field(name("oi", "quantity"), Integer.class);
+        var orderItemUnitPriceField = field(name("oi", "unit_price"), Integer.class);
+        var orderItemDeletedAtField = field(name("oi", "deleted_at"), LocalDateTime.class);
+
+        var bpBroadcastIdField = field(name("bp", "broadcast_id"), Long.class);
+        var bpProductIdField = field(name("bp", "product_id"), Long.class);
+        var bpPriceField = field(name("bp", "bp_price"), Integer.class);
+
+        var effectivePrice = org.jooq.impl.DSL.coalesce(bpPriceField, orderItemUnitPriceField).cast(BigDecimal.class);
+        var salesAmount = org.jooq.impl.DSL.sum(
+                effectivePrice.mul(orderItemQuantityField.cast(BigDecimal.class))
+        ).as("sales_amount");
+        var salesQuantity = org.jooq.impl.DSL.sum(orderItemQuantityField).cast(Integer.class).as("sales_quantity");
+
+        var records = dsl.select(orderItemProductIdField, salesQuantity, salesAmount)
+                .from(orderItemTable)
+                .join(orderTable).on(orderItemOrderIdField.eq(orderIdField))
+                .join(bpTable).on(bpProductIdField.eq(orderItemProductIdField)
+                        .and(bpBroadcastIdField.eq(broadcast.getBroadcastId())))
+                .where(
+                        orderStatusField.eq(OrderStatus.PAID.name()),
+                        orderPaidAtField.isNotNull(),
+                        orderPaidAtField.between(broadcast.getStartedAt(), broadcast.getEndedAt()),
+                        orderDeletedAtField.isNull(),
+                        orderItemDeletedAtField.isNull()
+                )
+                .groupBy(orderItemProductIdField)
+                .fetch();
+
+        Map<Long, SalesMetric> metrics = records.stream()
+                .collect(Collectors.toMap(
+                        record -> record.get(orderItemProductIdField),
+                        record -> new SalesMetric(
+                                record.get(salesQuantity) != null ? record.get(salesQuantity) : 0,
+                                record.get(salesAmount) != null ? record.get(salesAmount) : BigDecimal.ZERO
+                        )
+                ));
+
+        BigDecimal totalSales = metrics.values().stream()
+                .map(SalesMetric::salesAmount)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        return new SalesSummary(totalSales, metrics);
+    }
+
+    private int countBroadcastChats(Long broadcastId) {
+        return (int) liveChatRepository.countByBroadcastIdAndMsgTypeIn(
+                broadcastId,
+                List.of(LiveMessageType.TALK, LiveMessageType.PURCHASE, LiveMessageType.NOTICE)
+        );
+    }
+
+    private record SalesSummary(BigDecimal totalSales, Map<Long, SalesMetric> productMetrics) {
+    }
+
+    private record SalesMetric(int salesQuantity, BigDecimal salesAmount) {
     }
 
     @Scheduled(fixedDelay = 60000)
