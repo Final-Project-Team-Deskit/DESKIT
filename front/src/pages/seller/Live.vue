@@ -568,8 +568,8 @@ const buildLoopItems = (items: LiveItem[]): LiveItem[] => {
 const scheduledLoopItems = computed<LiveItem[]>(() => buildLoopItems(scheduledSummary.value))
 const vodLoopItems = computed<LiveItem[]>(() => buildLoopItems(vodSummary.value))
 
-const visibleLive = computed(() => activeTab.value === 'live')
-const visibleScheduled = computed(() => activeTab.value === 'scheduled')
+const visibleLive = computed(() => activeTab.value === 'all' || activeTab.value === 'live')
+const visibleScheduled = computed(() => activeTab.value === 'all' || activeTab.value === 'scheduled')
 const visibleVod = computed(() => activeTab.value === 'all' || activeTab.value === 'vod')
 
 const { sentinelRef: scheduledSentinelRef } = useInfiniteScroll({

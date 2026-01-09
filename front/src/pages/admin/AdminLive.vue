@@ -148,8 +148,8 @@ const sseRetryCount = ref(0)
 const sseRetryTimer = ref<number | null>(null)
 const refreshTimer = ref<number | null>(null)
 
-const visibleLive = computed(() => activeTab.value === 'live')
-const visibleScheduled = computed(() => activeTab.value === 'scheduled')
+const visibleLive = computed(() => activeTab.value === 'all' || activeTab.value === 'live')
+const visibleScheduled = computed(() => activeTab.value === 'all' || activeTab.value === 'scheduled')
 const visibleVod = computed(() => activeTab.value === 'all' || activeTab.value === 'vod')
 
 const setTab = (tab: LiveTab) => {

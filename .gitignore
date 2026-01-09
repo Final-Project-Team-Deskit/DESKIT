@@ -42,5 +42,3 @@ src/main/resources/application.properties
 # local secrets (do not commit)
 src/main/resources/application.yml
 src/main/resources/application.properties
-
-src/main/java/com/deskit/deskit/common/config/RedisConfig.java
