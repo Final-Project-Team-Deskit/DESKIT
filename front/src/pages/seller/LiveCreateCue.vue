@@ -10,7 +10,10 @@ import {
   createEmptyDraft,
   DRAFT_KEY,
   loadDraft,
+  loadWorkingDraft,
   saveDraft,
+  saveWorkingDraft,
+  clearWorkingDraft,
   type LiveCreateDraft,
 } from '../../composables/useLiveCreateDraft'
 
@@ -30,7 +33,7 @@ const createQuestion = () => ({
 })
 
 const syncDraft = () => {
-  saveDraft({
+  saveWorkingDraft({
     ...draft.value,
     questions: draft.value.questions.map((q) => ({ ...q, text: q.text.trim() })),
   })
@@ -43,8 +46,17 @@ const restoreDraft = async () => {
     const shouldRestore = window.confirm('이전에 작성 중인 내용을 불러올까요?')
     if (shouldRestore) {
       draft.value = { ...draft.value, ...saved }
-    } else {
+    } else if (decision === 'declined') {
       clearDraft()
+    } else {
+      const shouldRestore = window.confirm('이전에 작성 중인 내용을 불러올까요?')
+      if (shouldRestore) {
+        setDraftRestoreDecision('accepted')
+        draft.value = { ...draft.value, ...saved }
+      } else {
+        setDraftRestoreDecision('declined')
+        clearDraft()
+      }
     }
   }
 
@@ -97,6 +109,9 @@ const goNext = () => {
 const cancel = () => {
   const ok = window.confirm('작성 중인 내용을 취소하시겠어요?')
   if (!ok) return
+  saveDraft(draft.value)
+  clearDraftRestoreDecision()
+  clearWorkingDraft()
   const redirect = isEditMode.value && reservationId.value
     ? `/seller/broadcasts/reservations/${reservationId.value}`
     : '/seller/live?tab=scheduled'
