@@ -13,6 +13,7 @@ type UserInfo = {
   memberCategory: string
   mbti: string
   job: string
+  profileUrl: string
 }
 
 const EMPTY_USER: UserInfo = {
@@ -22,11 +23,13 @@ const EMPTY_USER: UserInfo = {
   memberCategory: '',
   mbti: '',
   job: '',
+  profileUrl: '',
 }
 
 const router = useRouter()
 const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080'
 const user = ref<UserInfo | null>(null)
+const profileImageFailed = ref(false)
 
 const loadUser = () => {
   const parsed = getAuthUser()
@@ -41,7 +44,9 @@ const loadUser = () => {
     memberCategory: parsed.memberCategory || '',
     mbti: parsed.mbti || '',
     job: parsed.job || '',
+    profileUrl: parsed.profileUrl || '',
   }
+  profileImageFailed.value = false
 }
 
 const hasUser = computed(() => !!user.value)
@@ -54,6 +59,9 @@ const initials = computed(() => {
   if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase()
   return `${parts[0][0]}${parts[1][0]}`.toUpperCase()
 })
+
+const profileImageUrl = computed(() => (display.value.profileUrl || '').trim())
+const showProfileImage = computed(() => !!profileImageUrl.value && !profileImageFailed.value)
 
 const handleWithdraw = async () => {
   if (!hasUser.value) {
@@ -140,7 +148,15 @@ onMounted(() => {
 
       <section v-if="hasUser" class="profile-banner">
         <div class="profile-top">
-          <div class="avatar">{{ initials }}</div>
+          <div class="avatar">
+            <img
+              v-if="showProfileImage"
+              :src="profileImageUrl"
+              :alt="`${display.name} 프로필`"
+              @error="profileImageFailed = true"
+            />
+            <span v-else>{{ initials }}</span>
+          </div>
           <div class="profile-meta">
             <div class="name-row">
               <p class="name">{{ display.name }}</p>
@@ -326,6 +342,13 @@ onMounted(() => {
   color: #111827;
   letter-spacing: 0.04em;
   font-size: 16px;
+  overflow: hidden;
+}
+
+.avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 .profile-meta {

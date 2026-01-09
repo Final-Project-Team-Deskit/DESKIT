@@ -25,6 +25,7 @@ public class MyPageService {
 		String loginId = safe(user.getUsername());
 		String name = safe(user.getName());
 		String email = safe(user.getEmail());
+		String profileUrl = safe(user.getProfileUrl());
 
 		if (email.isEmpty() && !loginId.isEmpty()) {
 			email = loginId;
@@ -34,12 +35,17 @@ public class MyPageService {
 			name = resolveName(normalizedRole, loginId);
 		}
 
+		if (profileUrl.isEmpty() && !loginId.isEmpty()) {
+			profileUrl = resolveProfileUrl(normalizedRole, loginId);
+		}
+
 		return new MyPageResponse(
 				name,
 				email,
 				normalizedRole,
 				resolveMemberCategory(normalizedRole),
-				resolveSellerRole(normalizedRole)
+				resolveSellerRole(normalizedRole),
+				profileUrl
 		);
 	}
 
@@ -75,12 +81,28 @@ public class MyPageService {
 		};
 	}
 
+	private String resolveProfileUrl(String role, String loginId) {
+		return switch (role) {
+			case "ROLE_MEMBER" -> {
+				Member member = memberRepository.findByLoginId(loginId);
+				yield member == null ? "" : safe(member.getProfile());
+			}
+			default -> {
+				if (role != null && role.startsWith("ROLE_SELLER")) {
+					Seller seller = sellerRepository.findByLoginId(loginId);
+					yield seller == null ? "" : safe(seller.getProfile());
+				}
+				yield "";
+			}
+		};
+	}
+
 	private String resolveSellerRole(String role) {
 		if (role == null || role.isBlank()) {
 			return "";
 		}
 		return switch (role) {
-			case "ROLE_SELLER_OWNER" -> "오너";
+			case "ROLE_SELLER_OWNER" -> "대표자";
 			case "ROLE_SELLER_MANAGER" -> "매니저";
 			default -> "";
 		};

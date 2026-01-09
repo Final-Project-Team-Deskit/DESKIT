@@ -16,5 +16,6 @@ public class MyPageResponse {
     private final String role;
     private final String memberCategory;
     private final String sellerRole;
+    private final String profileUrl;
 
 }
