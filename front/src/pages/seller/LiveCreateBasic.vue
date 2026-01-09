@@ -452,7 +452,11 @@ watch(
           <span class="field__label">카테고리</span>
           <select v-model="draft.category">
             <option value="" disabled>카테고리를 선택하세요</option>
-            <option v-for="category in categories" :key="category.id" :value="category.id.toString()">
+            <option
+              v-for="category in categories"
+              :key="category.id ?? category.name"
+              :value="category?.id != null ? category.id.toString() : ''"
+            >
               {{ category.name }}
             </option>
           </select>
