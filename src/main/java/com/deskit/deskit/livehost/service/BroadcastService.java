@@ -955,7 +955,7 @@ public class BroadcastService {
                 .join(broadcastTable).on(bpBroadcastIdField.eq(broadcastIdField))
                 .join(productTable).on(bpProductIdField.eq(productIdField))
                 .where(
-                        orderStatusField.eq(OrderStatus.PAID.name()),
+                        orderStatusField.eq(OrderStatus.COMPLETED.name()),
                         orderPaidAtField.isNotNull(),
                         orderPaidAtField.ge(startDate),
                         orderPaidAtField.between(broadcastStartedAtField, broadcastEndedAtField),
