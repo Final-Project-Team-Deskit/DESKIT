@@ -40,7 +40,8 @@ type StoredDraft = {
 const resolveSellerKey = () => {
   const user = getAuthUser()
   const sellerId = user?.seller_id ?? user?.sellerId ?? user?.id ?? user?.user_id ?? user?.userId
-  return typeof sellerId === 'number' ? sellerId.toString() : ''
+  if (!sellerId) return ''
+  return String(sellerId)
 }
 
 const getDraftStorage = () => sessionStorage
@@ -151,12 +152,6 @@ export const saveDraft = (draft: LiveCreateDraft) => {
 
 export const clearDraft = () => {
   clearDraftStorage()
-}
-
-const parseCurrency = (value: string) => {
-  const digits = value.replace(/\D/g, '')
-  const parsed = Number.parseInt(digits, 10)
-  return Number.isNaN(parsed) ? 0 : parsed
 }
 
 const formatReservationDate = (scheduledAt?: string) => {

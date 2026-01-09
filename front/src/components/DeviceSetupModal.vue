@@ -110,22 +110,30 @@ const startPreview = async () => {
       if (selectedCamera.value || selectedMic.value) {
         stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true })
       } else {
-        throw error
+        deviceError.value = '카메라 또는 마이크 접근 권한이 필요합니다.'
+        return
       }
     }
     if (!stream) {
-      throw new Error('No stream')
+      deviceError.value = '카메라 또는 마이크 접근 권한이 필요합니다.'
+      return
     }
     mediaStream.value = stream
     const [videoTrack] = stream.getVideoTracks()
     const [audioTrack] = stream.getAudioTracks()
-    if (videoTrack?.getSettings().deviceId) {
-      isSyncingDevices.value = true
-      selectedCamera.value = videoTrack.getSettings().deviceId ?? selectedCamera.value
+    if (videoTrack) {
+      const deviceId = videoTrack.getSettings().deviceId
+      if (deviceId) {
+        isSyncingDevices.value = true
+        selectedCamera.value = deviceId
+      }
     }
-    if (audioTrack?.getSettings().deviceId) {
-      isSyncingDevices.value = true
-      selectedMic.value = audioTrack.getSettings().deviceId ?? selectedMic.value
+    if (audioTrack) {
+      const deviceId = audioTrack.getSettings().deviceId
+      if (deviceId) {
+        isSyncingDevices.value = true
+        selectedMic.value = deviceId
+      }
     }
     if (isSyncingDevices.value) {
       await nextTick()
