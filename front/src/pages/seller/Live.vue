@@ -26,6 +26,7 @@ import {
   clearDraft,
   clearDraftRestoreDecision,
   loadDraft,
+  clearWorkingDraft,
   setDraftRestoreDecision,
 } from '../../composables/useLiveCreateDraft'
 
@@ -706,11 +707,13 @@ const setTab = (tab: LiveTab) => {
 
 const handleCreate = () => {
   const savedDraft = loadDraft()
+  clearWorkingDraft()
   if (savedDraft) {
     const shouldRestore = window.confirm('이전에 작성 중인 내용을 불러올까요?')
     if (shouldRestore) {
       setDraftRestoreDecision('accepted')
     } else {
+      setDraftRestoreDecision('declined')
       clearDraft()
     }
   } else {
