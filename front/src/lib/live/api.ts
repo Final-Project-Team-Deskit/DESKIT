@@ -240,6 +240,17 @@ const withInFlight = async <T>(key: string, request: () => Promise<T>): Promise<
   }
 }
 
+const resolveBroadcastList = (payload: unknown): BroadcastListItem[] => {
+  if (Array.isArray(payload)) {
+    return payload as BroadcastListItem[]
+  }
+  const content = (payload as { content?: BroadcastListItem[] } | null)?.content
+  if (Array.isArray(content)) return content
+  const slice = (payload as { slice?: BroadcastListItem[] } | null)?.slice
+  if (Array.isArray(slice)) return slice
+  return []
+}
+
 export const fetchCategories = async (): Promise<BroadcastCategory[]> => {
   const { data } = await http.get<ApiResult<Array<{ id: number; name: string }>>>('/api/categories')
   const payload = ensureSuccess(data)
@@ -385,11 +396,6 @@ export const fetchMediaConfig = async (broadcastId: number): Promise<MediaConfig
   return ensureSuccess(data)
 }
 
-export const saveMediaConfig = async (broadcastId: number, payload: MediaConfig): Promise<void> => {
-  const { data } = await http.put<ApiResult<void>>(`/api/seller/broadcasts/${broadcastId}/media-config`, payload)
-  return ensureSuccess(data)
-}
-
 export const fetchSellerBroadcasts = async (params: {
   tab?: string
   statusFilter?: string
@@ -403,14 +409,7 @@ export const fetchSellerBroadcasts = async (params: {
 }) => {
   const { data } = await http.get<ApiResult<{ content?: BroadcastListItem[]; slice?: BroadcastListItem[] }>>('/api/seller/broadcasts', { params })
   const payload = ensureSuccess(data)
-  if (Array.isArray(payload)) {
-    return payload as BroadcastListItem[]
-  }
-  const content = (payload as any)?.content
-  if (Array.isArray(content)) return content
-  const slice = (payload as any)?.slice
-  if (Array.isArray(slice)) return slice
-  return []
+  return resolveBroadcastList(payload)
 }
 
 export const fetchAdminBroadcasts = async (params: {
@@ -426,14 +425,7 @@ export const fetchAdminBroadcasts = async (params: {
 }) => {
   const { data } = await http.get<ApiResult<{ content?: BroadcastListItem[]; slice?: BroadcastListItem[] }>>('/api/admin/broadcasts', { params })
   const payload = ensureSuccess(data)
-  if (Array.isArray(payload)) {
-    return payload as BroadcastListItem[]
-  }
-  const content = (payload as any)?.content
-  if (Array.isArray(content)) return content
-  const slice = (payload as any)?.slice
-  if (Array.isArray(slice)) return slice
-  return []
+  return resolveBroadcastList(payload)
 }
 
 export const createBroadcast = async (payload: BroadcastPayload): Promise<number> => {

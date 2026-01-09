@@ -89,13 +89,3 @@ export const getScheduledBroadcasts = (): ScheduledBroadcast[] => {
     return []
   }
 }
-
-export const addScheduledBroadcast = (item: ScheduledBroadcast): void => {
-  const current = getScheduledBroadcasts()
-  const next = [item, ...current]
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(next))
-}
-
-export const clearScheduledBroadcasts = (): void => {
-  localStorage.removeItem(STORAGE_KEY)
-}

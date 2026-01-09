@@ -33,7 +33,7 @@ export const useInfiniteScroll = (options: UseInfiniteScrollOptions) => {
         if (isVisible && options.canLoadMore() && !isLoading.value) {
           isLoading.value = true
           options.loadMore()
-          nextTick(() => {
+          void nextTick(() => {
             isLoading.value = false
           })
         }
@@ -49,7 +49,7 @@ export const useInfiniteScroll = (options: UseInfiniteScrollOptions) => {
   }
 
   onMounted(() => {
-    nextTick(initObserver)
+    void nextTick(initObserver)
   })
 
   onBeforeUnmount(() => {
@@ -58,7 +58,9 @@ export const useInfiniteScroll = (options: UseInfiniteScrollOptions) => {
 
   watch(
     [sentinelRef as Ref<HTMLElement | null>, () => (options.enabled ? options.enabled() : true), () => options.canLoadMore()],
-    () => nextTick(initObserver),
+    () => {
+      void nextTick(initObserver)
+    },
   )
 
   return {
