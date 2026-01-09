@@ -44,7 +44,13 @@ type StreamData = {
   waitingScreen?: string
 }
 
-type EditableBroadcastInfo = Pick<StreamData, 'title' | 'category' | 'notice' | 'thumbnail' | 'waitingScreen'>
+type EditableBroadcastInfo = {
+  title: string
+  category: string
+  notice?: string
+  thumbnail?: string
+  waitingScreen?: string
+}
 
 const defaultNotice = '판매 상품 외 다른 상품 문의는 받지 않습니다.'
 
@@ -995,7 +1001,7 @@ const toggleFullscreen = async () => {
             <div class="chat-meta">
               <span class="chat-user">{{ item.name }}</span>
               <span class="chat-time">{{ item.time }}</span>
-              <span v-if="sanctionedUsers[item.name]" class="chat-badge">{{ sanctionedUsers[item.name].type }}</span>
+              <span v-if="sanctionedUsers[item.name]" class="chat-badge">{{ sanctionedUsers[item.name]?.type }}</span>
             </div>
             <p class="chat-text">{{ item.message }}</p>
           </div>
