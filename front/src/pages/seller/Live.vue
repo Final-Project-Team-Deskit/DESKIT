@@ -140,7 +140,8 @@ const getVisibility = (item: LiveItem): 'public' | 'private' => {
     if (item.visibility === 'public' || item.visibility === '공개') return 'public'
     if (item.visibility === 'private' || item.visibility === '비공개') return 'private'
   }
-  if ((item as any)?.isPublic === true) return 'public'
+  const rawPublic = (item as any)?.isPublic ?? (item as any)?.public
+  if (typeof rawPublic === 'boolean') return rawPublic ? 'public' : 'private'
   return 'public'
 }
 
@@ -265,7 +266,8 @@ const mapBroadcastItem = (item: any, kind: 'live' | 'scheduled' | 'vod'): LiveIt
   const startAtMs = item.startAt ? parseLiveDate(item.startAt).getTime() : undefined
   const endAtMs = item.endAt ? parseLiveDate(item.endAt).getTime() : getScheduledEndMs(startAtMs)
   const status = normalizeBroadcastStatus(item.status)
-  const visibility = typeof item.isPublic === 'boolean' ? (item.isPublic ? 'public' : 'private') : 'public'
+  const rawPublic = item.isPublic ?? item.public
+  const visibility = typeof rawPublic === 'boolean' ? (rawPublic ? 'public' : 'private') : 'public'
   const dateLabel = formatDateTime(item.startAt)
   const datetime = kind === 'vod' ? (dateLabel ? `업로드: ${dateLabel}` : '') : dateLabel
   const liveViewerCount = typeof item.liveViewerCount === 'number' ? item.liveViewerCount : undefined
