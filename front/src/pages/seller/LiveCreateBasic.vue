@@ -9,7 +9,7 @@ import {
   clearDraft,
   clearDraftRestoreDecision,
   createEmptyDraft,
-  getDraftRestoreDecision,
+  DRAFT_KEY,
   type LiveCreateDraft,
   type LiveCreateProduct,
   loadDraft,
@@ -144,7 +144,8 @@ const syncDraft = () => {
 }
 
 const restoreDraft = async () => {
-  const workingDraft = loadWorkingDraft()
+  const storedDraft = sessionStorage.getItem(DRAFT_KEY)
+  const savedDraft = storedDraft ? loadDraft() : null
   let baseDraft = createEmptyDraft()
   if (workingDraft) {
     baseDraft = { ...createEmptyDraft(), ...workingDraft }
