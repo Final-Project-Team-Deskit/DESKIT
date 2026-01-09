@@ -64,8 +64,8 @@ const startMeter = (stream: MediaStream) => {
   const update = () => {
     analyserNode.getByteTimeDomainData(buffer)
     let sum = 0
-    for (let i = 0; i < buffer.length; i += 1) {
-      const normalized = (buffer[i] - 128) / 128
+    for (const sample of buffer) {
+      const normalized = (sample - 128) / 128
       sum += normalized * normalized
     }
     const rms = Math.sqrt(sum / buffer.length)
@@ -84,10 +84,16 @@ const loadDevices = async () => {
   deviceCameras.value = devices.filter((device) => device.kind === 'videoinput')
   deviceMics.value = devices.filter((device) => device.kind === 'audioinput')
   if (!selectedCamera.value && deviceCameras.value.length > 0) {
-    selectedCamera.value = deviceCameras.value[0].deviceId
+    const firstCamera = deviceCameras.value[0]
+    if (firstCamera) {
+      selectedCamera.value = firstCamera.deviceId
+    }
   }
   if (!selectedMic.value && deviceMics.value.length > 0) {
-    selectedMic.value = deviceMics.value[0].deviceId
+    const firstMic = deviceMics.value[0]
+    if (firstMic) {
+      selectedMic.value = firstMic.deviceId
+    }
   }
 }
 

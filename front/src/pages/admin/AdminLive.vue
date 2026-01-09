@@ -366,7 +366,9 @@ const stoppedVodItems = computed<AdminVodItem[]>(() => {
     .filter((item) => getLifecycleStatus(item) === 'STOPPED' && isPastScheduledEnd(item))
     .map((item) => ({
       ...item,
+      sellerName: item.sellerName ?? '',
       statusLabel: 'STOPPED',
+      category: item.category ?? '기타',
       lifecycleStatus: 'STOPPED',
       visibility: 'public',
       datetime: item.datetime ?? (item.startedAt ? `업로드: ${item.startedAt}` : ''),
