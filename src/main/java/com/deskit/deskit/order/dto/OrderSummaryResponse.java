@@ -19,18 +19,26 @@ public record OrderSummaryResponse(
   Integer orderAmount,
 
   @JsonProperty("created_at")
-  LocalDateTime createdAt
+  LocalDateTime createdAt,
+
+  @JsonProperty("cancel_reason")
+  String cancelReason,
+
+  @JsonProperty("cancel_requested_at")
+  LocalDateTime cancelRequestedAt
 ) {
   public static OrderSummaryResponse from(Order order) {
     if (order == null) {
-      return new OrderSummaryResponse(null, null, null, null, null);
+      return new OrderSummaryResponse(null, null, null, null, null, null, null);
     }
     return new OrderSummaryResponse(
       order.getId(),
       order.getOrderNumber(),
       order.getStatus(),
       order.getOrderAmount(),
-      order.getCreatedAt()
+      order.getCreatedAt(),
+      order.getCancelReason(),
+      order.getUpdatedAt()
     );
   }
 }
