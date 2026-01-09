@@ -121,19 +121,21 @@ const parseStoredDraft = (raw: string | null): StoredDraft | null => {
   }
 }
 
+const hasTextValue = (value: unknown) => typeof value === 'string' && value.trim().length > 0
+
 const hasDraftContent = (draft: LiveCreateDraft) => {
-  const hasQuestions = draft.questions.some((question) => question.text.trim().length > 0)
+  const hasQuestions = draft.questions.some((question) => hasTextValue(question.text))
   const hasProducts = draft.products.length > 0
   const hasText =
-    draft.title.trim().length > 0 ||
-    draft.subtitle.trim().length > 0 ||
-    draft.category.trim().length > 0 ||
-    draft.notice.trim().length > 0 ||
-    draft.date.trim().length > 0 ||
-    draft.time.trim().length > 0 ||
-    draft.thumb.trim().length > 0 ||
-    draft.standbyThumb.trim().length > 0
-  const hasReservation = !!draft.reservationId?.trim()
+    hasTextValue(draft.title) ||
+    hasTextValue(draft.subtitle) ||
+    hasTextValue(draft.category) ||
+    hasTextValue(draft.notice) ||
+    hasTextValue(draft.date) ||
+    hasTextValue(draft.time) ||
+    hasTextValue(draft.thumb) ||
+    hasTextValue(draft.standbyThumb)
+  const hasReservation = hasTextValue(draft.reservationId)
   return hasQuestions || hasProducts || hasText || hasReservation || draft.termsAgreed
 }
 
