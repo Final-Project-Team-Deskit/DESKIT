@@ -13,7 +13,11 @@ export const resolveViewerId = (user: AuthUser | null): string | null => {
     return String(directId)
   }
 
-  const access = localStorage.getItem('access') || sessionStorage.getItem('access')
+  const access =
+    localStorage.getItem('access') ||
+    sessionStorage.getItem('access') ||
+    localStorage.getItem('access_token') ||
+    sessionStorage.getItem('access_token')
   if (!access) return null
   const tokenParts = access.split('.')
   if (tokenParts.length < 2) return null

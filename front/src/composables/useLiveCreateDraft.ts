@@ -39,10 +39,15 @@ type StoredDraft = {
   data: LiveCreateDraft
 }
 
-const resolveSellerKey = () => {
+const resolveSellerKey = ({ allowToken }: { allowToken: boolean }) => {
   const user = getAuthUser()
-  if (!user || !isSeller()) return ''
-  return resolveViewerId(user) ?? ''
+  const tokenOwnerId = allowToken ? resolveViewerId(null) : null
+  if (user) {
+    if (!isSeller()) return ''
+    return tokenOwnerId ?? resolveViewerId(user) ?? ''
+  }
+  if (!allowToken) return ''
+  return tokenOwnerId ?? ''
 }
 
 const getDraftStorage = () => sessionStorage
@@ -90,7 +95,7 @@ const parseStoredDraft = (raw: string | null): StoredDraft | null => {
 }
 
 window.addEventListener('deskit-user-updated', () => {
-  const ownerId = resolveSellerKey()
+  const ownerId = resolveSellerKey({ allowToken: !!getAuthUser() })
   const stored = parseStoredDraft(getDraftStorage().getItem(DRAFT_KEY))
   if (!ownerId || (stored && stored.ownerId !== ownerId)) {
     clearDraftStorage()
@@ -127,7 +132,7 @@ const normalizeDraft = (payload: LiveCreateDraft): LiveCreateDraft => {
 }
 
 export const loadDraft = (): LiveCreateDraft | null => {
-  const ownerId = resolveSellerKey()
+  const ownerId = resolveSellerKey({ allowToken: true })
   if (!ownerId) return null
   const stored = parseStoredDraft(getDraftStorage().getItem(DRAFT_KEY))
   if (!stored) {
@@ -142,7 +147,7 @@ export const loadDraft = (): LiveCreateDraft | null => {
 }
 
 export const saveDraft = (draft: LiveCreateDraft) => {
-  const ownerId = resolveSellerKey()
+  const ownerId = resolveSellerKey({ allowToken: true })
   if (!ownerId) return
   const payload: StoredDraft = {
     version: DRAFT_SCHEMA_VERSION,
