@@ -208,9 +208,8 @@ const mapScheduledSortType = () => {
 }
 
 const mapScheduledStatusFilter = () => {
-  if (scheduledStatus.value === 'reserved') return 'RESERVED'
   if (scheduledStatus.value === 'canceled') return 'CANCELED'
-  return undefined
+  return 'RESERVED'
 }
 
 const mapVodSortType = () => {
@@ -530,10 +529,8 @@ const filteredScheduledItems = computed(() => {
       return aDate - bDate
     })
 
-  if (scheduledStatus.value === 'reserved') return sortScheduled(reserved)
   if (scheduledStatus.value === 'canceled') return sortScheduled(canceled)
-
-  return [...sortScheduled(reserved), ...sortScheduled(canceled)]
+  return sortScheduled(reserved)
 })
 
 const categoryOptions = computed(() => categories.value)
@@ -571,8 +568,8 @@ const buildLoopItems = (items: LiveItem[]): LiveItem[] => {
 const scheduledLoopItems = computed<LiveItem[]>(() => buildLoopItems(scheduledSummary.value))
 const vodLoopItems = computed<LiveItem[]>(() => buildLoopItems(vodSummary.value))
 
-const visibleLive = computed(() => activeTab.value === 'all' || activeTab.value === 'live')
-const visibleScheduled = computed(() => activeTab.value === 'all' || activeTab.value === 'scheduled')
+const visibleLive = computed(() => activeTab.value === 'live')
+const visibleScheduled = computed(() => activeTab.value === 'scheduled')
 const visibleVod = computed(() => activeTab.value === 'all' || activeTab.value === 'vod')
 
 const { sentinelRef: scheduledSentinelRef } = useInfiniteScroll({

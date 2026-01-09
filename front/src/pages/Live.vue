@@ -157,6 +157,7 @@ const itemsForDay = computed(() => {
   const filtered = filterLivesByDay(liveItems.value, selectedDay.value)
   const visible = filtered.filter((item) => {
     const status = getLifecycleStatus(item)
+    if (status === 'VOD') return false
     if (status === 'CANCELED') return false
     if (status === 'STOPPED' && isPastScheduledEnd(item)) return false
     return true

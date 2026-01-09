@@ -18,6 +18,7 @@ export type SellerProduct = {
   price: number
   broadcastPrice: number
   stock: number
+  safetyStock: number
   quantity: number
   thumb?: string
 }
@@ -133,6 +134,7 @@ export type BroadcastDetailResponse = {
     imageUrl?: string
     originalPrice: number
     stockQty?: number
+    safetyStock?: number
     bpPrice: number
     bpQuantity: number
     displayOrder: number
@@ -261,7 +263,9 @@ export const fetchCategories = async (): Promise<BroadcastCategory[]> => {
 }
 
 export const fetchSellerProducts = async (): Promise<SellerProduct[]> => {
-  const { data } = await http.get<ApiResult<Array<{ productId: number; productName: string; price: number; stockQty: number; imageUrl?: string }>>>(
+  const { data } = await http.get<
+    ApiResult<Array<{ productId: number; productName: string; price: number; stockQty: number; safetyStock?: number; imageUrl?: string }>>
+  >(
     '/api/seller/broadcasts/products',
   )
   const payload = ensureSuccess(data)
@@ -272,6 +276,7 @@ export const fetchSellerProducts = async (): Promise<SellerProduct[]> => {
     price: item.price,
     broadcastPrice: item.price,
     stock: item.stockQty,
+    safetyStock: item.safetyStock ?? 0,
     quantity: 1,
     thumb: item.imageUrl ?? '',
   }))
@@ -347,6 +352,16 @@ export const fetchSellerBroadcastDetail = async (broadcastId: number): Promise<B
     const { data } = await http.get<ApiResult<BroadcastDetailResponse>>(`/api/seller/broadcasts/${broadcastId}`)
     return ensureSuccess(data)
   })
+}
+
+export const startSellerBroadcast = async (broadcastId: number): Promise<string> => {
+  const { data } = await http.post<ApiResult<string>>(`/api/seller/broadcasts/${broadcastId}/start`)
+  return ensureSuccess(data)
+}
+
+export const endSellerBroadcast = async (broadcastId: number): Promise<void> => {
+  const { data } = await http.post<ApiResult<void>>(`/api/seller/broadcasts/${broadcastId}/end`)
+  return ensureSuccess(data)
 }
 
 export const fetchAdminBroadcastDetail = async (broadcastId: number): Promise<BroadcastDetailResponse> => {

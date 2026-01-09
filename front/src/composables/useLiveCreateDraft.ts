@@ -9,6 +9,7 @@ export type LiveCreateProduct = {
   price: number
   broadcastPrice: number
   stock: number
+  safetyStock: number
   quantity: number
   thumb?: string
 }
@@ -117,6 +118,7 @@ const normalizeDraft = (payload: LiveCreateDraft): LiveCreateDraft => {
             price: typeof item.price === 'number' ? item.price : 0,
             broadcastPrice: typeof item.broadcastPrice === 'number' ? item.broadcastPrice : 0,
             stock: typeof item.stock === 'number' ? item.stock : 0,
+            safetyStock: typeof item.safetyStock === 'number' ? item.safetyStock : 0,
             quantity: typeof item.quantity === 'number' ? item.quantity : 1,
             thumb: item.thumb ?? '',
           }))
@@ -173,6 +175,7 @@ const mapReservationProducts = (detail: BroadcastDetailResponse) =>
     price: item.originalPrice ?? 0,
     broadcastPrice: item.bpPrice ?? item.originalPrice ?? 0,
     stock: item.stockQty ?? item.bpQuantity ?? 0,
+    safetyStock: item.safetyStock ?? 0,
     quantity: item.bpQuantity ?? 1,
     thumb: item.imageUrl ?? '',
   }))

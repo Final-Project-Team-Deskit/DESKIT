@@ -70,13 +70,32 @@ const filteredProducts = computed(() => {
 const isSelected = (productId: string, source: LiveCreateProduct[] = draft.value.products) =>
   source.some((item) => item.id === productId)
 
+const resolveMaxQuantity = (product: LiveCreateProduct) => {
+  const stock = Number.isFinite(product.stock) ? product.stock : 0
+  const safetyStock = Number.isFinite(product.safetyStock) ? product.safetyStock : 0
+  return Math.max(stock - safetyStock, 0)
+}
+
+const resolveMinQuantity = (product: LiveCreateProduct) => (resolveMaxQuantity(product) > 0 ? 1 : 0)
+
+const clampProductQuantity = (product: LiveCreateProduct, value?: number) => {
+  const maxQuantity = resolveMaxQuantity(product)
+  const minQuantity = resolveMinQuantity(product)
+  const rawValue = Number.isFinite(value) ? value : product.quantity
+  const normalized = Number.isFinite(rawValue) ? rawValue : minQuantity
+  const nextValue = maxQuantity > 0
+    ? Math.min(Math.max(normalized, minQuantity), maxQuantity)
+    : minQuantity
+  return { ...product, quantity: nextValue }
+}
+
 const addProduct = (product: LiveCreateProduct, target: LiveCreateProduct[]) => {
   if (!isSelected(product.id, target) && target.length >= 10) {
     error.value = '상품은 최대 10개까지 등록할 수 있습니다.'
     return target
   }
   if (isSelected(product.id, target)) return target
-  return [...target, { ...product }]
+  return [...target, clampProductQuantity(product)]
 }
 
 const removeProduct = (productId: string, target: LiveCreateProduct[]) => target.filter((item) => item.id !== productId)
@@ -94,9 +113,8 @@ const updateProductPrice = (productId: string, value: number) => {
 }
 
 const updateProductQuantity = (productId: string, value: number) => {
-  const qty = Number.isNaN(value) || value < 1 ? 1 : value
   draft.value.products = draft.value.products.map((product) =>
-    product.id === productId ? { ...product, quantity: qty } : product,
+    product.id === productId ? clampProductQuantity(product, value) : product,
   )
 }
 
@@ -142,7 +160,8 @@ const restoreDraft = async () => {
     : baseDraft
 
   draft.value = reservationDraft
-  modalProducts.value = reservationDraft.products.map((p) => ({ ...p }))
+  draft.value.products = draft.value.products.map((product) => clampProductQuantity(product))
+  modalProducts.value = draft.value.products.map((p) => ({ ...p }))
 }
 
 const openCropper = (file: File, target: 'thumb' | 'standby') => {
@@ -245,6 +264,15 @@ const submit = () => {
     return
   }
 
+  const invalidProduct = draft.value.products.find((product) => {
+    const maxQuantity = resolveMaxQuantity(product)
+    return maxQuantity < 1 || product.quantity < 1 || product.quantity > maxQuantity
+  })
+  if (invalidProduct) {
+    error.value = '판매 수량을 재고 범위 내에서 선택해주세요.'
+    return
+  }
+
   if (!draft.value.termsAgreed) {
     error.value = '약관에 동의해주세요.'
     return
@@ -325,7 +353,7 @@ const cancelProductSelection = () => {
 }
 
 const saveProductSelection = () => {
-  draft.value.products = modalProducts.value.map((p) => ({ ...p }))
+  draft.value.products = modalProducts.value.map((p) => clampProductQuantity(p))
   showProductModal.value = false
   alert('상품 선택이 저장되었습니다.')
 }
@@ -424,6 +452,7 @@ watch(
 onMounted(async () => {
   await loadCategories()
   await loadProducts()
+  draft.value.products = draft.value.products.map((product) => clampProductQuantity(product))
   if (draft.value.date) {
     activeDate.value = draft.value.date
     void reloadReservationSlots(draft.value.date)
@@ -540,7 +569,8 @@ watch(
                   <input
                     class="table-input"
                     type="number"
-                    min="1"
+                    :min="resolveMinQuantity(product)"
+                    :max="resolveMaxQuantity(product)"
                     :value="product.quantity"
                     @input="updateProductQuantity(product.id, Number(($event.target as HTMLInputElement).value))"
                   />

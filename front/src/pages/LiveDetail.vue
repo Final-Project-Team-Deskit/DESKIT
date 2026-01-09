@@ -392,8 +392,12 @@ const connectSse = (id: number) => {
 const startStatsPolling = () => {
   if (statsTimer.value) window.clearInterval(statsTimer.value)
   statsTimer.value = window.setInterval(() => {
-    void loadStats()
-    void loadProducts()
+    if (lifecycleStatus.value === 'ON_AIR' || !sseConnected.value) {
+      void loadStats()
+      if (!sseConnected.value) {
+        void loadProducts()
+      }
+    }
   }, 30000)
 }
 
