@@ -394,8 +394,8 @@ const filteredVodItems = computed(() => {
     if (endMs && dateMs > endMs) return false
     const visibility = getVisibility(item)
     if (vodVisibility.value !== 'all' && vodVisibility.value !== visibility) return false
-    if (vodCategory.value !== 'all' && item.category !== vodCategory.value) return false
-    return true
+    return !(vodCategory.value !== 'all' && item.category !== vodCategory.value);
+
   })
 
   const sortVodList = (items: LiveItem[]) =>
@@ -1771,7 +1771,7 @@ onBeforeUnmount(() => {
 }
 
 .live-carousel::-webkit-scrollbar {
-  height: 0px;
+  height: 0;
 }
 
 .live-carousel::-webkit-scrollbar-thumb {

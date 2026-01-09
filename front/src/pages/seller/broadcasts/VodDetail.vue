@@ -57,7 +57,7 @@ const toggleVisibility = () => {
 }
 
 const handleDownload = () => {
-  window.alert('VOD 파일 다운로드를 시작합니다. (데모)')
+  window.alert('VOD 파일 다운로드를 시작합니다.')
 }
 
 const handleDelete = () => {
@@ -65,7 +65,7 @@ const handleDelete = () => {
 }
 
 const confirmDelete = () => {
-  window.alert('VOD가 삭제되었습니다. (데모)')
+  window.alert('VOD가 삭제되었습니다.')
 }
 
 const showChat = ref(false)

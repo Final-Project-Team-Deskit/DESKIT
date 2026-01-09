@@ -120,7 +120,7 @@ const handleSwiper = (swiper: SwiperClass) => {
 :deep(.swiper-slide-prev),
 :deep(.swiper-slide-next) {
   opacity: 0.55;
-  filter: blur(0.6px);
+  filter: blur(1px);
   transform: scale(0.975);
 }
 :deep(.swiper-slide-active) {

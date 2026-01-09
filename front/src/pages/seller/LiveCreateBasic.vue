@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import {computed, onMounted, ref, watch} from 'vue'
+import {useRoute, useRouter} from 'vue-router'
 import PageContainer from '../../components/PageContainer.vue'
 import PageHeader from '../../components/PageHeader.vue'
 import LiveImageCropModal from '../../components/LiveImageCropModal.vue'
@@ -8,19 +8,19 @@ import {
   buildDraftFromReservation,
   clearDraft,
   createEmptyDraft,
-  loadDraft,
-  saveDraft,
   type LiveCreateDraft,
   type LiveCreateProduct,
+  loadDraft,
+  saveDraft,
 } from '../../composables/useLiveCreateDraft'
 import {
+  type BroadcastCategory,
   createBroadcast,
   fetchCategories,
   fetchReservationSlots,
   fetchSellerProducts,
-  updateBroadcast,
-  type BroadcastCategory,
   type ReservationSlot,
+  updateBroadcast,
 } from '../../lib/live/api'
 
 const router = useRouter()
@@ -225,8 +225,10 @@ const submit = () => {
   thumbError.value = ''
   standbyError.value = ''
 
-  const trimmedQuestions = draft.value.questions.map((q) => ({ ...q, text: q.text.trim() })).filter((q) => q.text.length > 0)
-  draft.value.questions = trimmedQuestions
+  draft.value.questions = draft.value.questions.map((q) => ({
+    ...q,
+    text: q.text.trim()
+  })).filter((q) => q.text.length > 0)
 
   if (!draft.value.title.trim() || !draft.value.category || !draft.value.date || !draft.value.time) {
     error.value = '방송 제목, 카테고리, 일정을 입력해주세요.'
@@ -355,8 +357,7 @@ const loadCategories = async () => {
 
 const loadProducts = async () => {
   try {
-    const items = await fetchSellerProducts()
-    sellerProducts.value = items
+    sellerProducts.value = await fetchSellerProducts()
   } catch (apiError) {
     error.value = apiError?.message ?? '상품 목록을 불러오지 못했습니다.'
   }
