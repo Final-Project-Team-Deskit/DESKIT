@@ -11,6 +11,8 @@ import {
   fetchMediaConfig,
   fetchRecentLiveChats,
   fetchSellerBroadcastDetail,
+  startSellerBroadcast,
+  endSellerBroadcast,
   pinSellerBroadcastProduct,
 } from '../../lib/live/api'
 import { parseLiveDate } from '../../lib/live/utils'
@@ -66,6 +68,7 @@ const likeCount = ref(0)
 const elapsed = ref('00:00:00')
 const monitorRef = ref<HTMLElement | null>(null)
 const streamGridRef = ref<HTMLElement | null>(null)
+const streamCenterRef = ref<HTMLElement | null>(null)
 const isFullscreen = ref(false)
 const modalHostTarget = computed(() => (isFullscreen.value && monitorRef.value ? monitorRef.value : 'body'))
 const micEnabled = ref(true)
@@ -115,6 +118,10 @@ const sseRetryCount = ref(0)
 const sseRetryTimer = ref<number | null>(null)
 const statsTimer = ref<number | null>(null)
 const refreshTimer = ref<number | null>(null)
+const startTimer = ref<number | null>(null)
+const startRequested = ref(false)
+const endRequested = ref(false)
+const endRequestTimer = ref<number | null>(null)
 const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080'
 
 const streamId = computed(() => {
@@ -214,6 +221,60 @@ const lifecycleStatus = computed(() =>
 )
 const isInteractive = computed(() => lifecycleStatus.value === 'ON_AIR')
 
+const clearStartTimer = () => {
+  if (startTimer.value) {
+    window.clearTimeout(startTimer.value)
+    startTimer.value = null
+  }
+}
+
+const clearEndRequestTimer = () => {
+  if (endRequestTimer.value) {
+    window.clearTimeout(endRequestTimer.value)
+    endRequestTimer.value = null
+  }
+}
+
+const resetRealtimeState = () => {
+  sseSource.value?.close()
+  sseSource.value = null
+  sseConnected.value = false
+  if (sseRetryTimer.value) window.clearTimeout(sseRetryTimer.value)
+  sseRetryTimer.value = null
+  if (statsTimer.value) window.clearInterval(statsTimer.value)
+  statsTimer.value = null
+  if (refreshTimer.value) window.clearTimeout(refreshTimer.value)
+  refreshTimer.value = null
+  clearStartTimer()
+  clearEndRequestTimer()
+  startRequested.value = false
+  endRequested.value = false
+}
+
+const requestStartBroadcast = async (broadcastId: number) => {
+  if (startRequested.value) return
+  startRequested.value = true
+  try {
+    await startSellerBroadcast(broadcastId)
+    scheduleRefresh(broadcastId)
+  } catch {
+    startRequested.value = false
+  }
+}
+
+const scheduleAutoStart = (broadcastId: number, scheduledAtMs: number | null, status: BroadcastStatus) => {
+  clearStartTimer()
+  if (!scheduledAtMs || status !== 'READY') return
+  const delay = Math.max(0, scheduledAtMs - Date.now())
+  if (delay === 0) {
+    void requestStartBroadcast(broadcastId)
+    return
+  }
+  startTimer.value = window.setTimeout(() => {
+    void requestStartBroadcast(broadcastId)
+  }, delay)
+}
+
 const updateGridWidth = (width?: number) => {
   if (typeof width === 'number') {
     gridWidth.value = width
@@ -250,6 +311,10 @@ const hydrateStream = async () => {
     scheduleStartAtMs.value = null
     scheduleEndAtMs.value = null
     isLoadingStream.value = false
+    clearStartTimer()
+    clearEndRequestTimer()
+    startRequested.value = false
+    endRequested.value = false
     return
   }
 
@@ -263,6 +328,10 @@ const hydrateStream = async () => {
     scheduleStartAtMs.value = null
     scheduleEndAtMs.value = null
     isLoadingStream.value = false
+    clearStartTimer()
+    clearEndRequestTimer()
+    startRequested.value = false
+    endRequested.value = false
     return
   }
 
@@ -329,6 +398,7 @@ const hydrateStream = async () => {
     }))
     isLoadingStream.value = false
     scrollChatToBottom()
+    scheduleAutoStart(idValue, scheduleStartAtMs.value, streamStatus.value)
   } catch {
     stream.value = null
     chatMessages.value = []
@@ -339,6 +409,10 @@ const hydrateStream = async () => {
     scheduleStartAtMs.value = null
     scheduleEndAtMs.value = null
     isLoadingStream.value = false
+    clearStartTimer()
+    clearEndRequestTimer()
+    startRequested.value = false
+    endRequested.value = false
   }
 }
 
@@ -402,6 +476,7 @@ const refreshInfo = async (broadcastId: number) => {
         qCards: (detail.qcards ?? []).map((card) => card.question),
       }
     }
+    scheduleAutoStart(broadcastId, scheduleStartAtMs.value, streamStatus.value)
   } catch {
     return
   }
@@ -453,6 +528,12 @@ const handleSseEvent = (event: MessageEvent) => {
       handleGoToList()
       break
     case 'BROADCAST_ENDED':
+      if (endRequested.value) {
+        endRequested.value = false
+        clearEndRequestTimer()
+        scheduleRefresh(id)
+        break
+      }
       alert('방송이 종료되었습니다.')
       scheduleRefresh(id)
       break
@@ -525,8 +606,12 @@ const connectSse = (broadcastId: number) => {
 const startStatsPolling = (broadcastId: number) => {
   if (statsTimer.value) window.clearInterval(statsTimer.value)
   statsTimer.value = window.setInterval(() => {
-    void refreshStats(broadcastId)
-    void refreshProducts(broadcastId)
+    if (lifecycleStatus.value === 'ON_AIR' || !sseConnected.value) {
+      void refreshStats(broadcastId)
+      if (!sseConnected.value) {
+        void refreshProducts(broadcastId)
+      }
+    }
   }, 30000)
 }
 
@@ -541,20 +626,14 @@ watch(
 watch(
   () => streamId.value,
   (value) => {
+    resetRealtimeState()
     if (!value) {
-      sseSource.value?.close()
-      sseSource.value = null
-      sseConnected.value = false
-      if (sseRetryTimer.value) window.clearTimeout(sseRetryTimer.value)
-      sseRetryTimer.value = null
-      if (statsTimer.value) window.clearInterval(statsTimer.value)
-      statsTimer.value = null
-      if (refreshTimer.value) window.clearTimeout(refreshTimer.value)
-      refreshTimer.value = null
       return
     }
     const idValue = Number(value)
-    if (Number.isNaN(idValue)) return
+    if (Number.isNaN(idValue)) {
+      return
+    }
     connectSse(idValue)
     startStatsPolling(idValue)
   },
@@ -591,15 +670,7 @@ onBeforeUnmount(() => {
   document.removeEventListener('fullscreenchange', handleFullscreenChange)
   window.removeEventListener('resize', handleResize)
   gridObserver?.disconnect()
-  sseSource.value?.close()
-  sseSource.value = null
-  sseConnected.value = false
-  if (sseRetryTimer.value) window.clearTimeout(sseRetryTimer.value)
-  sseRetryTimer.value = null
-  if (statsTimer.value) window.clearInterval(statsTimer.value)
-  statsTimer.value = null
-  if (refreshTimer.value) window.clearTimeout(refreshTimer.value)
-  refreshTimer.value = null
+  resetRealtimeState()
 })
 
 const openConfirm = (options: Partial<typeof confirmState>, onConfirm: () => void) => {
@@ -708,7 +779,23 @@ const handleGoToList = () => {
 }
 
 const handleEndBroadcast = () => {
-  alert('방송이 종료되었습니다.')
+  const idValue = streamId.value ? Number(streamId.value) : NaN
+  if (Number.isNaN(idValue)) return
+  endRequested.value = true
+  clearEndRequestTimer()
+  endRequestTimer.value = window.setTimeout(() => {
+    endRequested.value = false
+    endRequestTimer.value = null
+  }, 10000)
+  void endSellerBroadcast(idValue)
+    .then(() => {
+      alert('방송이 종료되었습니다.')
+    })
+    .catch(() => {
+      endRequested.value = false
+      clearEndRequestTimer()
+      alert('방송 종료에 실패했습니다.')
+    })
 }
 
 const requestEndBroadcast = () => {

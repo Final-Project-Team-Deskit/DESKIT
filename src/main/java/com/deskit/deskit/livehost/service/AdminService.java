@@ -33,36 +33,52 @@ public class AdminService {
 
     @Transactional
     public void forceStopBroadcast(Long broadcastId, String reason) {
-        Broadcast broadcast = broadcastRepository.findById(broadcastId)
-                .orElseThrow(() -> new BusinessException(ErrorCode.BROADCAST_NOT_FOUND));
-
-        if (reason == null || reason.isBlank()) {
-            throw new BusinessException(ErrorCode.INVALID_INPUT_VALUE);
+        String lockKey = "lock:broadcast_transition:" + broadcastId;
+        if (!Boolean.TRUE.equals(redisService.acquireLock(lockKey, 3000))) {
+            throw new BusinessException(ErrorCode.TOO_MANY_REQUESTS);
         }
+        try {
+            Broadcast broadcast = broadcastRepository.findById(broadcastId)
+                    .orElseThrow(() -> new BusinessException(ErrorCode.BROADCAST_NOT_FOUND));
 
-        validateTransition(broadcast.getStatus(), BroadcastStatus.STOPPED);
-        broadcast.forceStopByAdmin(reason);
+            if (reason == null || reason.isBlank()) {
+                throw new BusinessException(ErrorCode.INVALID_INPUT_VALUE);
+            }
 
-        openViduService.closeSession(broadcastId);
-        redisService.deleteBroadcastKeys(broadcastId);
-        sseService.notifyBroadcastUpdate(broadcastId, "BROADCAST_STOPPED", reason);
+            validateTransition(broadcast.getStatus(), BroadcastStatus.STOPPED);
+            broadcast.forceStopByAdmin(reason);
+
+            openViduService.closeSession(broadcastId);
+            redisService.deleteBroadcastKeys(broadcastId);
+            sseService.notifyBroadcastUpdate(broadcastId, "BROADCAST_STOPPED", reason);
+        } finally {
+            redisService.releaseLock(lockKey);
+        }
     }
 
     @Transactional
     public void cancelBroadcast(Long broadcastId, String reason) {
-        Broadcast broadcast = broadcastRepository.findById(broadcastId)
-                .orElseThrow(() -> new BusinessException(ErrorCode.BROADCAST_NOT_FOUND));
-
-        if (broadcast.getStatus() != BroadcastStatus.RESERVED && broadcast.getStatus() != BroadcastStatus.READY) {
-            throw new BusinessException(ErrorCode.INVALID_INPUT_VALUE);
+        String lockKey = "lock:broadcast_transition:" + broadcastId;
+        if (!Boolean.TRUE.equals(redisService.acquireLock(lockKey, 3000))) {
+            throw new BusinessException(ErrorCode.TOO_MANY_REQUESTS);
         }
+        try {
+            Broadcast broadcast = broadcastRepository.findById(broadcastId)
+                    .orElseThrow(() -> new BusinessException(ErrorCode.BROADCAST_NOT_FOUND));
 
-        if (reason == null || reason.isBlank()) {
-            throw new BusinessException(ErrorCode.INVALID_INPUT_VALUE);
+            if (broadcast.getStatus() != BroadcastStatus.RESERVED && broadcast.getStatus() != BroadcastStatus.READY) {
+                throw new BusinessException(ErrorCode.INVALID_INPUT_VALUE);
+            }
+
+            if (reason == null || reason.isBlank()) {
+                throw new BusinessException(ErrorCode.INVALID_INPUT_VALUE);
+            }
+
+            validateTransition(broadcast.getStatus(), BroadcastStatus.CANCELED);
+            broadcast.cancelBroadcast(reason);
+        } finally {
+            redisService.releaseLock(lockKey);
         }
-
-        validateTransition(broadcast.getStatus(), BroadcastStatus.CANCELED);
-        broadcast.cancelBroadcast(reason);
     }
 
     private void validateTransition(BroadcastStatus from, BroadcastStatus to) {

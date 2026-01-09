@@ -57,10 +57,9 @@ public class BroadcastProduct {
     @UpdateTimestamp
     private LocalDateTime updatedAt;
 
-    public boolean markSoldOutIfNeeded(Integer stockQty, Integer safetyStock) {
-        int safeStock = safetyStock == null ? 0 : safetyStock;
-        int remaining = stockQty == null ? 0 : stockQty;
-        if (remaining > safeStock) {
+    public boolean markSoldOutIfNeeded(Integer remainingQuantity) {
+        int remaining = remainingQuantity == null ? 0 : remainingQuantity;
+        if (remaining > 0) {
             return false;
         }
         if (status == BroadcastProductStatus.SOLDOUT) {
