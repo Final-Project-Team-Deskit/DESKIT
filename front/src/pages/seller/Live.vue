@@ -53,7 +53,6 @@ const activeTab = ref<LiveTab>('all')
 
 const LIVE_SECTION_STATUSES: BroadcastStatus[] = ['READY', 'ON_AIR', 'ENDED', 'STOPPED']
 const SCHEDULED_SECTION_STATUSES: BroadcastStatus[] = ['RESERVED', 'CANCELED']
-const VOD_SECTION_STATUSES: BroadcastStatus[] = ['VOD', 'STOPPED']
 const statusPriority: Record<BroadcastStatus, number> = {
   ON_AIR: 0,
   READY: 1,
@@ -366,7 +365,7 @@ const loadCategories = async () => {
 
 const vodItemsWithStatus = computed(() => vodItems.value.map(withLifecycleStatus))
 
-const stoppedVodItems = computed(() =>
+const stoppedVodItems = computed<LiveItem[]>(() =>
   scheduledWithStatus.value
     .filter(
       (item) =>
@@ -376,14 +375,14 @@ const stoppedVodItems = computed(() =>
     .map((item) => ({
       ...item,
       status: 'STOPPED',
-      lifecycleStatus: 'STOPPED',
+      lifecycleStatus: 'STOPPED' as BroadcastStatus,
       statusBadge: 'STOPPED',
       visibility: item.visibility ?? 'public',
       datetime: item.datetime || formatDateLabel(item.startAtMs, '종료'),
     })),
 )
 
-const combinedVodItems = computed(() => [...vodItemsWithStatus.value, ...stoppedVodItems.value])
+const combinedVodItems = computed<LiveItem[]>(() => [...vodItemsWithStatus.value, ...stoppedVodItems.value])
 
 const filteredVodItems = computed(() => {
   const startMs = vodStartDate.value ? Date.parse(`${vodStartDate.value}T00:00:00`) : null
@@ -689,7 +688,7 @@ const openVodDetail = (item: LiveItem) => {
   router.push(`/seller/broadcasts/vods/${item.id}`).catch(() => {})
 }
 
-const loadCurrentLiveDetails = async (item: LiveItem | null) => {
+async function loadCurrentLiveDetails(item: LiveItem | null) {
   if (!item) {
     liveStats.value = null
     liveProducts.value = []
