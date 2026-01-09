@@ -41,13 +41,18 @@ type StoredDraft = {
 
 const resolveSellerKey = ({ allowToken }: { allowToken: boolean }) => {
   const user = getAuthUser()
-  const tokenOwnerId = allowToken ? resolveViewerId(null) : null
   if (user) {
     if (!isSeller()) return ''
-    return tokenOwnerId ?? resolveViewerId(user) ?? ''
+    const resolvedFromUser = resolveViewerId(user)
+    if (resolvedFromUser) return resolvedFromUser
+    if (allowToken) {
+      const resolvedFromToken = resolveViewerId(null)
+      if (resolvedFromToken) return resolvedFromToken
+    }
+    return user.email?.trim() ?? ''
   }
   if (!allowToken) return ''
-  return tokenOwnerId ?? ''
+  return resolveViewerId(null) ?? ''
 }
 
 const getDraftStorage = () => sessionStorage
@@ -95,7 +100,12 @@ const parseStoredDraft = (raw: string | null): StoredDraft | null => {
 }
 
 window.addEventListener('deskit-user-updated', () => {
-  const ownerId = resolveSellerKey({ allowToken: !!getAuthUser() })
+  const user = getAuthUser()
+  if (!user) {
+    clearDraftStorage()
+    return
+  }
+  const ownerId = resolveSellerKey({ allowToken: true })
   const stored = parseStoredDraft(getDraftStorage().getItem(DRAFT_KEY))
   if (!ownerId || (stored && stored.ownerId !== ownerId)) {
     clearDraftStorage()
