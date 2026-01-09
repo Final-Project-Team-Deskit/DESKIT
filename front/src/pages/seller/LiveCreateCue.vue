@@ -15,7 +15,7 @@ import {
   saveDraft,
   saveWorkingDraft,
   clearWorkingDraft,
-  type LiveCreateDraft,
+  type LiveCreateDraft, setDraftRestoreDecision,
 } from '../../composables/useLiveCreateDraft'
 
 const router = useRouter()
