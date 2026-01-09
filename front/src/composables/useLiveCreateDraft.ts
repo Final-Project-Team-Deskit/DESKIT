@@ -39,7 +39,7 @@ type StoredDraft = {
   data: LiveCreateDraft
 }
 
-const resolveSellerKey = () => {
+const resolveSellerKey = ({ allowToken = false }: { allowToken?: boolean } = {}) => {
   const user = getAuthUser()
   if (user) {
     if (!isSeller()) return ''
