@@ -57,11 +57,13 @@ const resolveSellerKey = ({ allowToken = false }: { allowToken?: boolean } = {})
 }
 
 const getDraftStorage = () => sessionStorage
+let workingDraft: LiveCreateDraft | null = null
 
 const clearDraftStorage = () => {
   const storage = getDraftStorage()
   storage.removeItem(DRAFT_KEY)
   storage.removeItem(DRAFT_RESTORE_KEY)
+  workingDraft = null
 }
 
 type DraftRestoreDecision = 'accepted' | 'declined'
@@ -79,6 +81,7 @@ export const setDraftRestoreDecision = (decision: DraftRestoreDecision) => {
 export const clearDraftRestoreDecision = () => {
   getDraftStorage().removeItem(DRAFT_RESTORE_KEY)
 }
+
 
 const createId = () => `q-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
 
@@ -158,6 +161,19 @@ const normalizeDraft = (payload: LiveCreateDraft): LiveCreateDraft => {
           }))
       : [],
   }
+}
+
+export const loadWorkingDraft = (): LiveCreateDraft | null => {
+  if (!workingDraft) return null
+  return normalizeDraft(workingDraft)
+}
+
+export const saveWorkingDraft = (draft: LiveCreateDraft) => {
+  workingDraft = normalizeDraft(draft)
+}
+
+export const clearWorkingDraft = () => {
+  workingDraft = null
 }
 
 export const loadDraft = (): LiveCreateDraft | null => {
