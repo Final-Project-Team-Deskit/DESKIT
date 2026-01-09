@@ -23,11 +23,13 @@ type AdminVodDetail = {
     likes: number
     totalRevenue: number
   }
-  vod: { url?: string }
+  vod: { url?: string; visibility: string }
   productResults: Array<{ id: string; name: string; price: number; soldQty: number; revenue: number }>
 }
 
 const detail = ref<AdminVodDetail | null>(null)
+const isVodPlayable = computed(() => !!detail.value?.vod?.url)
+const isVodPublic = computed(() => detail.value?.vod.visibility === '공개')
 
 const formatDateTime = (value?: string) => (value ? value.replace('T', ' ') : '')
 
@@ -55,7 +57,7 @@ const buildDetail = (broadcast: BroadcastDetailResponse, report: BroadcastResult
     likes: report.totalLikes ?? 0,
     totalRevenue: toNumber(report.totalSales),
   },
-  vod: { url: report.vodUrl ?? undefined },
+  vod: { url: report.vodUrl ?? undefined, visibility: '공개' },
   productResults: (report.productStats ?? []).map((item) => ({
     id: String(item.productId),
     name: item.productName,
@@ -84,6 +86,21 @@ const goBack = () => {
 
 const goToList = () => {
   router.push('/admin/live?tab=vod').catch(() => {})
+}
+
+const toggleVisibility = () => {
+  if (!detail.value) return
+  const next = detail.value.vod.visibility === '공개' ? '비공개' : '공개'
+  detail.value = { ...detail.value, vod: { ...detail.value.vod, visibility: next } }
+}
+
+const handleDownload = () => {
+  window.alert('VOD 파일 다운로드를 시작합니다. (데모)')
+}
+
+const handleDelete = () => {
+  if (!window.confirm('VOD를 삭제할까요?')) return
+  window.alert('VOD가 삭제되었습니다. (데모)')
 }
 
 const formatNumber = (value: number) => value.toLocaleString('ko-KR')
@@ -143,6 +160,44 @@ watch(vodId, () => {
     <section class="vod-card ds-surface">
       <div class="card-head">
         <h3>VOD</h3>
+        <div class="vod-actions" v-if="isVodPlayable">
+          <div class="visibility-toggle" aria-label="VOD 공개 설정">
+            <svg aria-hidden="true" class="icon muted" viewBox="0 0 24 24" focusable="false">
+              <path
+                d="M14.12 14.12a3 3 0 0 1-4.24-4.24m6.83 6.83A9.6 9.6 0 0 1 12 17c-5 0-9-5-9-5a15.63 15.63 0 0 1 5.12-4.88m3.41-1.5A9.4 9.4 0 0 1 12 7c5 0 9 5 9 5a15.78 15.78 0 0 1-2.6 2.88"
+              />
+              <path d="m3 3 18 18" />
+            </svg>
+            <span class="visibility-label">비공개</span>
+            <label class="vod-switch">
+              <input type="checkbox" :checked="isVodPublic" @change="toggleVisibility" />
+              <span class="switch-track"><span class="switch-thumb"></span></span>
+            </label>
+            <span class="visibility-label">공개</span>
+            <svg aria-hidden="true" class="icon muted" viewBox="0 0 24 24" focusable="false">
+              <path d="M1 12s4.5-7 11-7 11 7 11 7-4.5 7-11 7S1 12 1 12Z" />
+              <circle cx="12" cy="12" r="3.5" />
+            </svg>
+          </div>
+          <div class="vod-icon-actions">
+            <button type="button" class="icon-pill" @click="handleDownload" title="다운로드">
+              <svg aria-hidden="true" class="icon" viewBox="0 0 24 24" focusable="false">
+                <path d="M12 3v12" />
+                <path d="m6 11 6 6 6-6" />
+                <path d="M5 19h14" />
+              </svg>
+            </button>
+            <button type="button" class="icon-pill danger" @click="handleDelete" title="삭제">
+              <svg aria-hidden="true" class="icon" viewBox="0 0 24 24" focusable="false">
+                <path d="M3 6h18" />
+                <path d="M19 6v12a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" />
+                <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                <line x1="10" x2="10" y1="11" y2="17" />
+                <line x1="14" x2="14" y1="11" y2="17" />
+              </svg>
+            </button>
+          </div>
+        </div>
       </div>
       <div class="vod-player">
         <video v-if="detail.vod.url" :src="detail.vod.url" controls></video>
@@ -284,11 +339,123 @@ watch(vodId, () => {
   color: var(--text-strong);
 }
 
+.card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
 .card-head h3 {
   margin: 0;
   font-size: 1rem;
   font-weight: 900;
   color: var(--text-strong);
+}
+
+.vod-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.visibility-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  border: 1px solid var(--border-color);
+  border-radius: 999px;
+  background: linear-gradient(135deg, rgba(15, 23, 42, 0.08), rgba(15, 23, 42, 0.02));
+}
+
+.vod-switch input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.vod-switch .switch-track {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  width: 44px;
+  height: 22px;
+  background: var(--border-color);
+  border-radius: 999px;
+  transition: background 0.2s ease;
+}
+
+.vod-switch .switch-thumb {
+  position: absolute;
+  left: 3px;
+  top: 3px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+  transition: transform 0.2s ease;
+}
+
+.vod-switch input:checked + .switch-track {
+  background: #22c55e;
+}
+
+.vod-switch input:checked + .switch-track .switch-thumb {
+  transform: translateX(22px);
+}
+
+.visibility-label {
+  font-weight: 900;
+  color: var(--text-strong);
+  font-size: 0.9rem;
+}
+
+.vod-icon-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.icon-pill {
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  border: 1px solid var(--border-color);
+  background: var(--surface);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  transition: transform 0.1s ease, box-shadow 0.1s ease, background 0.2s ease, border-color 0.2s ease;
+}
+
+.icon-pill:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px rgba(15, 23, 42, 0.12);
+}
+
+.icon-pill.danger {
+  border-color: rgba(239, 68, 68, 0.28);
+  color: #ef4444;
+  background: rgba(239, 68, 68, 0.05);
+}
+
+.icon {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.icon.muted {
+  color: var(--text-muted);
 }
 
 .vod-player {

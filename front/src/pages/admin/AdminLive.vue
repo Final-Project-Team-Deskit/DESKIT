@@ -214,7 +214,7 @@ const mapVodVisibility = () => {
   return undefined
 }
 
-const mapAdminItem = (item: any, kind: 'live' | 'scheduled' | 'vod'): LiveItem => {
+const mapLiveItem = (item: any, kind: 'live' | 'scheduled' | 'vod'): LiveItem => {
   const startAtMs = item.startAt ? toDateMs(item.startAt) : undefined
   const endAtMs = item.endAt ? toDateMs(item.endAt) : getScheduledEndMs(startAtMs)
   const status = normalizeBroadcastStatus(item.status)
@@ -246,7 +246,35 @@ const mapAdminItem = (item: any, kind: 'live' | 'scheduled' | 'vod'): LiveItem =
   }
 }
 
-const withLifecycleStatus = (item: LiveItem): LiveItem => {
+const mapReservationItem = (item: any): ReservationItem => {
+  const base = mapLiveItem(item, 'scheduled')
+  return {
+    ...base,
+    sellerName: base.sellerName ?? '',
+    status: base.status ?? 'RESERVED',
+    category: base.category ?? '기타',
+  }
+}
+
+const mapVodItem = (item: any): AdminVodItem => {
+  const base = mapLiveItem(item, 'vod')
+  const visibility = typeof item.isPublic === 'boolean' ? (item.isPublic ? 'public' : 'private') : 'public'
+  return {
+    ...base,
+    sellerName: base.sellerName ?? '',
+    statusLabel: visibility === 'private' ? '비공개' : 'VOD',
+    category: base.category ?? '기타',
+    visibility,
+    metrics: {
+      reports: toNumber(item.reportCount),
+      likes: toNumber(item.totalLikes),
+      totalRevenue: toNumber(item.totalSales),
+      maxViewers: toNumber(item.viewerCount),
+    },
+  }
+}
+
+const withLifecycleStatus = <T extends LiveItem>(item: T): T & { startAtMs?: number; endAtMs?: number; lifecycleStatus?: BroadcastStatus } => {
   const startAtMs = item.startAtMs ?? item.startedAtMs ?? toDateMs(item.startedAt ?? item.datetime)
   const endAtMs = getScheduledEndMs(startAtMs, item.endAtMs)
   const lifecycleStatus = computeLifecycleStatus({
@@ -299,19 +327,9 @@ const loadAdminData = async () => {
         endDate: vodEndDate.value || undefined,
       }),
     ])
-    liveItems.value = liveList.map((item) => mapAdminItem(item, 'live'))
-    scheduledItems.value = scheduledList.map((item) => mapAdminItem(item, 'scheduled'))
-    vodItems.value = vodList.map((item) => ({
-      ...mapAdminItem(item, 'vod'),
-      statusLabel: item.isPublic ? 'VOD' : '비공개',
-      visibility: item.isPublic ? 'public' : 'private',
-      metrics: {
-        reports: toNumber(item.reportCount),
-        likes: toNumber(item.totalLikes),
-        totalRevenue: toNumber(item.totalSales),
-        maxViewers: toNumber(item.viewerCount),
-      },
-    }))
+    liveItems.value = liveList.map((item) => mapLiveItem(item, 'live'))
+    scheduledItems.value = scheduledList.map((item) => mapReservationItem(item))
+    vodItems.value = vodList.map((item) => mapVodItem(item))
   } catch {
     liveItems.value = []
     scheduledItems.value = []
@@ -352,7 +370,7 @@ const stoppedVodItems = computed<AdminVodItem[]>(() => {
       lifecycleStatus: 'STOPPED',
       visibility: 'public',
       datetime: item.datetime ?? (item.startedAt ? `업로드: ${item.startedAt}` : ''),
-      metrics: (item as any).metrics ?? {
+      metrics: (item as AdminVodItem).metrics ?? {
         likes: item.likes ?? 0,
         reports: item.reports ?? 0,
         totalRevenue: 0,
@@ -507,7 +525,7 @@ const buildLoopItems = <T>(items: T[]): T[] => {
   return [last, ...items, first]
 }
 
-const liveLoopItems = computed<AdminLiveSummary[]>(() => buildLoopItems(liveSummary.value))
+const liveLoopItems = computed<LiveItem[]>(() => buildLoopItems(liveSummary.value))
 const scheduledLoopItems = computed<ReservationItem[]>(() => buildLoopItems(scheduledSummary.value))
 const vodLoopItems = computed<AdminVodItem[]>(() => buildLoopItems(vodSummary.value))
 

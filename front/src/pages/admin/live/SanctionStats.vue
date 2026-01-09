@@ -45,7 +45,9 @@ const sumValues = (items: ChartDatum[]) => items.reduce((acc, item) => acc + ite
 const summaryCards = computed(() => {
   const totalStops = sumValues(stopChart.value)
   const totalViewers = sumValues(viewerChart.value)
-  const recentLabel = stopChart.value.at(-1)?.label || viewerChart.value.at(-1)?.label || '-'
+  const lastStop = stopChart.value.length ? stopChart.value[stopChart.value.length - 1] : undefined
+  const lastViewer = viewerChart.value.length ? viewerChart.value[viewerChart.value.length - 1] : undefined
+  const recentLabel = lastStop?.label || lastViewer?.label || '-'
   return [
     { label: '총 송출 중지', value: `${totalStops.toLocaleString('ko-KR')}건` },
     { label: '시청자 제재', value: `${totalViewers.toLocaleString('ko-KR')}건` },
