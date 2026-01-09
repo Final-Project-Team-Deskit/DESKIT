@@ -374,7 +374,7 @@ const connectSse = (id: number) => {
   sseSource.value = source
 }
 
-const startStatsPolling = (id: number) => {
+const startStatsPolling = () => {
   if (statsTimer.value) window.clearInterval(statsTimer.value)
   statsTimer.value = window.setInterval(() => {
     if (!sseConnected.value) {
@@ -695,7 +695,7 @@ watch(
         connectChat()
       }
       connectSse(value)
-      startStatsPolling(value)
+      startStatsPolling()
     }
   },
   { immediate: true }
