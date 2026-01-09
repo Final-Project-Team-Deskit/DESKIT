@@ -39,7 +39,7 @@ type StoredDraft = {
   data: LiveCreateDraft
 }
 
-const resolveSellerKey = () => {
+const resolveSellerKey = ({ allowToken = false }: { allowToken?: boolean } = {}) => {
   const user = getAuthUser()
   if (user) {
     if (!isSeller()) return ''
@@ -99,6 +99,24 @@ const parseStoredDraft = (raw: string | null): StoredDraft | null => {
   }
 }
 
+const hasTextValue = (value: unknown) => typeof value === 'string' && value.trim().length > 0
+
+const hasDraftContent = (draft: LiveCreateDraft) => {
+  const hasQuestions = draft.questions.some((question) => hasTextValue(question.text))
+  const hasProducts = draft.products.length > 0
+  const hasText =
+    hasTextValue(draft.title) ||
+    hasTextValue(draft.subtitle) ||
+    hasTextValue(draft.category) ||
+    hasTextValue(draft.notice) ||
+    hasTextValue(draft.date) ||
+    hasTextValue(draft.time) ||
+    hasTextValue(draft.thumb) ||
+    hasTextValue(draft.standbyThumb)
+  const hasReservation = hasTextValue(draft.reservationId)
+  return hasQuestions || hasProducts || hasText || hasReservation || draft.termsAgreed
+}
+
 window.addEventListener('deskit-user-updated', () => {
   const user = getAuthUser()
   if (!user) {
@@ -153,12 +171,21 @@ export const loadDraft = (): LiveCreateDraft | null => {
     clearDraftStorage()
     return null
   }
-  return normalizeDraft(stored.data)
+  const normalized = normalizeDraft(stored.data)
+  if (!hasDraftContent(normalized)) {
+    clearDraftStorage()
+    return null
+  }
+  return normalized
 }
 
 export const saveDraft = (draft: LiveCreateDraft) => {
   const ownerId = resolveSellerKey()
   if (!ownerId) return
+  if (!hasDraftContent(draft)) {
+    clearDraftStorage()
+    return
+  }
   const payload: StoredDraft = {
     version: DRAFT_SCHEMA_VERSION,
     ownerId,

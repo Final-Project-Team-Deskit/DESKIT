@@ -8,6 +8,7 @@ import {
   clearDraft,
   createDefaultQuestions,
   createEmptyDraft,
+  DRAFT_KEY,
   loadDraft,
   saveDraft,
   type LiveCreateDraft,
@@ -36,7 +37,8 @@ const syncDraft = () => {
 }
 
 const restoreDraft = async () => {
-  const saved = loadDraft()
+  const storedDraft = sessionStorage.getItem(DRAFT_KEY)
+  const saved = storedDraft ? loadDraft() : null
   if (!isEditMode.value && saved && (!saved.reservationId || saved.reservationId === reservationId.value)) {
     const shouldRestore = window.confirm('이전에 작성 중인 내용을 불러올까요?')
     if (shouldRestore) {

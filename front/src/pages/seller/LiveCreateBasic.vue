@@ -8,6 +8,7 @@ import {
   buildDraftFromReservation,
   clearDraft,
   createEmptyDraft,
+  DRAFT_KEY,
   type LiveCreateDraft,
   type LiveCreateProduct,
   loadDraft,
@@ -139,7 +140,8 @@ const syncDraft = () => {
 }
 
 const restoreDraft = async () => {
-  const savedDraft = loadDraft()
+  const storedDraft = sessionStorage.getItem(DRAFT_KEY)
+  const savedDraft = storedDraft ? loadDraft() : null
   let baseDraft = createEmptyDraft()
   if (!isEditMode.value && savedDraft && (!savedDraft.reservationId || savedDraft.reservationId === reservationId.value)) {
     const shouldRestore = window.confirm('이전에 작성 중인 내용을 불러올까요?')
