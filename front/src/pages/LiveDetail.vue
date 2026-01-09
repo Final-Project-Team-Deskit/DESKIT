@@ -307,6 +307,7 @@ const handleSseEvent = (event: MessageEvent) => {
       scheduleRefresh()
       break
     case 'PRODUCT_PINNED':
+    case 'PRODUCT_SOLD_OUT':
       scheduleRefresh()
       break
     case 'SANCTION_ALERT':
@@ -327,6 +328,13 @@ const handleSseEvent = (event: MessageEvent) => {
       }
       break
     case 'BROADCAST_STOPPED':
+      if (liveItem.value) {
+        liveItem.value = {
+          ...liveItem.value,
+          status: 'STOPPED',
+        }
+      }
+      scheduleRefresh()
       if (window.confirm(typeof data === 'string' ? data : '관리자에 의해 방송이 중지되었습니다.')) {
         router.push({ name: 'live' }).catch(() => {})
       }
@@ -357,6 +365,7 @@ const connectSse = (id: number) => {
     'BROADCAST_UPDATED',
     'BROADCAST_STARTED',
     'PRODUCT_PINNED',
+    'PRODUCT_SOLD_OUT',
     'SANCTION_ALERT',
     'BROADCAST_ENDING_SOON',
     'BROADCAST_CANCELED',

@@ -738,9 +738,20 @@ public class BroadcastService {
                 .build();
     }
 
-    @Transactional(readOnly = true)
+    @Transactional
     public List<BroadcastProductResponse> getBroadcastProducts(Long broadcastId) {
-        return broadcastProductRepository.findAllWithProductByBroadcastId(broadcastId).stream()
+        List<BroadcastProduct> products = broadcastProductRepository.findAllWithProductByBroadcastId(broadcastId);
+        List<Long> soldOutProductIds = products.stream()
+                .filter(bp -> bp.markSoldOutIfNeeded(bp.getProduct().getStockQty(), bp.getProduct().getSafetyStock()))
+                .map(bp -> bp.getProduct().getId())
+                .distinct()
+                .collect(Collectors.toList());
+
+        if (!soldOutProductIds.isEmpty()) {
+            sseService.notifyBroadcastUpdate(broadcastId, "PRODUCT_SOLD_OUT", soldOutProductIds);
+        }
+
+        return products.stream()
                 .map(BroadcastProductResponse::fromEntity)
                 .collect(Collectors.toList());
     }

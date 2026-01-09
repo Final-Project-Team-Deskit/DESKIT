@@ -1,4 +1,4 @@
-import { getAuthUser } from '../lib/auth'
+import { getAuthUser, isSeller } from '../lib/auth'
 import { resolveViewerId } from '../lib/live/viewer'
 import { fetchSellerBroadcastDetail, type BroadcastDetailResponse } from '../lib/live/api'
 
@@ -40,6 +40,7 @@ type StoredDraft = {
 
 const resolveSellerKey = () => {
   const user = getAuthUser()
+  if (!user || !isSeller()) return ''
   return resolveViewerId(user) ?? ''
 }
 

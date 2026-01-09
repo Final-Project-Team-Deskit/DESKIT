@@ -439,6 +439,9 @@ const handleSseEvent = (event: MessageEvent) => {
       pinnedProductId.value = typeof data === 'number' ? String(data) : pinnedProductId.value
       scheduleRefresh(id)
       break
+    case 'PRODUCT_SOLD_OUT':
+      scheduleRefresh(id)
+      break
     case 'SANCTION_UPDATED':
       scheduleRefresh(id)
       break
@@ -459,7 +462,9 @@ const handleSseEvent = (event: MessageEvent) => {
       }
       break
     case 'BROADCAST_STOPPED':
-      if (window.confirm('관리자에 의해 방송이 중지되었습니다.')) {
+      streamStatus.value = 'STOPPED'
+      scheduleRefresh(id)
+      if (window.confirm(typeof data === 'string' ? data : '관리자에 의해 방송이 중지되었습니다.')) {
         handleGoToList()
       }
       break
@@ -491,6 +496,7 @@ const connectSse = (broadcastId: number) => {
     'BROADCAST_UPDATED',
     'BROADCAST_STARTED',
     'PRODUCT_PINNED',
+    'PRODUCT_SOLD_OUT',
     'SANCTION_UPDATED',
     'BROADCAST_ENDING_SOON',
     'BROADCAST_CANCELED',
