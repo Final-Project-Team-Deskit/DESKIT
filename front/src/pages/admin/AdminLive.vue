@@ -218,7 +218,8 @@ const mapLiveItem = (item: any, kind: 'live' | 'scheduled' | 'vod'): LiveItem =>
   const startAtMs = item.startAt ? toDateMs(item.startAt) : undefined
   const endAtMs = item.endAt ? toDateMs(item.endAt) : getScheduledEndMs(startAtMs)
   const status = normalizeBroadcastStatus(item.status)
-  const visibility = typeof item.isPublic === 'boolean' ? (item.isPublic ? 'public' : 'private') : 'public'
+  const rawPublic = item.isPublic ?? item.public
+  const visibility = typeof rawPublic === 'boolean' ? (rawPublic ? 'public' : 'private') : 'public'
   const dateLabel = formatDateTime(item.startAt)
   const datetime = kind === 'vod' ? (dateLabel ? `업로드: ${dateLabel}` : '') : dateLabel
   const liveViewerCount = typeof item.liveViewerCount === 'number' ? item.liveViewerCount : undefined
@@ -258,7 +259,8 @@ const mapReservationItem = (item: any): ReservationItem => {
 
 const mapVodItem = (item: any): AdminVodItem => {
   const base = mapLiveItem(item, 'vod')
-  const visibility = typeof item.isPublic === 'boolean' ? (item.isPublic ? 'public' : 'private') : 'public'
+  const rawPublic = item.isPublic ?? item.public
+  const visibility = typeof rawPublic === 'boolean' ? (rawPublic ? 'public' : 'private') : 'public'
   return {
     ...base,
     sellerName: base.sellerName ?? '',

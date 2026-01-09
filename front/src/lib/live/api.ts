@@ -38,6 +38,7 @@ export type BroadcastListItem = {
   totalSales?: number | string
   totalLikes?: number
   isPublic?: boolean
+  public?: boolean
   adminLock?: boolean
 }
 
@@ -252,9 +253,9 @@ const resolveBroadcastList = (payload: unknown): BroadcastListItem[] => {
 }
 
 export const fetchCategories = async (): Promise<BroadcastCategory[]> => {
-  const { data } = await http.get<ApiResult<Array<{ id: number; name: string }>>>('/api/categories')
+  const { data } = await http.get<ApiResult<Array<{ categoryId: number; categoryName: string }>>>('/api/categories')
   const payload = ensureSuccess(data)
-  return payload.map((category) => ({ id: category.id, name: category.name }))
+  return payload.map((category) => ({ id: category.categoryId, name: category.categoryName }))
 }
 
 export const fetchSellerProducts = async (): Promise<SellerProduct[]> => {
