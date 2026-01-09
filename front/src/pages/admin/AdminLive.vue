@@ -33,6 +33,7 @@ type LiveItem = {
   startedAt?: string
   startedAtMs?: number
   startAtMs?: number
+  endAtMs?: number
   lifecycleStatus?: BroadcastStatus
 }
 
@@ -67,7 +68,6 @@ const activeTab = ref<LiveTab>('all')
 
 const LIVE_SECTION_STATUSES: BroadcastStatus[] = ['READY', 'ON_AIR', 'ENDED', 'STOPPED']
 const SCHEDULED_SECTION_STATUSES: BroadcastStatus[] = ['RESERVED', 'CANCELED']
-const VOD_SECTION_STATUSES: BroadcastStatus[] = ['VOD', 'STOPPED']
 const statusPriority: Record<BroadcastStatus, number> = {
   ON_AIR: 0,
   READY: 1,

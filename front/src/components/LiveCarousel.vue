@@ -6,7 +6,7 @@ import type { NavigationOptions } from 'swiper/types'
 import { Autoplay, Pagination, Navigation } from 'swiper/modules'
 
 import LiveCard from './LiveCard.vue'
-import type { LiveItem } from '../lib/home-data'
+import type { LiveItem } from '../lib/live/types'
 
 defineProps<{
   items: LiveItem[]

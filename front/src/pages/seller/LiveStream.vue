@@ -138,8 +138,7 @@ const formatScheduleWindow = (scheduledAt?: string, startedAt?: string) => {
   return `${dateLabel} ${pad(base.getHours())}:${pad(base.getMinutes())} - ${pad(end.getHours())}:${pad(end.getMinutes())}`
 }
 
-const formatChatTime = (timestamp?: number) => {
-  if (!timestamp) return ''
+const formatChatTime = (timestamp: number = Date.now()) => {
   const date = new Date(timestamp)
   const hours = date.getHours()
   const displayHour = hours % 12 || 12
@@ -270,7 +269,7 @@ const hydrateStream = async () => {
     const baseTime = detail.scheduledAt ?? detail.startedAt ?? ''
     const startAtMs = baseTime ? parseLiveDate(baseTime).getTime() : NaN
     scheduleStartAtMs.value = Number.isNaN(startAtMs) ? null : startAtMs
-    scheduleEndAtMs.value = scheduleStartAtMs.value ? getScheduledEndMs(scheduleStartAtMs.value) : null
+    scheduleEndAtMs.value = scheduleStartAtMs.value ? getScheduledEndMs(scheduleStartAtMs.value) ?? null : null
     streamStatus.value = normalizeBroadcastStatus(detail.status)
 
     const products = (detail.products ?? []).map((product) => ({
@@ -371,7 +370,7 @@ const refreshInfo = async (broadcastId: number) => {
     const baseTime = detail.scheduledAt ?? detail.startedAt ?? ''
     const startAtMs = baseTime ? parseLiveDate(baseTime).getTime() : NaN
     scheduleStartAtMs.value = Number.isNaN(startAtMs) ? null : startAtMs
-    scheduleEndAtMs.value = scheduleStartAtMs.value ? getScheduledEndMs(scheduleStartAtMs.value) : null
+    scheduleEndAtMs.value = scheduleStartAtMs.value ? getScheduledEndMs(scheduleStartAtMs.value) ?? null : null
     streamStatus.value = normalizeBroadcastStatus(detail.status)
     if (stream.value) {
       stream.value = {
@@ -665,14 +664,6 @@ watch(showSanctionModal, (open) => {
     sanctionTarget.value = null
   }
 })
-
-const formatChatTime = () => {
-  const now = new Date()
-  const hours = now.getHours()
-  const displayHour = hours % 12 || 12
-  const minutes = String(now.getMinutes()).padStart(2, '0')
-  return `${hours >= 12 ? '오후' : '오전'} ${displayHour}:${minutes}`
-}
 
 const handleSendChat = () => {
   if (!isInteractive.value) return
