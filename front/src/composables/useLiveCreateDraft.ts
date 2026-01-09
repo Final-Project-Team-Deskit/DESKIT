@@ -85,8 +85,7 @@ const parseStoredDraft = (raw: string | null): StoredDraft | null => {
     const parsed = JSON.parse(raw) as StoredDraft
     if (!parsed || typeof parsed !== 'object') return null
     if (parsed.version !== DRAFT_SCHEMA_VERSION) return null
-    if (typeof parsed.ownerId !== 'string' || !parsed.ownerId) return null
-    if (typeof parsed.savedAt !== 'number') return null
+    if (!parsed.ownerId) return null
     if (!parsed.data || typeof parsed.data !== 'object') return null
     return parsed
   } catch (error) {
@@ -155,7 +154,7 @@ export const clearDraft = () => {
 }
 
 const parseCurrency = (value: string) => {
-  const digits = value.replace(/[^\d]/g, '')
+  const digits = value.replace(/\D/g, '')
   const parsed = Number.parseInt(digits, 10)
   return Number.isNaN(parsed) ? 0 : parsed
 }

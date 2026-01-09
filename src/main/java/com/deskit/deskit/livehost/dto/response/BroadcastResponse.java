@@ -67,7 +67,7 @@ public class BroadcastResponse {
                 .notice(broadcast.getBroadcastNotice())
                 .status(broadcast.getStatus())
                 .layout(broadcast.getBroadcastLayout())
-                .categoryId(broadcast.getTagCategory().getTagCategoryId())
+                .categoryId(broadcast.getTagCategory().getId())
                 .categoryName(categoryName)
 
                 .scheduledAt(broadcast.getScheduledAt())
