@@ -19,6 +19,7 @@ export type SellerProduct = {
   broadcastPrice: number
   stock: number
   safetyStock: number
+  reservedBroadcastQty?: number
   quantity: number
   thumb?: string
 }
@@ -264,7 +265,7 @@ export const fetchCategories = async (): Promise<BroadcastCategory[]> => {
 
 export const fetchSellerProducts = async (): Promise<SellerProduct[]> => {
   const { data } = await http.get<
-    ApiResult<Array<{ productId: number; productName: string; price: number; stockQty: number; safetyStock?: number; imageUrl?: string }>>
+    ApiResult<Array<{ productId: number; productName: string; price: number; stockQty: number; safetyStock?: number; reservedBroadcastQty?: number; imageUrl?: string }>>
   >(
     '/api/seller/broadcasts/products',
   )
@@ -277,6 +278,7 @@ export const fetchSellerProducts = async (): Promise<SellerProduct[]> => {
     broadcastPrice: item.price,
     stock: item.stockQty,
     safetyStock: item.safetyStock ?? 0,
+    reservedBroadcastQty: item.reservedBroadcastQty ?? 0,
     quantity: 1,
     thumb: item.imageUrl ?? '',
   }))

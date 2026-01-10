@@ -62,6 +62,8 @@ const modalCount = computed(() => modalProducts.value.length)
 
 const availableProducts = computed(() => sellerProducts.value)
 
+const quantityInputs = ref<Record<string, string>>({})
+
 const filteredProducts = computed(() => {
   const q = productSearch.value.trim().toLowerCase()
   if (!q) return availableProducts.value
@@ -78,10 +80,21 @@ const isSelected = (productId: string, source: LiveCreateProduct[] = draft.value
 const resolveMaxQuantity = (product: LiveCreateProduct) => {
   const stock = Number.isFinite(product.stock) ? product.stock : 0
   const safetyStock = Number.isFinite(product.safetyStock) ? product.safetyStock : 0
-  return Math.max(stock - safetyStock, 0)
+  const reservedQty = Number.isFinite(product.reservedBroadcastQty) ? product.reservedBroadcastQty : 0
+  return Math.max(stock - safetyStock - reservedQty, 0)
 }
 
 const resolveMinQuantity = (product: LiveCreateProduct) => (resolveMaxQuantity(product) > 0 ? 1 : 0)
+
+const syncQuantityInputs = (products: LiveCreateProduct[]) => {
+  const existing = quantityInputs.value
+  const next: Record<string, string> = {}
+  products.forEach((product) => {
+    const existingValue = existing[product.id]
+    next[product.id] = existingValue ?? String(product.quantity)
+  })
+  quantityInputs.value = next
+}
 
 const clampProductQuantity = (product: LiveCreateProduct, value?: number) => {
   const maxQuantity = resolveMaxQuantity(product)
@@ -92,6 +105,22 @@ const clampProductQuantity = (product: LiveCreateProduct, value?: number) => {
       ? Math.min(Math.max(normalized, minQuantity), maxQuantity)
       : minQuantity
   return { ...product, quantity: nextValue }
+}
+
+const normalizeQuantityInput = (product: LiveCreateProduct, rawValue: string) => {
+  const maxQuantity = resolveMaxQuantity(product)
+  const minQuantity = resolveMinQuantity(product)
+  const parsed = Number(rawValue)
+  if (!rawValue.trim() || !Number.isFinite(parsed)) {
+    return { value: minQuantity, adjusted: true, reason: 'min' }
+  }
+  if (parsed < minQuantity) {
+    return { value: minQuantity, adjusted: true, reason: 'min' }
+  }
+  if (parsed > maxQuantity) {
+    return { value: maxQuantity, adjusted: true, reason: 'max' }
+  }
+  return { value: parsed, adjusted: false, reason: 'ok' }
 }
 
 const addProduct = (product: LiveCreateProduct, target: LiveCreateProduct[]) => {
@@ -117,10 +146,42 @@ const updateProductPrice = (productId: string, value: number) => {
   )
 }
 
-const updateProductQuantity = (productId: string, value: number) => {
-  draft.value.products = draft.value.products.map((product) =>
-      product.id === productId ? clampProductQuantity(product, value) : product,
-  )
+const updateProductQuantityInput = (productId: string, value: string) => {
+  quantityInputs.value = { ...quantityInputs.value, [productId]: value }
+}
+
+const commitProductQuantity = (productId: string) => {
+  draft.value.products = draft.value.products.map((product) => {
+    if (product.id !== productId) return product
+    const rawValue = quantityInputs.value[productId] ?? String(product.quantity)
+    const normalized = normalizeQuantityInput(product, rawValue)
+    if (normalized.adjusted) {
+      if (normalized.reason === 'max') {
+        alert('판매 수량이 최대 가능 수량을 초과하여 최대 수량으로 변경되었습니다.')
+      } else if (normalized.reason === 'min') {
+        alert('판매 수량이 최소 수량보다 작아 최소 수량으로 변경되었습니다.')
+      }
+    }
+    const nextProduct = { ...product, quantity: normalized.value }
+    quantityInputs.value = { ...quantityInputs.value, [productId]: String(normalized.value) }
+    return nextProduct
+  })
+}
+
+const normalizeAllProductQuantities = () => {
+  draft.value.products = draft.value.products.map((product) => {
+    const rawValue = quantityInputs.value[product.id] ?? String(product.quantity)
+    const normalized = normalizeQuantityInput(product, rawValue)
+    if (normalized.adjusted) {
+      if (normalized.reason === 'max') {
+        alert('판매 수량이 최대 가능 수량을 초과하여 최대 수량으로 변경되었습니다.')
+      } else if (normalized.reason === 'min') {
+        alert('판매 수량이 최소 수량보다 작아 최소 수량으로 변경되었습니다.')
+      }
+    }
+    quantityInputs.value = { ...quantityInputs.value, [product.id]: String(normalized.value) }
+    return { ...product, quantity: normalized.value }
+  })
 }
 
 const syncDraft = () => {
@@ -181,6 +242,7 @@ const restoreDraft = async () => {
   draft.value = reservationDraft
   draft.value.products = draft.value.products.map((product) => clampProductQuantity(product))
   modalProducts.value = draft.value.products.map((p) => ({ ...p }))
+  syncQuantityInputs(draft.value.products)
 }
 
 const openCropper = (file: File, target: 'thumb' | 'standby') => {
@@ -307,6 +369,8 @@ const submit = () => {
     return
   }
 
+  normalizeAllProductQuantities()
+
   const invalidProduct = draft.value.products.find((product) => {
     const maxQuantity = resolveMaxQuantity(product)
     return maxQuantity < 1 || product.quantity < 1 || product.quantity > maxQuantity
@@ -400,6 +464,7 @@ const cancelProductSelection = () => {
 
 const saveProductSelection = () => {
   draft.value.products = modalProducts.value.map((p) => clampProductQuantity(p))
+  syncQuantityInputs(draft.value.products)
   showProductModal.value = false
   alert('상품 선택이 저장되었습니다.')
 }
@@ -512,11 +577,19 @@ onMounted(async () => {
   await loadCategories()
   await loadProducts()
   draft.value.products = draft.value.products.map((product) => clampProductQuantity(product))
+  syncQuantityInputs(draft.value.products)
   if (draft.value.date) {
     activeDate.value = draft.value.date
     void reloadReservationSlots(draft.value.date)
   }
 })
+
+watch(
+    () => draft.value.products.map((product) => product.id),
+    () => {
+      syncQuantityInputs(draft.value.products)
+    },
+)
 
 watch(
     draft,
@@ -630,8 +703,9 @@ watch(
                     type="number"
                     :min="resolveMinQuantity(product)"
                     :max="resolveMaxQuantity(product)"
-                    :value="product.quantity"
-                    @input="updateProductQuantity(product.id, Number(($event.target as HTMLInputElement).value))"
+                    :value="quantityInputs[product.id] ?? product.quantity"
+                    @input="updateProductQuantityInput(product.id, ($event.target as HTMLInputElement).value)"
+                    @blur="commitProductQuantity(product.id)"
                 />
               </td>
               <td class="numeric">{{ product.stock }}</td>
