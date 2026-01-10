@@ -98,7 +98,7 @@ public class BroadcastRepositoryImpl implements BroadcastRepositoryCustom {
 
     @Override
     public List<BroadcastListResponse> findTop5ByStatus(Long sellerId, List<BroadcastStatus> statuses, BroadcastSortOrder sortOrder, boolean isAdmin) {
-        Field<Long> reportCount = inline(0L);
+        Field<Long> reportCount = inline(0L).as("report_count");
         SortField<?> orderField = getOrderSpecifier(sortOrder, reportCount);
 
         return dsl.select(
