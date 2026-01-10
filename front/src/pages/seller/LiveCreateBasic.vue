@@ -51,6 +51,8 @@ const cropTarget = ref<'thumb' | 'standby' | null>(null)
 const cropperApplied = ref(false)
 const thumbInputRef = ref<HTMLInputElement | null>(null)
 const standbyInputRef = ref<HTMLInputElement | null>(null)
+const thumbName = ref('')
+const standbyName = ref('')
 
 const reservationId = computed(() => {
   const queryValue = route.query.reservationId
@@ -59,6 +61,15 @@ const reservationId = computed(() => {
 })
 const isEditMode = computed(() => route.query.mode === 'edit' && !!reservationId.value)
 const modalCount = computed(() => modalProducts.value.length)
+const extractFileName = (source: string) => {
+  if (!source || source.startsWith('data:')) return ''
+  const [path] = source.split('?')
+  const segments = path.split('/')
+  const last = segments[segments.length - 1] ?? ''
+  return decodeURIComponent(last)
+}
+const thumbDisplayName = computed(() => thumbName.value || extractFileName(draft.value.thumb))
+const standbyDisplayName = computed(() => standbyName.value || extractFileName(draft.value.standbyThumb))
 
 const availableProducts = computed(() => sellerProducts.value)
 
@@ -287,19 +298,23 @@ const applyCroppedImage = (payload: { dataUrl: string; fileName: string }) => {
   cropperApplied.value = true
   if (cropTarget.value === 'thumb') {
     draft.value.thumb = payload.dataUrl
+    thumbName.value = payload.fileName
   }
   if (cropTarget.value === 'standby') {
     draft.value.standbyThumb = payload.dataUrl
+    standbyName.value = payload.fileName
   }
 }
 
 const clearThumb = () => {
   draft.value.thumb = ''
+  thumbName.value = ''
   if (thumbInputRef.value) thumbInputRef.value.value = ''
 }
 
 const clearStandby = () => {
   draft.value.standbyThumb = ''
+  standbyName.value = ''
   if (standbyInputRef.value) standbyInputRef.value.value = ''
 }
 
@@ -725,24 +740,26 @@ watch(
           <h3>썸네일/대기화면</h3>
         </div>
         <div class="field-grid">
-          <label class="field">
-            <span class="field__label">방송 썸네일 업로드</span>
-            <input ref="thumbInputRef" type="file" accept="image/*" @change="handleThumbUpload" />
-            <span v-if="thumbError" class="error">{{ thumbError }}</span>
-            <div v-if="draft.thumb" class="preview">
-              <img :src="draft.thumb" alt="방송 썸네일 미리보기" @error="handleThumbError" />
-            </div>
-            <button type="button" class="btn ghost upload-clear" @click="clearThumb">이미지 삭제</button>
-          </label>
-          <label class="field">
-            <span class="field__label">대기화면 업로드</span>
-            <input ref="standbyInputRef" type="file" accept="image/*" @change="handleStandbyUpload" />
-            <span v-if="standbyError" class="error">{{ standbyError }}</span>
-            <div v-if="draft.standbyThumb" class="preview">
-              <img :src="draft.standbyThumb" alt="대기화면 미리보기" @error="handleStandbyError" />
-            </div>
-            <button type="button" class="btn ghost upload-clear" @click="clearStandby">이미지 삭제</button>
-          </label>
+        <label class="field">
+          <span class="field__label">방송 썸네일 업로드</span>
+          <input ref="thumbInputRef" type="file" accept="image/*" @change="handleThumbUpload" />
+          <span v-if="thumbError" class="error">{{ thumbError }}</span>
+          <span class="upload-filename">{{ thumbDisplayName || '선택된 파일 없음' }}</span>
+          <div v-if="draft.thumb" class="preview">
+            <img :src="draft.thumb" alt="방송 썸네일 미리보기" @error="handleThumbError" />
+          </div>
+          <button type="button" class="btn ghost upload-clear" @click="clearThumb">이미지 삭제</button>
+        </label>
+        <label class="field">
+          <span class="field__label">대기화면 업로드</span>
+          <input ref="standbyInputRef" type="file" accept="image/*" @change="handleStandbyUpload" />
+          <span v-if="standbyError" class="error">{{ standbyError }}</span>
+          <span class="upload-filename">{{ standbyDisplayName || '선택된 파일 없음' }}</span>
+          <div v-if="draft.standbyThumb" class="preview">
+            <img :src="draft.standbyThumb" alt="대기화면 미리보기" @error="handleStandbyError" />
+          </div>
+          <button type="button" class="btn ghost upload-clear" @click="clearStandby">이미지 삭제</button>
+        </label>
         </div>
       </div>
       <div class="section-block">
