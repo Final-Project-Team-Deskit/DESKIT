@@ -222,8 +222,9 @@ const mapScheduledSortType = () => {
 }
 
 const mapScheduledStatusFilter = () => {
+  if (scheduledStatus.value === 'reserved') return 'RESERVED'
   if (scheduledStatus.value === 'canceled') return 'CANCELED'
-  return 'RESERVED'
+  return undefined
 }
 
 const mapVodSortType = () => {
