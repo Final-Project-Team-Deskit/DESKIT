@@ -66,7 +66,7 @@ public class AdminService {
             Broadcast broadcast = broadcastRepository.findById(broadcastId)
                     .orElseThrow(() -> new BusinessException(ErrorCode.BROADCAST_NOT_FOUND));
 
-            if (broadcast.getStatus() != BroadcastStatus.RESERVED && broadcast.getStatus() != BroadcastStatus.READY) {
+            if (broadcast.getStatus() != BroadcastStatus.RESERVED) {
                 throw new BusinessException(ErrorCode.INVALID_INPUT_VALUE);
             }
 

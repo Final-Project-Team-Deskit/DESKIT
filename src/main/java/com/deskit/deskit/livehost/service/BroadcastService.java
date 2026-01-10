@@ -227,11 +227,11 @@ public class BroadcastService {
                 throw new BusinessException(ErrorCode.FORBIDDEN_ACCESS);
             }
 
-            if (broadcast.getStatus() != BroadcastStatus.RESERVED && broadcast.getStatus() != BroadcastStatus.READY) {
+            if (broadcast.getStatus() != BroadcastStatus.RESERVED) {
                 throw new BusinessException(ErrorCode.INVALID_INPUT_VALUE);
             }
 
-            validateTransition(broadcast.getStatus(), BroadcastStatus.CANCELED);
+            validateTransition(broadcast.getStatus(), BroadcastStatus.DELETED);
             broadcast.cancelBroadcast("판매자 예약 취소");
             log.info("방송 취소 처리 완료: id={}, status={}", broadcastId, broadcast.getStatus());
         } finally {
@@ -1233,8 +1233,8 @@ public class BroadcastService {
             return false;
         }
         return switch (from) {
-            case RESERVED -> to == BroadcastStatus.READY || to == BroadcastStatus.CANCELED;
-            case READY -> to == BroadcastStatus.ON_AIR || to == BroadcastStatus.CANCELED || to == BroadcastStatus.STOPPED;
+            case RESERVED -> to == BroadcastStatus.READY || to == BroadcastStatus.CANCELED || to == BroadcastStatus.DELETED;
+            case READY -> to == BroadcastStatus.ON_AIR || to == BroadcastStatus.STOPPED;
             case ON_AIR -> to == BroadcastStatus.ENDED || to == BroadcastStatus.STOPPED;
             case ENDED -> to == BroadcastStatus.VOD || to == BroadcastStatus.STOPPED;
             case STOPPED -> to == BroadcastStatus.VOD;
