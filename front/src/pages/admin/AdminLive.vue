@@ -717,7 +717,7 @@ const getBaseLoopIndex = (kind: LoopKind) => (loopItemsFor(kind).length > 1 ? 1 
 
 const handleLoopTransitionEnd = (kind: LoopKind) => {
   const items = loopItemsFor(kind)
-  if (!items.length) return
+  if (items.length <= 1 || !isCarouselOverflowing(kind)) return
   const lastIndex = items.length - 1
   if (loopIndex.value[kind] === lastIndex) {
     loopTransition.value[kind] = false
