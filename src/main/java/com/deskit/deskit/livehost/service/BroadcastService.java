@@ -488,7 +488,7 @@ public class BroadcastService {
         if (broadcast.getStatus() == BroadcastStatus.STOPPED) {
             throw new BusinessException(ErrorCode.BROADCAST_STOPPED_BY_ADMIN);
         }
-        if (!isLiveGroup(broadcast.getStatus())) {
+        if (!isJoinableGroup(broadcast.getStatus())) {
             throw new BusinessException(ErrorCode.BROADCAST_NOT_ON_AIR);
         }
 
@@ -1260,6 +1260,10 @@ public class BroadcastService {
 
     private boolean isLiveGroup(BroadcastStatus status) {
         return status == BroadcastStatus.ON_AIR || status == BroadcastStatus.READY || status == BroadcastStatus.ENDED;
+    }
+
+    private boolean isJoinableGroup(BroadcastStatus status) {
+        return status == BroadcastStatus.ON_AIR || status == BroadcastStatus.READY;
     }
 
     private Long parseMemberId(String viewerId) {

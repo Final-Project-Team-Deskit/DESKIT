@@ -13,6 +13,7 @@ import {
   type BroadcastStatus,
 } from '../../lib/broadcastStatus'
 import { parseLiveDate } from '../../lib/live/utils'
+import { useNow } from '../../lib/live/useNow'
 import {
   fetchBroadcastStats,
   fetchCategories,
@@ -33,6 +34,7 @@ import {
 
 const router = useRouter()
 const route = useRoute()
+const { now } = useNow(1000)
 
 type LiveTab = 'all' | 'scheduled' | 'live' | 'vod'
 type CarouselKind = 'live' | 'scheduled' | 'vod'
@@ -107,6 +109,16 @@ const liveProducts = ref<
     thumb: string
   }>
 >([])
+const sortedLiveProducts = computed(() => {
+  const items = [...liveProducts.value]
+  return items.sort((a, b) => {
+    const aSoldOut = a.status === '품절'
+    const bSoldOut = b.status === '품절'
+    if (aSoldOut !== bSoldOut) return aSoldOut ? 1 : -1
+    if (a.pinned !== b.pinned) return a.pinned ? -1 : 1
+    return 0
+  })
+})
 
 const liveStats = ref<{ status: string; viewers: string; likes: string; revenue: string; hasData: boolean } | null>(null)
 const displayLiveStats = computed(() => liveStats.value ?? {
@@ -261,6 +273,25 @@ const getLiveCtaLabel = (item: LiveItem): string => {
   if (status === 'ENDED') return '방송 확인'
   if (status === 'STOPPED') return isPastScheduledEnd(item) ? '중단됨' : '방송 확인'
   return item.ctaLabel ?? '방송 입장'
+}
+
+const formatElapsed = (startAtMs?: number) => {
+  if (!startAtMs) return ''
+  const diffMs = Math.max(0, now.value.getTime() - startAtMs)
+  const totalSeconds = Math.floor(diffMs / 1000)
+  const hours = Math.floor(totalSeconds / 3600)
+  const minutes = Math.floor((totalSeconds % 3600) / 60)
+  const seconds = totalSeconds % 60
+  const pad = (value: number) => String(value).padStart(2, '0')
+  return hours > 0 ? `${pad(hours)}:${pad(minutes)}:${pad(seconds)}` : `${pad(minutes)}:${pad(seconds)}`
+}
+
+const formatStartTime = (startAtMs?: number) => {
+  if (!startAtMs) return ''
+  const date = new Date(startAtMs)
+  const hours = String(date.getHours()).padStart(2, '0')
+  const minutes = String(date.getMinutes()).padStart(2, '0')
+  return `${hours}:${minutes}`
 }
 
 const parseBroadcastId = (value?: string) => {
@@ -1039,8 +1070,8 @@ onBeforeUnmount(() => {
                 <p class="live-feature__seller">{{ currentLive.subtitle }}</p>
                 <div class="live-feature__meta">
                   <span v-if="currentLive.viewerBadge" class="meta-pill">{{ currentLive.viewerBadge }}</span>
-                  <span class="meta-pill">경과 시간 · 00:32:18</span>
-                  <span class="meta-pill">시작 · 13:24</span>
+                  <span v-if="currentLive.startAtMs" class="meta-pill">경과 시간 · {{ formatElapsed(currentLive.startAtMs) }}</span>
+                  <span v-if="currentLive.startAtMs" class="meta-pill">시작 · {{ formatStartTime(currentLive.startAtMs) }}</span>
                 </div>
               </div>
               <button type="button" class="live-feature__cta" @click="handleCta('live', currentLive!)">
@@ -1092,7 +1123,7 @@ onBeforeUnmount(() => {
             <span class="live-products__count">{{ liveProducts.length }}개</span>
           </div>
           <div class="live-products__list">
-            <div v-for="item in liveProducts" :key="item.id" class="product-row">
+            <div v-for="item in sortedLiveProducts" :key="item.id" class="product-row">
               <div class="product-thumb">
                 <img :src="item.thumb" :alt="item.title" loading="lazy" />
                 <span v-if="item.pinned" class="product-pin">PIN</span>
@@ -1133,8 +1164,8 @@ onBeforeUnmount(() => {
                 <p class="live-feature__seller">{{ currentLive.subtitle }}</p>
                 <div class="live-feature__meta">
                   <span v-if="currentLive.viewerBadge" class="meta-pill">{{ currentLive.viewerBadge }}</span>
-                  <span class="meta-pill">경과 시간 · 00:32:18</span>
-                  <span class="meta-pill">시작 · 13:24</span>
+                  <span v-if="currentLive.startAtMs" class="meta-pill">경과 시간 · {{ formatElapsed(currentLive.startAtMs) }}</span>
+                  <span v-if="currentLive.startAtMs" class="meta-pill">시작 · {{ formatStartTime(currentLive.startAtMs) }}</span>
                 </div>
               </div>
               <button type="button" class="live-feature__cta" @click="handleCta('live', currentLive!)">

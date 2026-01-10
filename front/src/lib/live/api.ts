@@ -54,6 +54,8 @@ export type BroadcastDetail = {
   scheduledAt?: string
   startedAt?: string
   thumbnailUrl?: string
+  waitScreenUrl?: string
+  stoppedReason?: string
   vodUrl?: string
   totalViews?: number
   totalLikes?: number
@@ -346,6 +348,12 @@ export const fetchBroadcastStats = async (broadcastId: number): Promise<Broadcas
     const { data } = await http.get<ApiResult<BroadcastStats>>(`/api/broadcasts/${broadcastId}/stats`)
     return ensureSuccess(data)
   })
+}
+
+export const joinBroadcast = async (broadcastId: number, viewerId?: string | null): Promise<string> => {
+  const headers = viewerId ? { 'X-Viewer-Id': viewerId } : undefined
+  const { data } = await http.post<ApiResult<string>>(`/api/broadcasts/${broadcastId}/join`, null, { headers })
+  return ensureSuccess(data)
 }
 
 export const fetchSellerBroadcastReport = async (broadcastId: number): Promise<BroadcastResult> => {

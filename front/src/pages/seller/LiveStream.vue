@@ -16,6 +16,7 @@ import {
   pinSellerBroadcastProduct,
 } from '../../lib/live/api'
 import { parseLiveDate } from '../../lib/live/utils'
+import { useNow } from '../../lib/live/useNow'
 import { getAuthUser } from '../../lib/auth'
 import { resolveViewerId } from '../../lib/live/viewer'
 import { computeLifecycleStatus, getScheduledEndMs, normalizeBroadcastStatus, type BroadcastStatus } from '../../lib/broadcastStatus'
@@ -80,6 +81,8 @@ const micInputLevel = ref<number>(70)
 const chatText = ref('')
 const chatListRef = ref<HTMLElement | null>(null)
 let gridObserver: ResizeObserver | null = null
+const availableMics = ref<Array<{ id: string; label: string }>>([])
+const availableCameras = ref<Array<{ id: string; label: string }>>([])
 
 const showQCards = ref(false)
 const showBasicInfo = ref(false)
@@ -110,6 +113,7 @@ const broadcastInfo = ref<(EditableBroadcastInfo & { qCards: string[] }) | null>
 const stream = ref<StreamData | null>(null)
 const chatMessages = ref<StreamChat[]>([])
 const streamStatus = ref<BroadcastStatus>('RESERVED')
+const { now } = useNow(1000)
 const scheduleStartAtMs = ref<number | null>(null)
 const scheduleEndAtMs = ref<number | null>(null)
 const sseSource = ref<EventSource | null>(null)
@@ -220,6 +224,67 @@ const lifecycleStatus = computed(() =>
   }),
 )
 const isInteractive = computed(() => lifecycleStatus.value === 'ON_AIR')
+const isReadOnly = computed(() => lifecycleStatus.value !== 'ON_AIR')
+const waitingScreenUrl = computed(() => stream.value?.waitingScreen ?? '')
+const readyCountdownLabel = computed(() => {
+  if (lifecycleStatus.value !== 'READY' || !scheduleStartAtMs.value) return ''
+  const diffMs = scheduleStartAtMs.value - now.value.getTime()
+  if (diffMs <= 0) return '방송 시작 대기 중'
+  const totalSeconds = Math.ceil(diffMs / 1000)
+  const minutes = Math.floor(totalSeconds / 60)
+  const seconds = totalSeconds % 60
+  return `${minutes}분 ${String(seconds).padStart(2, '0')}초 뒤 방송 시작`
+})
+const streamPlaceholderMessage = computed(() => {
+  if (lifecycleStatus.value === 'STOPPED') {
+    return '방송이 운영 정책 위반으로 송출 중지되었습니다.'
+  }
+  if (lifecycleStatus.value === 'ENDED') {
+    return '방송이 종료되었습니다.'
+  }
+  if (lifecycleStatus.value === 'READY') {
+    return readyCountdownLabel.value || '방송 시작 대기 중'
+  }
+  return '송출 화면 (WebRTC Stream)'
+})
+
+const loadMediaDevices = async () => {
+  if (!navigator.mediaDevices?.enumerateDevices) {
+    availableMics.value = []
+    availableCameras.value = []
+    return
+  }
+  try {
+    const devices = await navigator.mediaDevices.enumerateDevices()
+    availableMics.value = devices
+      .filter((device) => device.kind === 'audioinput')
+      .map((device, idx) => ({
+        id: device.deviceId,
+        label: device.label || `마이크 ${idx + 1}`,
+      }))
+    availableCameras.value = devices
+      .filter((device) => device.kind === 'videoinput')
+      .map((device, idx) => ({
+        id: device.deviceId,
+        label: device.label || `카메라 ${idx + 1}`,
+      }))
+  } catch {
+    availableMics.value = []
+    availableCameras.value = []
+  }
+}
+
+const ensureLocalMediaAccess = async () => {
+  if (!navigator.mediaDevices?.getUserMedia) {
+    return
+  }
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: true })
+    stream.getTracks().forEach((track) => track.stop())
+  } catch {
+    return
+  }
+}
 
 const clearStartTimer = () => {
   if (startTimer.value) {
@@ -606,7 +671,7 @@ const connectSse = (broadcastId: number) => {
 const startStatsPolling = (broadcastId: number) => {
   if (statsTimer.value) window.clearInterval(statsTimer.value)
   statsTimer.value = window.setInterval(() => {
-    if (lifecycleStatus.value === 'ON_AIR' || !sseConnected.value) {
+    if (['READY', 'ON_AIR', 'ENDED'].includes(lifecycleStatus.value) || !sseConnected.value) {
       void refreshStats(broadcastId)
       if (!sseConnected.value) {
         void refreshProducts(broadcastId)
@@ -654,6 +719,10 @@ onMounted(() => {
   window.addEventListener('resize', handleResize)
   monitorRef.value = streamGridRef.value
   updateGridWidth()
+  void loadMediaDevices()
+  if (navigator.mediaDevices?.addEventListener) {
+    navigator.mediaDevices.addEventListener('devicechange', loadMediaDevices)
+  }
   if (streamGridRef.value) {
     gridObserver = new ResizeObserver((entries) => {
       const entry = entries[0]
@@ -669,6 +738,9 @@ onBeforeUnmount(() => {
   window.removeEventListener('keydown', handleKeydown)
   document.removeEventListener('fullscreenchange', handleFullscreenChange)
   window.removeEventListener('resize', handleResize)
+  if (navigator.mediaDevices?.removeEventListener) {
+    navigator.mediaDevices.removeEventListener('devicechange', loadMediaDevices)
+  }
   gridObserver?.disconnect()
   resetRealtimeState()
 })
@@ -769,6 +841,13 @@ watch(showChat, (open) => {
   }
 })
 
+watch(showSettings, async (open) => {
+  if (open) {
+    await ensureLocalMediaAccess()
+    await loadMediaDevices()
+  }
+})
+
 const handleBasicInfoSave = (payload: EditableBroadcastInfo) => {
   if (!broadcastInfo.value) return
   broadcastInfo.value = { ...broadcastInfo.value, ...payload }
@@ -855,6 +934,7 @@ const toggleFullscreen = async () => {
       <aside
         v-if="showProducts"
         class="stream-panel stream-panel--products ds-surface"
+        :class="{ 'stream-panel--readonly': isReadOnly }"
         :style="stackedOrders ? { order: stackedOrders.products } : undefined"
       >
         <div class="panel-head">
@@ -882,7 +962,7 @@ const toggleFullscreen = async () => {
             <button
               type="button"
               class="pin-btn"
-              :disabled="item.status === '품절'"
+              :disabled="!isInteractive || item.status === '품절'"
               :class="{ 'is-active': pinnedProductId === item.id }"
               aria-label="고정"
               @click="handlePinProduct(item.id)"
@@ -977,9 +1057,16 @@ const toggleFullscreen = async () => {
                 <button type="button" class="stream-btn" @click="handleGoToList">목록으로 이동</button>
               </div>
             </div>
-            <div v-else class="stream-placeholder">
-              <p class="stream-title">송출 화면 (WebRTC Stream)</p>
-              <p class="stream-sub">현재 송출 중인 화면이 표시됩니다.</p>
+            <div v-else class="stream-placeholder" :class="{ 'stream-placeholder--waiting': lifecycleStatus !== 'ON_AIR' }">
+              <img
+                v-if="waitingScreenUrl && lifecycleStatus !== 'ON_AIR'"
+                class="stream-placeholder__image"
+                :src="waitingScreenUrl"
+                alt="대기 화면"
+              />
+              <p class="stream-title">{{ streamPlaceholderMessage }}</p>
+              <p v-if="lifecycleStatus === 'ON_AIR'" class="stream-sub">현재 송출 중인 화면이 표시됩니다.</p>
+              <p v-else-if="!waitingScreenUrl" class="stream-sub">대기 화면 이미지가 없습니다.</p>
             </div>
           </div>
         </div>
@@ -1049,16 +1136,19 @@ const toggleFullscreen = async () => {
             <div class="stream-settings__group">
               <label class="stream-settings__label">마이크</label>
               <select v-model="selectedMic" class="stream-settings__select" aria-label="마이크 선택">
-                <option>기본 마이크</option>
-                <option>USB 마이크</option>
-                <option>블루투스 마이크</option>
+                <option value="기본 마이크">기본 마이크</option>
+                <option v-for="device in availableMics" :key="device.id" :value="device.id">
+                  {{ device.label }}
+                </option>
               </select>
             </div>
             <div class="stream-settings__group">
               <label class="stream-settings__label">카메라</label>
               <select v-model="selectedCamera" class="stream-settings__select" aria-label="카메라 선택">
-                <option>기본 카메라</option>
-                <option>외장 카메라</option>
+                <option value="기본 카메라">기본 카메라</option>
+                <option v-for="device in availableCameras" :key="device.id" :value="device.id">
+                  {{ device.label }}
+                </option>
               </select>
             </div>
             <div class="stream-settings__group">
@@ -1074,6 +1164,7 @@ const toggleFullscreen = async () => {
       <aside
         v-if="showChat"
         class="stream-panel stream-chat stream-panel--chat ds-surface"
+        :class="{ 'stream-panel--readonly': isReadOnly }"
         :style="stackedOrders ? { order: stackedOrders.chat } : undefined"
       >
         <div class="panel-head">
@@ -1099,9 +1190,16 @@ const toggleFullscreen = async () => {
           </div>
         </div>
         <div class="chat-input">
-          <input v-model="chatText" type="text" placeholder="메시지를 입력하세요" @keyup.enter="handleSendChat" />
-          <button type="button" class="stream-btn primary" @click="handleSendChat">전송</button>
+          <input
+            v-model="chatText"
+            type="text"
+            placeholder="메시지를 입력하세요"
+            :disabled="!isInteractive"
+            @keyup.enter="handleSendChat"
+          />
+          <button type="button" class="stream-btn primary" :disabled="!isInteractive" @click="handleSendChat">전송</button>
         </div>
+        <p v-if="isReadOnly" class="chat-helper">방송 중에만 채팅을 이용할 수 있습니다.</p>
       </aside>
     </section>
     <Teleport :to="modalHostTarget">
@@ -1173,6 +1271,17 @@ const toggleFullscreen = async () => {
   flex-direction: column;
   min-width: 0;
   min-height: 0;
+}
+
+.stream-panel--readonly {
+  opacity: 0.6;
+}
+
+.chat-helper {
+  margin: 4px 0 0;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  font-weight: 700;
 }
 
 .panel-head {
@@ -1426,6 +1535,21 @@ const toggleFullscreen = async () => {
   gap: 8px;
   padding-top: 24px;
   text-align: center;
+}
+
+.stream-placeholder--waiting {
+  gap: 12px;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  place-items: center;
+}
+
+.stream-placeholder__image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 12px;
 }
 
 .stream-empty {

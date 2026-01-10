@@ -10,4 +10,6 @@ export type LiveItem = {
   vodUrl?: string
   streamUrl?: string
   sellerName?: string
+  waitScreenUrl?: string
+  stoppedReason?: string
 }
