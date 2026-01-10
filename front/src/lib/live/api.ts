@@ -187,6 +187,15 @@ type ApiResult<T> = {
   error?: { code: string; message: string }
 }
 
+export type ImageUploadResponse = {
+  originalFileName: string
+  storedFileName: string
+  fileUrl: string
+  fileSize: number
+}
+
+export type UploadImageType = 'THUMBNAIL' | 'WAIT_SCREEN'
+
 type BroadcastPayload = {
   title: string
   notice: string
@@ -477,5 +486,20 @@ export const updateAdminVodVisibility = async (broadcastId: number, status: 'PUB
 
 export const deleteAdminVod = async (broadcastId: number) => {
   const { data } = await http.delete<ApiResult<void>>(`/api/admin/broadcasts/${broadcastId}/vod`)
+  return ensureSuccess(data)
+}
+
+export const uploadSellerImage = async (type: UploadImageType, file: File) => {
+  const formData = new FormData()
+  formData.append('file', file)
+  const { data } = await http.post<ApiResult<ImageUploadResponse>>(`/api/seller/uploads/${type}`, formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  })
+  return ensureSuccess(data)
+}
+
+export const deleteSellerImage = async (fileName: string) => {
+  if (!fileName) return
+  const { data } = await http.delete<ApiResult<string>>('/api/seller/uploads', { params: { fileName } })
   return ensureSuccess(data)
 }

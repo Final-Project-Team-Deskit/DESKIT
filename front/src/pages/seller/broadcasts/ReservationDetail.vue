@@ -4,7 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import PageContainer from '../../../components/PageContainer.vue'
 import QCardModal from '../../../components/QCardModal.vue'
 import { cancelSellerBroadcast, fetchSellerBroadcastDetail, type BroadcastDetailResponse } from '../../../lib/live/api'
-import { normalizeBroadcastStatus } from '../../../lib/broadcastStatus'
+import { getBroadcastStatusLabel, normalizeBroadcastStatus } from '../../../lib/broadcastStatus'
 
 const route = useRoute()
 const router = useRouter()
@@ -81,6 +81,7 @@ const standbyImage = computed(() => detail.value?.standbyThumb || detail.value?.
 const displayedCancelReason = computed(() =>
   isCancelled.value ? cancelReason.value : '',
 )
+const statusLabel = computed(() => getBroadcastStatusLabel(detail.value?.status))
 
 const formatScheduledAt = (value?: string) => (value ? value.replace(/-/g, '.').replace('T', ' ').slice(0, 16) : '')
 
@@ -145,7 +146,7 @@ watch(reservationId, () => {
     <section class="detail-card ds-surface">
       <div class="detail-title">
         <h2>{{ detail.title }}</h2>
-        <span class="status-pill">{{ detail.status }}</span>
+        <span class="status-pill">{{ statusLabel }}</span>
       </div>
       <div class="detail-meta">
         <p><span>방송 예정 시간</span>{{ scheduledWindow }}</p>

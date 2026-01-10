@@ -9,7 +9,7 @@ import {
   stopAdminBroadcast,
 } from '../../../lib/live/api'
 import { parseLiveDate } from '../../../lib/live/utils'
-import { computeLifecycleStatus, getScheduledEndMs, normalizeBroadcastStatus } from '../../../lib/broadcastStatus'
+import { computeLifecycleStatus, getBroadcastStatusLabel, getScheduledEndMs, normalizeBroadcastStatus } from '../../../lib/broadcastStatus'
 
 const route = useRoute()
 const router = useRouter()
@@ -30,6 +30,7 @@ type AdminDetail = {
 }
 
 const detail = ref<AdminDetail | null>(null)
+const statusLabel = computed(() => getBroadcastStatusLabel(detail.value?.status))
 
 const stageRef = ref<HTMLDivElement | null>(null)
 const isFullscreen = ref(false)
@@ -582,7 +583,7 @@ watch(
         <p><span>방송 시작</span>{{ detail.startedAt }}</p>
         <p><span>시청자 수</span>{{ detail.viewers }}명</p>
         <p><span>신고 건수</span>{{ detail.reports ?? 0 }}건</p>
-        <p><span>상태</span>{{ detail.status }}</p>
+        <p><span>상태</span>{{ statusLabel }}</p>
       </div>
     </section>
 

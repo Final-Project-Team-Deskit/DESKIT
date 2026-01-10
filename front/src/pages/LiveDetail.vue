@@ -12,7 +12,7 @@ import { getAuthUser } from '../lib/auth'
 import { resolveViewerId } from '../lib/live/viewer'
 import { fetchBroadcastProducts, fetchBroadcastStats, fetchPublicBroadcastDetail, type BroadcastProductItem } from '../lib/live/api'
 import type { LiveItem } from '../lib/live/types'
-import { computeLifecycleStatus, getScheduledEndMs, normalizeBroadcastStatus } from '../lib/broadcastStatus'
+import { computeLifecycleStatus, getBroadcastStatusLabel, getScheduledEndMs, normalizeBroadcastStatus } from '../lib/broadcastStatus'
 
 const route = useRoute()
 const router = useRouter()
@@ -69,15 +69,7 @@ const isProductEnabled = computed(() => {
   return false
 })
 
-const statusLabel = computed(() => {
-  if (status.value === 'LIVE') {
-    return 'LIVE'
-  }
-  if (status.value === 'ENDED') {
-    return '종료'
-  }
-  return '예정'
-})
+const statusLabel = computed(() => getBroadcastStatusLabel(lifecycleStatus.value))
 
 const handleImageError = (event: Event) => {
   const target = event.target as HTMLImageElement | null

@@ -6,6 +6,7 @@ import DeviceSetupModal from '../../components/DeviceSetupModal.vue'
 import { useInfiniteScroll } from '../../composables/useInfiniteScroll'
 import {
   computeLifecycleStatus,
+  getBroadcastStatusLabel,
   getScheduledEndMs,
   hasReachedStartTime,
   normalizeBroadcastStatus,
@@ -352,6 +353,7 @@ const liveItemsSorted = computed(() => {
 const currentLive = computed(() => liveItemsSorted.value[0] ?? null)
 const showLiveStats = computed(() => Boolean(currentLive.value && liveStats.value?.hasData))
 const showLiveProducts = computed(() => Boolean(currentLive.value && liveProducts.value.length))
+const formatStatusLabel = (status?: BroadcastStatus | string | null) => getBroadcastStatusLabel(status)
 
 const loadSellerData = async () => {
   try {
@@ -994,7 +996,7 @@ onBeforeUnmount(() => {
             <div class="live-feature__thumb">
               <img :src="currentLive.thumb" :alt="currentLive.title" loading="lazy" />
               <span class="badge badge--live live-feature__badge">
-                {{ currentLive.statusBadge ?? getLifecycleStatus(currentLive) }}
+                {{ currentLive.statusBadge ?? formatStatusLabel(getLifecycleStatus(currentLive)) }}
               </span>
             </div>
             <div class="live-feature__info">
@@ -1088,7 +1090,7 @@ onBeforeUnmount(() => {
             <div class="live-feature__thumb">
               <img :src="currentLive.thumb" :alt="currentLive.title" loading="lazy" />
               <span class="badge badge--live live-feature__badge">
-                {{ currentLive.statusBadge ?? getLifecycleStatus(currentLive) }}
+                {{ currentLive.statusBadge ?? formatStatusLabel(getLifecycleStatus(currentLive)) }}
               </span>
             </div>
             <div class="live-feature__info">
@@ -1172,7 +1174,7 @@ onBeforeUnmount(() => {
                 <span
                   class="badge badge--scheduled"
                   :class="{ 'badge--cancelled': getLifecycleStatus(item) === 'CANCELED' }"
-                >{{ getLifecycleStatus(item) }}</span>
+                >{{ formatStatusLabel(getLifecycleStatus(item)) }}</span>
               </div>
             </div>
             <div class="live-body">
@@ -1228,7 +1230,7 @@ onBeforeUnmount(() => {
                     <span
                       class="badge badge--scheduled"
                       :class="{ 'badge--cancelled': getLifecycleStatus(item) === 'CANCELED' }"
-                    >{{ getLifecycleStatus(item) }}</span>
+                    >{{ formatStatusLabel(getLifecycleStatus(item)) }}</span>
                   </div>
                 </div>
                 <div class="live-body">
@@ -1324,7 +1326,9 @@ onBeforeUnmount(() => {
             <div class="live-thumb">
               <img class="live-thumb__img" :src="item.thumb" :alt="item.title" loading="lazy" />
               <div class="live-badges">
-                <span class="badge badge--vod">{{ item.statusBadge ?? getLifecycleStatus(item) ?? 'VOD' }}</span>
+              <span class="badge badge--vod">
+                {{ item.statusBadge ?? formatStatusLabel(getLifecycleStatus(item) ?? 'VOD') }}
+              </span>
               </div>
             </div>
             <div class="live-body">
@@ -1371,7 +1375,9 @@ onBeforeUnmount(() => {
                 <div class="live-thumb">
                   <img class="live-thumb__img" :src="item.thumb" :alt="item.title" loading="lazy" />
                   <div class="live-badges">
-                    <span class="badge badge--vod">{{ item.statusBadge ?? getLifecycleStatus(item) ?? 'VOD' }}</span>
+                    <span class="badge badge--vod">
+                      {{ item.statusBadge ?? formatStatusLabel(getLifecycleStatus(item) ?? 'VOD') }}
+                    </span>
                   </div>
                 </div>
                 <div class="live-body">
