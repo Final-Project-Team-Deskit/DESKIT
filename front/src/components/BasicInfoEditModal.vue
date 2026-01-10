@@ -46,6 +46,17 @@ const categoryOptions = computed(() => {
 
 const isOpen = computed(() => props.modelValue)
 
+const extractFileName = (source: string) => {
+  if (!source || source.startsWith('data:')) return ''
+  const [path] = source.split('?')
+  const segments = path.split('/')
+  const last = segments[segments.length - 1] ?? ''
+  return decodeURIComponent(last)
+}
+
+const thumbnailDisplayName = computed(() => thumbnailName.value || extractFileName(thumbnailPreview.value))
+const waitingDisplayName = computed(() => waitingName.value || extractFileName(waitingPreview.value))
+
 const hydrateFromBroadcast = () => {
   if (!props.broadcast) return
   title.value = props.broadcast.title
@@ -217,7 +228,7 @@ const handleSave = () => {
                 </div>
               </div>
             </label>
-            <p class="upload-filename">{{ thumbnailName || '선택된 파일 없음' }}</p>
+            <p class="upload-filename">{{ thumbnailDisplayName || '선택된 파일 없음' }}</p>
             <button type="button" class="ds-btn ghost upload-clear" @click="clearThumbnail">이미지 삭제</button>
           </label>
 
@@ -239,7 +250,7 @@ const handleSave = () => {
                 </div>
               </div>
             </label>
-            <p class="upload-filename">{{ waitingName || '선택된 파일 없음' }}</p>
+            <p class="upload-filename">{{ waitingDisplayName || '선택된 파일 없음' }}</p>
             <button type="button" class="ds-btn ghost upload-clear" @click="clearWaiting">이미지 삭제</button>
           </label>
         </div>
