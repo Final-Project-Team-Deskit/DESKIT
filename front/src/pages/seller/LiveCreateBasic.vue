@@ -1,19 +1,32 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import {computed, onMounted, ref, watch} from 'vue'
+import {useRoute, useRouter} from 'vue-router'
 import PageContainer from '../../components/PageContainer.vue'
 import PageHeader from '../../components/PageHeader.vue'
-import { addScheduledBroadcast } from '../../composables/useSellerBroadcasts'
+import LiveImageCropModal from '../../components/LiveImageCropModal.vue'
 import {
-  DRAFT_KEY,
   buildDraftFromReservation,
+  clearDraft,
+  clearDraftRestoreDecision,
   createEmptyDraft,
-  loadDraft,
-  saveDraft,
   type LiveCreateDraft,
   type LiveCreateProduct,
+  loadDraft,
+  saveDraft,
+  saveWorkingDraft,
+  clearWorkingDraft,
+  getDraftRestoreDecision,
+  setDraftRestoreDecision,
 } from '../../composables/useLiveCreateDraft'
-import { productsData } from '../../lib/products-data'
+import {
+  type BroadcastCategory,
+  createBroadcast,
+  fetchCategories,
+  fetchReservationSlots,
+  fetchSellerProducts,
+  type ReservationSlot,
+  updateBroadcast,
+} from '../../lib/live/api'
 
 const router = useRouter()
 const route = useRoute()
@@ -26,6 +39,17 @@ const error = ref('')
 const showTermsModal = ref(false)
 const showProductModal = ref(false)
 const modalProducts = ref<LiveCreateProduct[]>([])
+const sellerProducts = ref<LiveCreateProduct[]>([])
+const categories = ref<BroadcastCategory[]>([])
+const reservationSlots = ref<ReservationSlot[]>([])
+const activeDate = ref('')
+const cropperOpen = ref(false)
+const cropperSource = ref('')
+const cropperFileName = ref('')
+const cropTarget = ref<'thumb' | 'standby' | null>(null)
+const cropperApplied = ref(false)
+const thumbInputRef = ref<HTMLInputElement | null>(null)
+const standbyInputRef = ref<HTMLInputElement | null>(null)
 
 const reservationId = computed(() => {
   const queryValue = route.query.reservationId
@@ -35,18 +59,7 @@ const reservationId = computed(() => {
 const isEditMode = computed(() => route.query.mode === 'edit' && !!reservationId.value)
 const modalCount = computed(() => modalProducts.value.length)
 
-const availableProducts = computed(() =>
-  productsData.map<LiveCreateProduct>((product) => ({
-    id: `prod-${product.product_id}`,
-    name: product.name,
-    option: product.short_desc ?? '-',
-    price: product.price,
-    broadcastPrice: product.price,
-    stock: product.salesVolume ?? 100,
-    quantity: 1,
-    thumb: product.imageUrl,
-  })),
-)
+const availableProducts = computed(() => sellerProducts.value)
 
 const filteredProducts = computed(() => {
   const q = productSearch.value.trim().toLowerCase()
@@ -59,7 +72,26 @@ const filteredProducts = computed(() => {
 })
 
 const isSelected = (productId: string, source: LiveCreateProduct[] = draft.value.products) =>
-  source.some((item) => item.id === productId)
+    source.some((item) => item.id === productId)
+
+const resolveMaxQuantity = (product: LiveCreateProduct) => {
+  const stock = Number.isFinite(product.stock) ? product.stock : 0
+  const safetyStock = Number.isFinite(product.safetyStock) ? product.safetyStock : 0
+  return Math.max(stock - safetyStock, 0)
+}
+
+const resolveMinQuantity = (product: LiveCreateProduct) => (resolveMaxQuantity(product) > 0 ? 1 : 0)
+
+const clampProductQuantity = (product: LiveCreateProduct, value?: number) => {
+  const maxQuantity = resolveMaxQuantity(product)
+  const minQuantity = resolveMinQuantity(product)
+  const rawValue = typeof value === 'number' && Number.isFinite(value) ? value : product.quantity
+  const normalized = typeof rawValue === 'number' && Number.isFinite(rawValue) ? rawValue : minQuantity
+  const nextValue = maxQuantity > 0
+      ? Math.min(Math.max(normalized, minQuantity), maxQuantity)
+      : minQuantity
+  return { ...product, quantity: nextValue }
+}
 
 const addProduct = (product: LiveCreateProduct, target: LiveCreateProduct[]) => {
   if (!isSelected(product.id, target) && target.length >= 10) {
@@ -67,45 +99,40 @@ const addProduct = (product: LiveCreateProduct, target: LiveCreateProduct[]) => 
     return target
   }
   if (isSelected(product.id, target)) return target
-  return [...target, { ...product }]
+  return [...target, clampProductQuantity(product)]
 }
 
 const removeProduct = (productId: string, target: LiveCreateProduct[]) => target.filter((item) => item.id !== productId)
 
-const toggleProductInDraft = (product: LiveCreateProduct) => {
-  draft.value.products = isSelected(product.id) ? removeProduct(product.id, draft.value.products) : addProduct(product, draft.value.products)
-}
-
 const toggleProductInModal = (product: LiveCreateProduct) => {
   modalProducts.value = isSelected(product.id, modalProducts.value)
-    ? removeProduct(product.id, modalProducts.value)
-    : addProduct(product, modalProducts.value)
+      ? removeProduct(product.id, modalProducts.value)
+      : addProduct(product, modalProducts.value)
 }
 
 const updateProductPrice = (productId: string, value: number) => {
   draft.value.products = draft.value.products.map((product) =>
-    product.id === productId ? { ...product, broadcastPrice: value < 0 ? 0 : value } : product,
+      product.id === productId ? { ...product, broadcastPrice: value < 0 ? 0 : value } : product,
   )
 }
 
 const updateProductQuantity = (productId: string, value: number) => {
-  const qty = Number.isNaN(value) || value < 1 ? 1 : value
   draft.value.products = draft.value.products.map((product) =>
-    product.id === productId ? { ...product, quantity: qty } : product,
+      product.id === productId ? clampProductQuantity(product, value) : product,
   )
 }
 
 const syncDraft = () => {
   const trimmedQuestions = draft.value.questions.map((q) => ({ ...q, text: q.text.trim() })).filter((q) => q.text.length > 0)
   const shouldUpdateQuestions =
-    trimmedQuestions.length !== draft.value.questions.length ||
-    trimmedQuestions.some((item, index) => item.text !== draft.value.questions[index]?.text)
+      trimmedQuestions.length !== draft.value.questions.length ||
+      trimmedQuestions.some((item, index) => item.text !== draft.value.questions[index]?.text)
 
   if (shouldUpdateQuestions) {
     draft.value.questions = trimmedQuestions
   }
 
-  saveDraft({
+  saveWorkingDraft({
     ...draft.value,
     title: draft.value.title.trim(),
     subtitle: draft.value.subtitle?.trim() ?? '',
@@ -116,18 +143,50 @@ const syncDraft = () => {
   })
 }
 
-const restoreDraft = () => {
+const restoreDraft = async () => {
   const savedDraft = loadDraft()
-  const baseDraft = savedDraft && (!isEditMode.value || savedDraft.reservationId === reservationId.value)
-    ? { ...createEmptyDraft(), ...savedDraft }
-    : createEmptyDraft()
+  let baseDraft = createEmptyDraft()
+  if (!isEditMode.value && savedDraft && (!savedDraft.reservationId || savedDraft.reservationId === reservationId.value)) {
+    const decision = getDraftRestoreDecision()
+    if (decision === 'accepted') {
+      baseDraft = { ...createEmptyDraft(), ...savedDraft }
+    } else if (decision === 'declined') {
+      clearDraft()
+    } else {
+      const shouldRestore = window.confirm('이전에 작성 중인 내용을 불러올까요?')
+      if (shouldRestore) {
+        setDraftRestoreDecision('accepted')
+        baseDraft = { ...createEmptyDraft(), ...savedDraft }
+      } else {
+        setDraftRestoreDecision('declined')
+        clearDraft()
+      }
+    }
+  }
 
   const reservationDraft = isEditMode.value
-    ? { ...baseDraft, ...buildDraftFromReservation(reservationId.value), reservationId: reservationId.value }
-    : baseDraft
+      ? {
+        ...baseDraft,
+        ...(await buildDraftFromReservation(reservationId.value)),
+        reservationId: reservationId.value,
+      }
+      : baseDraft
 
   draft.value = reservationDraft
-  modalProducts.value = reservationDraft.products.map((p) => ({ ...p }))
+  draft.value.products = draft.value.products.map((product) => clampProductQuantity(product))
+  modalProducts.value = draft.value.products.map((p) => ({ ...p }))
+}
+
+const openCropper = (file: File, target: 'thumb' | 'standby') => {
+  const reader = new FileReader()
+  reader.onload = () => {
+    cropperSource.value = typeof reader.result === 'string' ? reader.result : ''
+    cropperFileName.value = file.name
+    cropTarget.value = target
+    cropperApplied.value = false
+    cropperOpen.value = true
+  }
+  reader.readAsDataURL(file)
 }
 
 const handleThumbUpload = (event: Event) => {
@@ -140,11 +199,7 @@ const handleThumbUpload = (event: Event) => {
     input.value = ''
     return
   }
-  const reader = new FileReader()
-  reader.onload = () => {
-    draft.value.thumb = typeof reader.result === 'string' ? reader.result : ''
-  }
-  reader.readAsDataURL(file)
+  openCropper(file, 'thumb')
 }
 
 const handleStandbyUpload = (event: Event) => {
@@ -157,16 +212,73 @@ const handleStandbyUpload = (event: Event) => {
     input.value = ''
     return
   }
-  const reader = new FileReader()
-  reader.onload = () => {
-    draft.value.standbyThumb = typeof reader.result === 'string' ? reader.result : ''
-  }
-  reader.readAsDataURL(file)
+  openCropper(file, 'standby')
 }
 
-const isQuestionValid = (text: string) => {
-  const trimmed = text.trim()
-  return !!trimmed
+const applyCroppedImage = (payload: { dataUrl: string; fileName: string }) => {
+  cropperApplied.value = true
+  if (cropTarget.value === 'thumb') {
+    draft.value.thumb = payload.dataUrl
+  }
+  if (cropTarget.value === 'standby') {
+    draft.value.standbyThumb = payload.dataUrl
+  }
+}
+
+const clearThumb = () => {
+  draft.value.thumb = ''
+  if (thumbInputRef.value) thumbInputRef.value.value = ''
+}
+
+const clearStandby = () => {
+  draft.value.standbyThumb = ''
+  if (standbyInputRef.value) standbyInputRef.value.value = ''
+}
+
+const handleThumbError = () => {
+  thumbError.value = '이미지를 불러오지 못했습니다.'
+  clearThumb()
+}
+
+const handleStandbyError = () => {
+  standbyError.value = '이미지를 불러오지 못했습니다.'
+  clearStandby()
+}
+
+const resetCropperState = () => {
+  cropperSource.value = ''
+  cropperFileName.value = ''
+  cropTarget.value = null
+  cropperApplied.value = false
+}
+
+const clearInputForTarget = (target: 'thumb' | 'standby') => {
+  if (target === 'thumb' && thumbInputRef.value) {
+    thumbInputRef.value.value = ''
+  }
+  if (target === 'standby' && standbyInputRef.value) {
+    standbyInputRef.value.value = ''
+  }
+}
+
+const getErrorMessage = (error: unknown, fallback: string) => {
+  if (error && typeof error === 'object' && 'message' in error) {
+    const message = (error as { message?: unknown }).message
+    if (typeof message === 'string' && message.trim()) {
+      return message
+    }
+  }
+  return fallback
+}
+
+const getErrorStatus = (error: unknown) => {
+  if (error && typeof error === 'object' && 'response' in error) {
+    const response = (error as { response?: { status?: number } }).response
+    if (response && typeof response.status === 'number') {
+      return response.status
+    }
+  }
+  return null
 }
 
 const submit = () => {
@@ -174,8 +286,10 @@ const submit = () => {
   thumbError.value = ''
   standbyError.value = ''
 
-  const trimmedQuestions = draft.value.questions.map((q) => ({ ...q, text: q.text.trim() })).filter((q) => q.text.length > 0)
-  draft.value.questions = trimmedQuestions
+  draft.value.questions = draft.value.questions.map((q) => ({
+    ...q,
+    text: q.text.trim()
+  })).filter((q) => q.text.length > 0)
 
   if (!draft.value.title.trim() || !draft.value.category || !draft.value.date || !draft.value.time) {
     error.value = '방송 제목, 카테고리, 일정을 입력해주세요.'
@@ -187,37 +301,68 @@ const submit = () => {
     return
   }
 
+  const invalidProduct = draft.value.products.find((product) => {
+    const maxQuantity = resolveMaxQuantity(product)
+    return maxQuantity < 1 || product.quantity < 1 || product.quantity > maxQuantity
+  })
+  if (invalidProduct) {
+    error.value = '판매 수량을 재고 범위 내에서 선택해주세요.'
+    return
+  }
+
   if (!draft.value.termsAgreed) {
     error.value = '약관에 동의해주세요.'
+    return
+  }
+
+  if (!timeOptions.value.includes(draft.value.time)) {
+    alert('선택한 시간대의 예약이 마감되었습니다. 다른 시간대를 선택해주세요.')
+    void reloadReservationSlots(draft.value.date)
     return
   }
 
   const confirmed = window.confirm(isEditMode.value ? '예약 수정을 진행할까요?' : '방송 등록을 진행할까요?')
   if (!confirmed) return
 
-  const id = draft.value.reservationId || `schedule-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
-  const datetime = `${draft.value.date} ${draft.value.time}`
-  const scheduled = {
-    id,
+  const scheduledAt = `${draft.value.date} ${draft.value.time}:00`
+  const payload = {
     title: draft.value.title.trim(),
-    subtitle: draft.value.subtitle?.trim() || '예약 방송',
-    thumb: draft.value.thumb,
-    datetime,
-    ctaLabel: '방송 시작',
-    products: draft.value.products,
-    standbyThumb: draft.value.standbyThumb || undefined,
-    termsAgreed: draft.value.termsAgreed,
-    category: draft.value.category,
-    notice: draft.value.notice,
+    notice: draft.value.notice.trim(),
+    categoryId: Number(draft.value.category),
+    scheduledAt,
+    thumbnailUrl: draft.value.thumb,
+    waitScreenUrl: draft.value.standbyThumb || null,
+    broadcastLayout: 'FULL',
+    products: draft.value.products.map((product) => ({
+      productId: Number(product.id.replace('prod-', '')),
+      salePrice: product.broadcastPrice,
+      quantity: product.quantity,
+    })),
+    qcards: draft.value.questions.map((q) => ({ question: q.text.trim() })).filter((q) => q.question.length > 0),
   }
 
-  addScheduledBroadcast(scheduled)
-  localStorage.removeItem(DRAFT_KEY)
-  alert(isEditMode.value ? '예약 수정이 완료되었습니다.' : '방송 등록이 완료되었습니다.')
-  const redirectPath = isEditMode.value
-    ? `/seller/broadcasts/reservations/${id}`
-    : '/seller/live?tab=scheduled'
-  router.push(redirectPath).catch(() => {})
+  const request = isEditMode.value
+      ? updateBroadcast(Number(reservationId.value), payload)
+      : createBroadcast(payload)
+
+  request
+      .then((broadcastId) => {
+        clearDraft()
+        alert(isEditMode.value ? '예약 수정이 완료되었습니다.' : '방송 등록이 완료되었습니다.')
+        const id = broadcastId ?? reservationId.value
+        const redirectPath = isEditMode.value
+            ? `/seller/broadcasts/reservations/${id}`
+            : '/seller/live?tab=scheduled'
+        router.push(redirectPath).catch(() => {})
+      })
+      .catch((apiError) => {
+        if (apiError?.code === 'B005') {
+          alert('선택한 시간대의 예약이 마감되었습니다. 다른 시간대를 선택해주세요.')
+          void reloadReservationSlots(draft.value.date)
+          return
+        }
+        error.value = getErrorMessage(apiError, '방송 등록에 실패했습니다.')
+      })
 }
 
 const goPrev = () => {
@@ -227,9 +372,12 @@ const goPrev = () => {
 const cancel = () => {
   const ok = window.confirm('작성 중인 내용을 취소하시겠어요?')
   if (!ok) return
+  saveDraft(draft.value)
+  clearDraftRestoreDecision()
+  clearWorkingDraft()
   const redirect = isEditMode.value && reservationId.value
-    ? `/seller/broadcasts/reservations/${reservationId.value}`
-    : '/seller/live?tab=scheduled'
+      ? `/seller/broadcasts/reservations/${reservationId.value}`
+      : '/seller/live?tab=scheduled'
   router.push(redirect).catch(() => {})
 }
 
@@ -245,7 +393,7 @@ const cancelProductSelection = () => {
 }
 
 const saveProductSelection = () => {
-  draft.value.products = modalProducts.value.map((p) => ({ ...p }))
+  draft.value.products = modalProducts.value.map((p) => clampProductQuantity(p))
   showProductModal.value = false
   alert('상품 선택이 저장되었습니다.')
 }
@@ -257,38 +405,131 @@ const confirmRemoveProduct = (productId: string) => {
   }
 }
 
-const timeOptions = computed(() => {
-  const options: string[] = []
-  for (let hour = 0; hour < 24; hour += 1) {
-    for (const minute of [0, 30]) {
-      const hh = hour.toString().padStart(2, '0')
-      const mm = minute.toString().padStart(2, '0')
-      options.push(`${hh}:${mm}`)
-    }
+const formatLocalDate = (date: Date) => {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+const addDays = (date: Date, days: number) => {
+  const next = new Date(date)
+  next.setDate(next.getDate() + days)
+  return next
+}
+
+const minDate = computed(() => formatLocalDate(addDays(new Date(), 1)))
+
+const maxDate = computed(() => formatLocalDate(addDays(new Date(), 15)))
+
+const normalizeCategorySelection = () => {
+  if (!draft.value.category) return
+  const current = categories.value.find((category) => category.id.toString() === draft.value.category)
+  if (current) return
+  const matched = categories.value.find((category) => category.name === draft.value.category)
+  if (matched) draft.value.category = matched.id.toString()
+}
+
+const loadCategories = async () => {
+  try {
+    categories.value = await fetchCategories()
+    normalizeCategorySelection()
+  } catch (apiError) {
+    error.value = getErrorMessage(apiError, '카테고리를 불러오지 못했습니다.')
   }
-  return options
-})
+}
+
+const loadProducts = async () => {
+  try {
+    sellerProducts.value = await fetchSellerProducts()
+  } catch (apiError) {
+    if (getErrorStatus(apiError) === 404) {
+      sellerProducts.value = []
+      return
+    }
+    error.value = getErrorMessage(apiError, '상품 목록을 불러오지 못했습니다.')
+  }
+}
+
+const reloadReservationSlots = async (date: string) => {
+  if (!date) return
+  try {
+    reservationSlots.value = await fetchReservationSlots(date)
+    const current = reservationSlots.value.map((slot) => slot.time)
+    if (draft.value.time && !current.includes(draft.value.time)) {
+      draft.value.time = ''
+    }
+  } catch (apiError) {
+    error.value = getErrorMessage(apiError, '예약 가능 시간을 불러오지 못했습니다.')
+  }
+}
+
+const timeOptions = computed(() => reservationSlots.value.map((slot) => slot.time))
 
 watch(
-  () => [isEditMode.value, reservationId.value],
-  () => {
-    restoreDraft()
-  },
-  { immediate: true },
+    () => [isEditMode.value, reservationId.value],
+    () => {
+      restoreDraft()
+    },
+    { immediate: true },
 )
 
 watch(
-  draft,
-  () => {
-    syncDraft()
-  },
-  { deep: true },
+    () => draft.value.date,
+    (value) => {
+      if (!value) return
+      if (value < minDate.value) {
+        draft.value.date = minDate.value
+        return
+      }
+      if (value > maxDate.value) {
+        draft.value.date = maxDate.value
+        return
+      }
+      if (value !== activeDate.value) {
+        activeDate.value = value
+        void reloadReservationSlots(value)
+      }
+    },
+)
+
+watch(cropperOpen, (open, wasOpen) => {
+  if (!open && wasOpen) {
+    if (!cropperApplied.value && cropTarget.value) {
+      clearInputForTarget(cropTarget.value)
+    }
+    resetCropperState()
+  }
+})
+
+onMounted(async () => {
+  await loadCategories()
+  await loadProducts()
+  draft.value.products = draft.value.products.map((product) => clampProductQuantity(product))
+  if (draft.value.date) {
+    activeDate.value = draft.value.date
+    void reloadReservationSlots(draft.value.date)
+  }
+})
+
+watch(
+    draft,
+    () => {
+      syncDraft()
+    },
+    { deep: true },
 )
 </script>
 
 <template>
-    <PageContainer>
-      <PageHeader :eyebrow="isEditMode ? 'DESKIT' : 'DESKIT'" :title="isEditMode ? '예약 수정 - 기본 정보' : '방송 등록 - 기본 정보'" />
+  <PageContainer>
+    <PageHeader :eyebrow="isEditMode ? 'DESKIT' : 'DESKIT'" :title="isEditMode ? '예약 수정 - 기본 정보' : '방송 등록 - 기본 정보'" />
+    <LiveImageCropModal
+        v-model="cropperOpen"
+        :image-src="cropperSource"
+        :file-name="cropperFileName"
+        @confirm="applyCroppedImage"
+    />
     <section class="create-card ds-surface">
       <div class="step-meta">
         <span class="step-indicator">2 / 2 단계</span>
@@ -304,28 +545,26 @@ watch(
           <span class="field__label">카테고리</span>
           <select v-model="draft.category">
             <option value="" disabled>카테고리를 선택하세요</option>
-            <option value="가구">가구</option>
-            <option value="전자기기">전자기기</option>
-            <option value="패션">패션</option>
-            <option value="뷰티">뷰티</option>
-            <option value="악세사리">악세사리</option>
+            <option v-for="category in categories" :key="category.id" :value="category.id.toString()">
+              {{ category.name }}
+            </option>
           </select>
         </label>
       </div>
       <label class="field">
         <span class="field__label">공지사항</span>
         <textarea
-          v-model="draft.notice"
-          rows="3"
-          maxlength="50"
-          placeholder="시청자에게 안내할 공지를 입력하세요 (최대 50자)"
+            v-model="draft.notice"
+            rows="3"
+            maxlength="50"
+            placeholder="시청자에게 안내할 공지를 입력하세요 (최대 50자)"
         ></textarea>
         <span class="field__hint">{{ draft.notice.length }}/50</span>
       </label>
       <div class="field-grid">
         <label class="field">
           <span class="field__label">방송 날짜</span>
-          <input v-model="draft.date" type="date" />
+          <input v-model="draft.date" type="date" :min="minDate" :max="maxDate" />
         </label>
         <label class="field">
           <span class="field__label">방송 시간</span>
@@ -347,54 +586,55 @@ watch(
         <div v-if="draft.products.length" class="product-table-wrap">
           <table>
             <thead>
-              <tr>
-                <th>상품명</th>
-                <th>정가</th>
-                <th>방송 할인가</th>
-                <th>판매 수량</th>
-                <th>재고</th>
-                <th></th>
-              </tr>
+            <tr>
+              <th>상품명</th>
+              <th>정가</th>
+              <th>방송 할인가</th>
+              <th>판매 수량</th>
+              <th>재고</th>
+              <th></th>
+            </tr>
             </thead>
             <tbody>
-              <tr v-for="product in draft.products" :key="product.id">
-                <td>
-                  <div class="product-cell">
-                    <div class="thumb" v-if="product.thumb">
-                      <img :src="product.thumb" :alt="product.name" />
-                    </div>
-                    <div class="product-text">
-                      <strong>{{ product.name }}</strong>
-                      <span class="product-option__meta">{{ product.option }}</span>
-                    </div>
+            <tr v-for="product in draft.products" :key="product.id">
+              <td>
+                <div class="product-cell">
+                  <div class="thumb" v-if="product.thumb">
+                    <img :src="product.thumb" :alt="product.name" />
                   </div>
-                </td>
-                <td class="numeric">{{ product.price.toLocaleString() }}원</td>
-                <td>
-                  <input
+                  <div class="product-text">
+                    <strong>{{ product.name }}</strong>
+                    <span class="product-option__meta">{{ product.option }}</span>
+                  </div>
+                </div>
+              </td>
+              <td class="numeric">{{ product.price.toLocaleString() }}원</td>
+              <td>
+                <input
                     class="table-input"
                     type="number"
                     min="0"
                     :value="product.broadcastPrice"
                     @input="updateProductPrice(product.id, Number(($event.target as HTMLInputElement).value))"
-                  />
-                </td>
-                <td>
-                  <input
+                />
+              </td>
+              <td>
+                <input
                     class="table-input"
                     type="number"
-                    min="1"
+                    :min="resolveMinQuantity(product)"
+                    :max="resolveMaxQuantity(product)"
                     :value="product.quantity"
                     @input="updateProductQuantity(product.id, Number(($event.target as HTMLInputElement).value))"
-                  />
-                </td>
-                <td class="numeric">{{ product.stock }}</td>
-                <td>
-                  <button type="button" class="btn ghost" @click="confirmRemoveProduct(product.id)">
+                />
+              </td>
+              <td class="numeric">{{ product.stock }}</td>
+              <td>
+                <button type="button" class="btn ghost" @click="confirmRemoveProduct(product.id)">
                   제거
                 </button>
-                </td>
-              </tr>
+              </td>
+            </tr>
             </tbody>
           </table>
           <p class="table-hint">{{ draft.products.length }}/10 개 선택됨 (최소 1개 필수)</p>
@@ -407,19 +647,21 @@ watch(
         <div class="field-grid">
           <label class="field">
             <span class="field__label">방송 썸네일 업로드</span>
-            <input type="file" accept="image/*" @change="handleThumbUpload" />
+            <input ref="thumbInputRef" type="file" accept="image/*" @change="handleThumbUpload" />
             <span v-if="thumbError" class="error">{{ thumbError }}</span>
             <div v-if="draft.thumb" class="preview">
-              <img :src="draft.thumb" alt="방송 썸네일 미리보기" />
+              <img :src="draft.thumb" alt="방송 썸네일 미리보기" @error="handleThumbError" />
             </div>
+            <button type="button" class="btn ghost upload-clear" @click="clearThumb">이미지 삭제</button>
           </label>
           <label class="field">
             <span class="field__label">대기화면 업로드</span>
-            <input type="file" accept="image/*" @change="handleStandbyUpload" />
+            <input ref="standbyInputRef" type="file" accept="image/*" @change="handleStandbyUpload" />
             <span v-if="standbyError" class="error">{{ standbyError }}</span>
             <div v-if="draft.standbyThumb" class="preview">
-              <img :src="draft.standbyThumb" alt="대기화면 미리보기" />
+              <img :src="draft.standbyThumb" alt="대기화면 미리보기" @error="handleStandbyError" />
             </div>
+            <button type="button" class="btn ghost upload-clear" @click="clearStandby">이미지 삭제</button>
           </label>
         </div>
       </div>
@@ -452,15 +694,15 @@ watch(
               </div>
               <div class="product-grid">
                 <label
-                  v-for="product in filteredProducts"
-                  :key="product.id"
-                  class="product-card"
-                  :class="{ checked: isSelected(product.id, modalProducts) }"
+                    v-for="product in filteredProducts"
+                    :key="product.id"
+                    class="product-card"
+                    :class="{ checked: isSelected(product.id, modalProducts) }"
                 >
                   <input
-                    type="checkbox"
-                    :checked="isSelected(product.id, modalProducts)"
-                    @change="toggleProductInModal(product)"
+                      type="checkbox"
+                      :checked="isSelected(product.id, modalProducts)"
+                      @change="toggleProductInModal(product)"
                   />
                   <div class="product-thumb" v-if="product.thumb">
                     <img :src="product.thumb" :alt="product.name" />
@@ -682,6 +924,16 @@ input[type='file'] {
   display: block;
 }
 
+.upload-filename {
+  margin: 6px 0 0;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.upload-clear {
+  margin-top: 6px;
+}
+
 .checkbox {
   display: inline-flex;
   align-items: center;
@@ -822,7 +1074,7 @@ input[type='file'] {
 
 .product-card.checked {
   border-color: var(--primary-color);
-  box-shadow: 0 0 0 2px var(--primary-color-light, rgba(45, 127, 249, 0.2));
+  box-shadow: 0 0 0 2px rgba(45, 127, 249, 0.2);
 }
 
 .product-thumb {

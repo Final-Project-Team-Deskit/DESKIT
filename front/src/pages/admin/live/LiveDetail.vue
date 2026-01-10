@@ -1,14 +1,35 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ADMIN_LIVES_EVENT, getAdminLiveSummaries, stopAdminLiveBroadcast } from '../../../lib/mocks/adminLives'
+import {
+  fetchAdminBroadcastDetail,
+  fetchBroadcastProducts,
+  fetchBroadcastStats,
+  fetchRecentLiveChats,
+  stopAdminBroadcast,
+} from '../../../lib/live/api'
+import { parseLiveDate } from '../../../lib/live/utils'
+import { computeLifecycleStatus, getScheduledEndMs, normalizeBroadcastStatus } from '../../../lib/broadcastStatus'
 
 const route = useRoute()
 const router = useRouter()
 
 const liveId = computed(() => (typeof route.params.liveId === 'string' ? route.params.liveId : ''))
 
-const detail = ref<ReturnType<typeof getAdminLiveSummaries>[number] | null>(null)
+type AdminDetail = {
+  id: string
+  title: string
+  sellerName: string
+  startedAt: string
+  scheduledAt?: string
+  status: string
+  viewers: number
+  reports: number
+  likes: number
+  elapsed: string
+}
+
+const detail = ref<AdminDetail | null>(null)
 
 const stageRef = ref<HTMLDivElement | null>(null)
 const isFullscreen = ref(false)
@@ -20,78 +41,33 @@ const showChat = ref(true)
 const chatText = ref('')
 const chatMessages = ref<{ id: string; user: string; text: string; time: string }[]>([])
 const chatListRef = ref<HTMLDivElement | null>(null)
-const seededLiveId = ref('')
 const showModerationModal = ref(false)
 const moderationTarget = ref<{ user: string } | null>(null)
 const moderationType = ref('')
 const moderationReason = ref('')
 const moderatedUsers = ref<Record<string, { type: string; reason: string; at: string }>>({})
 const activePane = ref<'monitor' | 'products'>('monitor')
-const liveProducts = ref(
-    [
-      {
-        id: 'p-1',
-        name: '모던 스탠딩 데스크',
-        option: '1200mm · 오프화이트',
-        price: '₩229,000',
-        sale: '₩189,000',
-        status: '판매중',
-        thumb: '',
-        sold: 128,
-        stock: 42,
-      },
-      {
-        id: 'p-2',
-        name: '무선 기계식 키보드',
-        option: '갈축 · 무선',
-        price: '₩139,000',
-        sale: '₩109,000',
-        status: '판매중',
-        thumb: '',
-        sold: 93,
-        stock: 65,
-      },
-      {
-        id: 'p-3',
-        name: '프리미엄 데스크 매트',
-        option: '900mm · 샌드',
-        price: '₩59,000',
-        sale: '₩45,000',
-        status: '품절',
-        thumb: '',
-        sold: 210,
-        stock: 0,
-      },
-      {
-        id: 'p-4',
-        name: '알루미늄 모니터암',
-        option: '싱글 · 블랙',
-        price: '₩169,000',
-        sale: '₩129,000',
-        status: '판매중',
-        thumb: '',
-        sold: 77,
-        stock: 18,
-      },
-    ],
-)
-const gradientPalette = ['111827', '0f172a', '1f2937', '334155'] as const
-
-const gradientThumb = (from: string, to: string) =>
-    `data:image/svg+xml;utf8,` +
-    `<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 320 200'>` +
-    `<defs><linearGradient id='g' x1='0' x2='1' y1='0' y2='1'>` +
-    `<stop offset='0' stop-color='%23${from}'/>` +
-    `<stop offset='1' stop-color='%23${to}'/>` +
-    `</linearGradient></defs>` +
-    `<rect width='320' height='200' fill='url(%23g)'/>` +
-    `</svg>`
-const seedProductThumbs = () => {
-  liveProducts.value = liveProducts.value.map((item, index) => ({
-    ...item,
-    thumb: gradientThumb(gradientPalette[index % gradientPalette.length], '0f172a'),
-  }))
-}
+const liveProducts = ref<
+  Array<{
+    id: string
+    name: string
+    option: string
+    price: string
+    sale: string
+    status: string
+    thumb: string
+    sold: number
+    stock: number
+  }>
+>([])
+const sseSource = ref<EventSource | null>(null)
+const sseConnected = ref(false)
+const sseRetryCount = ref(0)
+const sseRetryTimer = ref<number | null>(null)
+const statsTimer = ref<number | null>(null)
+const refreshTimer = ref<number | null>(null)
+const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080'
+const FALLBACK_IMAGE = 'data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs='
 
 const reasonOptions = [
   '음란물',
@@ -104,14 +80,6 @@ const reasonOptions = [
   '기타',
 ]
 
-const seedChat = (id: string) => {
-  chatMessages.value = [
-    { id: `${id}-c1`, user: '관리자', text: '상태 모니터링 중입니다.', time: '오후 2:10' },
-    { id: `${id}-c2`, user: '시청자A', text: '화질 좋네요.', time: '오후 2:11' },
-    { id: `${id}-c3`, user: '시청자B', text: '상품 정보 공유 부탁해요.', time: '오후 2:12' },
-  ]
-}
-
 const goBack = () => {
   router.back()
 }
@@ -120,19 +88,302 @@ const goToList = () => {
   router.push('/admin/live?tab=live').catch(() => {})
 }
 
-const loadDetail = () => {
-  const items = getAdminLiveSummaries()
-  detail.value = items.find((item) => item.id === liveId.value) ?? items[0] ?? null
-  const seedId = liveId.value || items[0]?.id || 'live'
-  if (seededLiveId.value !== seedId) {
-    chatMessages.value = []
-    seedChat(seedId)
-    seededLiveId.value = seedId
+const formatElapsed = (startAt?: string) => {
+  if (!startAt) return '00:00:00'
+  const started = parseLiveDate(startAt)
+  if (Number.isNaN(started.getTime())) return '00:00:00'
+  const diff = Math.max(0, Date.now() - started.getTime())
+  const totalSeconds = Math.floor(diff / 1000)
+  const hours = Math.floor(totalSeconds / 3600)
+  const minutes = Math.floor((totalSeconds % 3600) / 60)
+  const seconds = totalSeconds % 60
+  return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`
+}
+
+const handleImageError = (event: Event) => {
+  const target = event.target as HTMLImageElement | null
+  if (!target || target.dataset.fallbackApplied) return
+  target.dataset.fallbackApplied = 'true'
+  target.src = FALLBACK_IMAGE
+}
+
+const formatChatTime = (timestamp?: number) => {
+  if (!timestamp) return ''
+  const date = new Date(timestamp)
+  const hours = date.getHours()
+  const displayHour = hours % 12 || 12
+  const minutes = String(date.getMinutes()).padStart(2, '0')
+  return `${hours >= 12 ? '오후' : '오전'} ${displayHour}:${minutes}`
+}
+
+const mapLiveProduct = (item: {
+  id: string
+  name: string
+  price: number
+  isSoldOut: boolean
+  imageUrl?: string
+  totalQty?: number
+  stockQty?: number
+}) => {
+  const totalQty = item.totalQty ?? item.stockQty ?? 0
+  const stockQty = item.stockQty ?? totalQty
+  const sold = Math.max(0, totalQty - stockQty)
+  return {
+    id: item.id,
+    name: item.name,
+    option: item.name,
+    price: `₩${item.price.toLocaleString('ko-KR')}`,
+    sale: `₩${item.price.toLocaleString('ko-KR')}`,
+    status: item.isSoldOut ? '품절' : '판매중',
+    thumb: item.imageUrl ?? '',
+    sold,
+    stock: stockQty,
   }
 }
 
+const sortedLiveProducts = computed(() => {
+  return [...liveProducts.value].sort((a, b) => {
+    const aSoldOut = a.status === '품절'
+    const bSoldOut = b.status === '품절'
+    if (aSoldOut !== bSoldOut) return aSoldOut ? 1 : -1
+    return 0
+  })
+})
+
+const loadDetail = async () => {
+  if (!liveId.value) {
+    detail.value = null
+    liveProducts.value = []
+    chatMessages.value = []
+    return
+  }
+  const idValue = Number(liveId.value)
+  if (Number.isNaN(idValue)) {
+    detail.value = null
+    return
+  }
+
+  try {
+    const [detailResponse, statsResponse, productsResponse, chatResponse] = await Promise.all([
+      fetchAdminBroadcastDetail(idValue),
+      fetchBroadcastStats(idValue).catch(() => null),
+      fetchBroadcastProducts(idValue).catch(() => []),
+      fetchRecentLiveChats(idValue, 300).catch(() => []),
+    ])
+
+    const viewers = statsResponse?.viewerCount ?? detailResponse.totalViews ?? 0
+    const likes = statsResponse?.likeCount ?? detailResponse.totalLikes ?? 0
+    const reports = statsResponse?.reportCount ?? detailResponse.totalReports ?? 0
+    const startedAt = detailResponse.startedAt ?? detailResponse.scheduledAt ?? ''
+    const scheduledAt = detailResponse.scheduledAt ?? ''
+
+    detail.value = {
+      id: String(detailResponse.broadcastId),
+      title: detailResponse.title,
+      sellerName: detailResponse.sellerName ?? '',
+      startedAt,
+      scheduledAt,
+      status: detailResponse.status ?? '',
+      viewers,
+      reports,
+      likes,
+      elapsed: formatElapsed(startedAt),
+    }
+
+    liveProducts.value = productsResponse.map((item) => mapLiveProduct(item))
+
+    chatMessages.value = chatResponse.map((item) => ({
+      id: `${item.sentAt}-${item.sender}`,
+      user: item.sender || item.memberEmail || '시청자',
+      text: item.content,
+      time: formatChatTime(item.sentAt),
+    }))
+    await nextTick()
+    const el = chatListRef.value
+    if (el) {
+      el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
+    }
+  } catch {
+    detail.value = null
+    liveProducts.value = []
+    chatMessages.value = []
+  }
+}
+
+const refreshStats = async (broadcastId: number) => {
+  if (!detail.value) return
+  try {
+    const stats = await fetchBroadcastStats(broadcastId)
+    detail.value = {
+      ...detail.value,
+      viewers: stats.viewerCount ?? detail.value.viewers,
+      likes: stats.likeCount ?? detail.value.likes,
+      reports: stats.reportCount ?? detail.value.reports,
+    }
+  } catch {
+    return
+  }
+}
+
+const refreshProducts = async (broadcastId: number) => {
+  try {
+    const products = await fetchBroadcastProducts(broadcastId)
+    liveProducts.value = products.map((item) => mapLiveProduct(item))
+  } catch {
+    return
+  }
+}
+
+const refreshDetail = async (broadcastId: number) => {
+  try {
+    const detailResponse = await fetchAdminBroadcastDetail(broadcastId)
+    if (!detail.value) return
+    const startedAt = detailResponse.startedAt ?? detailResponse.scheduledAt ?? ''
+    const scheduledAt = detailResponse.scheduledAt ?? ''
+    detail.value = {
+      ...detail.value,
+      title: detailResponse.title,
+      sellerName: detailResponse.sellerName ?? detail.value.sellerName,
+      startedAt,
+      scheduledAt,
+      status: detailResponse.status ?? detail.value.status,
+      elapsed: formatElapsed(startedAt),
+    }
+  } catch {
+    return
+  }
+}
+
+const lifecycleStatus = computed(() => {
+  if (!detail.value) return 'RESERVED'
+  const baseTime = detail.value.startedAt || detail.value.scheduledAt
+  const startAtMs = baseTime ? parseLiveDate(baseTime).getTime() : NaN
+  const endAtMs = Number.isNaN(startAtMs) ? undefined : getScheduledEndMs(startAtMs)
+  return computeLifecycleStatus({
+    status: normalizeBroadcastStatus(detail.value.status),
+    startAtMs: Number.isNaN(startAtMs) ? undefined : startAtMs,
+    endAtMs,
+  })
+})
+
+const isInteractive = computed(() => lifecycleStatus.value === 'ON_AIR')
+
+const parseSseData = (event: MessageEvent) => {
+  if (!event.data) return null
+  try {
+    return JSON.parse(event.data)
+  } catch {
+    return event.data
+  }
+}
+
+const scheduleRefresh = (broadcastId: number) => {
+  if (refreshTimer.value) window.clearTimeout(refreshTimer.value)
+  refreshTimer.value = window.setTimeout(() => {
+    void refreshDetail(broadcastId)
+    void refreshStats(broadcastId)
+    void refreshProducts(broadcastId)
+  }, 500)
+}
+
+const handleSseEvent = (event: MessageEvent) => {
+  const idValue = Number(liveId.value)
+  if (Number.isNaN(idValue)) return
+  const data = parseSseData(event)
+  switch (event.type) {
+    case 'BROADCAST_READY':
+    case 'BROADCAST_UPDATED':
+    case 'BROADCAST_STARTED':
+      scheduleRefresh(idValue)
+      break
+    case 'PRODUCT_PINNED':
+    case 'PRODUCT_SOLD_OUT':
+      scheduleRefresh(idValue)
+      break
+    case 'SANCTION_UPDATED':
+      scheduleRefresh(idValue)
+      break
+    case 'BROADCAST_CANCELED':
+      alert('방송이 자동 취소되었습니다.')
+      goToList()
+      break
+    case 'BROADCAST_ENDED':
+      alert('방송이 종료되었습니다.')
+      void refreshDetail(idValue)
+      break
+    case 'BROADCAST_SCHEDULED_END':
+      if (window.confirm('방송이 종료되었습니다.')) {
+        goToList()
+      }
+      break
+    case 'BROADCAST_STOPPED':
+      if (detail.value) {
+        detail.value.status = 'STOPPED'
+      }
+      scheduleRefresh(idValue)
+      if (window.confirm(typeof data === 'string' ? data : '관리자에 의해 방송이 중지되었습니다.')) {
+        goToList()
+      }
+      break
+    default:
+      break
+  }
+}
+
+const scheduleReconnect = (broadcastId: number) => {
+  if (sseRetryTimer.value) window.clearTimeout(sseRetryTimer.value)
+  const delay = Math.min(30000, 1000 * 2 ** sseRetryCount.value)
+  const jitter = Math.floor(Math.random() * 500)
+  sseRetryTimer.value = window.setTimeout(() => {
+    connectSse(broadcastId)
+  }, delay + jitter)
+  sseRetryCount.value += 1
+}
+
+const connectSse = (broadcastId: number) => {
+  if (sseSource.value) {
+    sseSource.value.close()
+  }
+  const source = new EventSource(`${apiBase}/api/broadcasts/${broadcastId}/subscribe`)
+  const events = [
+    'BROADCAST_READY',
+    'BROADCAST_UPDATED',
+    'BROADCAST_STARTED',
+    'PRODUCT_PINNED',
+    'PRODUCT_SOLD_OUT',
+    'SANCTION_UPDATED',
+    'BROADCAST_ENDING_SOON',
+    'BROADCAST_CANCELED',
+    'BROADCAST_ENDED',
+    'BROADCAST_SCHEDULED_END',
+    'BROADCAST_STOPPED',
+  ]
+  events.forEach((name) => source.addEventListener(name, handleSseEvent))
+  source.onopen = () => {
+    sseConnected.value = true
+    sseRetryCount.value = 0
+    scheduleRefresh(broadcastId)
+  }
+  source.onerror = () => {
+    sseConnected.value = false
+    source.close()
+    if (document.visibilityState === 'visible') {
+      scheduleReconnect(broadcastId)
+    }
+  }
+  sseSource.value = source
+}
+
+const startStatsPolling = (broadcastId: number) => {
+  if (statsTimer.value) window.clearInterval(statsTimer.value)
+  statsTimer.value = window.setInterval(() => {
+    void refreshStats(broadcastId)
+    void refreshProducts(broadcastId)
+  }, 30000)
+}
+
 const openStopConfirm = () => {
-  if (!detail.value || detail.value.status === 'STOPPED') return
+  if (!detail.value || detail.value.status === 'STOPPED' || !isInteractive.value) return
   showStopModal.value = true
   error.value = ''
 }
@@ -156,11 +407,17 @@ const handleStopSave = () => {
   }
   const ok = window.confirm('방송 송출을 중지하시겠습니까?')
   if (!ok) return
-  stopAdminLiveBroadcast(detail.value.id, {
-    reason: stopReason.value,
-    detail: stopReason.value === '기타' ? stopDetail.value.trim() : undefined,
-  })
-  showStopModal.value = false
+  const reason = stopReason.value === '기타' ? stopDetail.value.trim() : stopReason.value
+  stopAdminBroadcast(Number(detail.value.id), reason)
+    .then(() => {
+      if (detail.value) {
+        detail.value.status = 'STOPPED'
+      }
+    })
+    .catch(() => {})
+    .finally(() => {
+      showStopModal.value = false
+    })
 }
 
 const syncFullscreen = () => {
@@ -194,6 +451,7 @@ const closeChat = () => {
 }
 
 const sendChat = () => {
+  if (!isInteractive.value) return
   if (!chatText.value.trim()) return
   const now = new Date()
   const time = `${now.getHours()}시 ${String(now.getMinutes()).padStart(2, '0')}분`
@@ -210,6 +468,7 @@ const sendChat = () => {
 }
 
 const openModeration = (msg: { user: string }) => {
+  if (!isInteractive.value) return
   if (msg.user === 'SYSTEM' || msg.user === '관리자') return
   console.log('[admin chat] moderation open', msg.user)
   moderationTarget.value = { user: msg.user }
@@ -262,18 +521,44 @@ const saveModeration = () => {
 }
 
 onMounted(() => {
-  loadDetail()
-  seedProductThumbs()
   document.addEventListener('fullscreenchange', syncFullscreen)
-  window.addEventListener(ADMIN_LIVES_EVENT, loadDetail)
 })
 
 onBeforeUnmount(() => {
   document.removeEventListener('fullscreenchange', syncFullscreen)
-  window.removeEventListener(ADMIN_LIVES_EVENT, loadDetail)
+  sseSource.value?.close()
+  sseSource.value = null
+  sseConnected.value = false
+  if (sseRetryTimer.value) window.clearTimeout(sseRetryTimer.value)
+  sseRetryTimer.value = null
+  if (statsTimer.value) window.clearInterval(statsTimer.value)
+  statsTimer.value = null
+  if (refreshTimer.value) window.clearTimeout(refreshTimer.value)
+  refreshTimer.value = null
 })
 
-watch(liveId, loadDetail, { immediate: true })
+watch(
+  liveId,
+  (value) => {
+    loadDetail()
+    const idValue = Number(value)
+    if (!Number.isNaN(idValue)) {
+      connectSse(idValue)
+      startStatsPolling(idValue)
+    } else {
+      sseSource.value?.close()
+      sseSource.value = null
+      sseConnected.value = false
+      if (sseRetryTimer.value) window.clearTimeout(sseRetryTimer.value)
+      sseRetryTimer.value = null
+      if (statsTimer.value) window.clearInterval(statsTimer.value)
+      statsTimer.value = null
+      if (refreshTimer.value) window.clearTimeout(refreshTimer.value)
+      refreshTimer.value = null
+    }
+  },
+  { immediate: true },
+)
 </script>
 
 <template>
@@ -380,7 +665,7 @@ watch(liveId, loadDetail, { immediate: true })
                   <div class="chat-meta">
                     <span class="chat-user">{{ msg.user }}</span>
                     <span class="chat-time">{{ msg.time }}</span>
-                    <span v-if="msg.user !== 'SYSTEM' && moderatedUsers[msg.user]" class="chat-badge">{{ moderatedUsers[msg.user].type }}</span>
+                    <span v-if="msg.user !== 'SYSTEM' && moderatedUsers[msg.user]" class="chat-badge">{{ moderatedUsers[msg.user]?.type }}</span>
                   </div>
                   <p class="chat-text">{{ msg.text }}</p>
                 </div>
@@ -402,9 +687,9 @@ watch(liveId, loadDetail, { immediate: true })
             <span class="pill">총 {{ liveProducts.length }}개</span>
           </header>
           <div class="product-list">
-            <article v-for="product in liveProducts" :key="product.id" class="product-row">
+            <article v-for="product in sortedLiveProducts" :key="product.id" class="product-row">
               <div class="product-thumb">
-                <img :src="product.thumb" :alt="product.name" loading="lazy" />
+                <img :src="product.thumb" :alt="product.name" loading="lazy" @error="handleImageError" />
               </div>
               <div class="product-meta">
                 <p class="product-name">{{ product.name }}</p>
@@ -689,7 +974,7 @@ watch(liveId, loadDetail, { immediate: true })
   height: 18px;
   stroke: currentColor;
   fill: none;
-  stroke-width: 1.8px;
+  stroke-width: 2px;
 }
 
 .chat-panel {

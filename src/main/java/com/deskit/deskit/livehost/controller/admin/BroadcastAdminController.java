@@ -8,6 +8,8 @@ import com.deskit.deskit.livehost.common.exception.BusinessException;
 import com.deskit.deskit.livehost.common.exception.ErrorCode;
 import com.deskit.deskit.livehost.dto.request.BroadcastSearch;
 import com.deskit.deskit.livehost.dto.request.SanctionRequest;
+import com.deskit.deskit.livehost.dto.request.VodStatusRequest;
+import com.deskit.deskit.livehost.dto.response.BroadcastResponse;
 import com.deskit.deskit.livehost.dto.response.BroadcastResultResponse;
 import com.deskit.deskit.livehost.dto.response.SanctionStatisticsResponse;
 import com.deskit.deskit.livehost.dto.response.StatisticsResponse;
@@ -19,6 +21,7 @@ import org.springframework.data.web.PageableDefault;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.userdetails.UserDetails;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.ModelAttribute;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -46,6 +49,15 @@ public class BroadcastAdminController {
     ) {
         return ResponseEntity.ok(ApiResult.success(
                 broadcastService.getAdminBroadcasts(searchCondition, pageable)
+        ));
+    }
+
+    @GetMapping("/broadcasts/{broadcastId}")
+    public ResponseEntity<ApiResult<BroadcastResponse>> getBroadcastDetail(
+            @PathVariable Long broadcastId
+    ) {
+        return ResponseEntity.ok(ApiResult.success(
+                broadcastService.getAdminBroadcastDetail(broadcastId)
         ));
     }
 
@@ -103,6 +115,24 @@ public class BroadcastAdminController {
         return ResponseEntity.ok(ApiResult.success(
                 broadcastService.getBroadcastResult(broadcastId, null, true)
         ));
+    }
+
+    @PutMapping("/broadcasts/{broadcastId}/vod/visibility")
+    public ResponseEntity<ApiResult<String>> updateVodVisibility(
+            @PathVariable Long broadcastId,
+            @RequestBody VodStatusRequest request
+    ) {
+        return ResponseEntity.ok(ApiResult.success(
+                broadcastService.updateAdminVodVisibility(broadcastId, request.getStatus())
+        ));
+    }
+
+    @DeleteMapping("/broadcasts/{broadcastId}/vod")
+    public ResponseEntity<ApiResult<Void>> deleteVod(
+            @PathVariable Long broadcastId
+    ) {
+        broadcastService.deleteAdminVod(broadcastId);
+        return ResponseEntity.ok(ApiResult.success(null));
     }
 
     private Long resolveAdminId(Authentication authentication) {

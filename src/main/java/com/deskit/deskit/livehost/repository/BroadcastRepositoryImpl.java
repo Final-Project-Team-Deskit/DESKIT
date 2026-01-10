@@ -208,6 +208,8 @@ public class BroadcastRepositoryImpl implements BroadcastRepositoryCustom {
         return broadcastStatus.in(
                         BroadcastStatus.ON_AIR.name(),
                         BroadcastStatus.READY.name(),
+                        BroadcastStatus.ENDED.name(),
+                        BroadcastStatus.STOPPED.name(),
                         BroadcastStatus.RESERVED.name()
                 )
                 .or(vodStatus.eq(VodStatus.PUBLIC.name()));
@@ -236,13 +238,18 @@ public class BroadcastRepositoryImpl implements BroadcastRepositoryCustom {
             return trueCondition();
         }
         if ("LIVE".equalsIgnoreCase(tab)) {
-            return broadcastStatus.in(BroadcastStatus.ON_AIR.name(), BroadcastStatus.READY.name());
+            return broadcastStatus.in(
+                    BroadcastStatus.ON_AIR.name(),
+                    BroadcastStatus.READY.name(),
+                    BroadcastStatus.ENDED.name(),
+                    BroadcastStatus.STOPPED.name()
+            );
         }
         if ("RESERVED".equalsIgnoreCase(tab)) {
             return broadcastStatus.in(BroadcastStatus.RESERVED.name(), BroadcastStatus.CANCELED.name());
         }
         if ("VOD".equalsIgnoreCase(tab)) {
-            return broadcastStatus.in(BroadcastStatus.VOD.name(), BroadcastStatus.ENDED.name(), BroadcastStatus.STOPPED.name());
+            return broadcastStatus.in(BroadcastStatus.VOD.name());
         }
         return trueCondition();
     }
@@ -257,12 +264,35 @@ public class BroadcastRepositoryImpl implements BroadcastRepositoryCustom {
         if ("SALES".equalsIgnoreCase(sort)) {
             return totalSales.desc();
         }
+        if ("SALES_ASC".equalsIgnoreCase(sort)) {
+            return totalSales.asc();
+        }
+
+        if ("VIEWER_DESC".equalsIgnoreCase(sort)) {
+            return totalViews.desc();
+        }
+        if ("VIEWER_ASC".equalsIgnoreCase(sort)) {
+            return totalViews.asc();
+        }
 
         if ("POPULAR".equalsIgnoreCase(sort) || "VIEWER".equalsIgnoreCase(sort)) {
             if ("VOD".equalsIgnoreCase(tab)) {
                 return totalViews.desc();
             }
             return startedAt.desc().nullsLast();
+        }
+
+        if ("LATEST".equalsIgnoreCase(sort)) {
+            if ("RESERVED".equalsIgnoreCase(tab)) {
+                return scheduledAt.desc().nullsLast();
+            }
+            return startedAt.desc().nullsLast();
+        }
+        if ("OLDEST".equalsIgnoreCase(sort)) {
+            if ("RESERVED".equalsIgnoreCase(tab)) {
+                return scheduledAt.asc().nullsLast();
+            }
+            return startedAt.asc().nullsLast();
         }
 
         if ("LIKE_DESC".equalsIgnoreCase(sort)) {

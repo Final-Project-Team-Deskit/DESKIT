@@ -2,10 +2,11 @@
 import { nextTick, ref } from 'vue'
 import { Swiper, SwiperSlide } from 'swiper/vue'
 import type { Swiper as SwiperClass } from 'swiper'
+import type { NavigationOptions } from 'swiper/types'
 import { Autoplay, Pagination, Navigation } from 'swiper/modules'
 
 import LiveCard from './LiveCard.vue'
-import type { LiveItem } from '../lib/home-data'
+import type { LiveItem } from '../lib/live/types'
 
 defineProps<{
   items: LiveItem[]
@@ -22,12 +23,8 @@ const handleSwiper = (swiper: SwiperClass) => {
     }
 
     const rawNavigation = swiper.params.navigation
-    const navigation =
-      typeof rawNavigation === 'boolean' || !rawNavigation ? {} : rawNavigation
-    const navigationParams = navigation as {
-      prevEl?: Element | null
-      nextEl?: Element | null
-    }
+    const navigationParams: NavigationOptions =
+      typeof rawNavigation === 'object' && rawNavigation ? { ...rawNavigation } : {}
 
     navigationParams.prevEl = prevEl.value
     navigationParams.nextEl = nextEl.value
@@ -123,7 +120,7 @@ const handleSwiper = (swiper: SwiperClass) => {
 :deep(.swiper-slide-prev),
 :deep(.swiper-slide-next) {
   opacity: 0.55;
-  filter: blur(0.6px);
+  filter: blur(1px);
   transform: scale(0.975);
 }
 :deep(.swiper-slide-active) {

@@ -4,7 +4,6 @@ import { useRouter } from 'vue-router'
 import ConfirmModal from '../components/ConfirmModal.vue'
 import PageContainer from '../components/PageContainer.vue'
 import PageHeader from '../components/PageHeader.vue'
-import { liveItems } from '../lib/live/data'
 import {
   filterLivesByDay,
   getDayWindow,
@@ -12,12 +11,18 @@ import {
   parseLiveDate,
   sortLivesByStartAt,
 } from '../lib/live/utils'
+import { computeLifecycleStatus, getScheduledEndMs, normalizeBroadcastStatus, type BroadcastStatus } from '../lib/broadcastStatus'
 import type { LiveItem } from '../lib/live/types'
 import { useNow } from '../lib/live/useNow'
+import { fetchPublicBroadcastOverview } from '../lib/live/api'
+import { getAuthUser } from '../lib/auth'
+import { resolveViewerId } from '../lib/live/viewer'
 
 const router = useRouter()
 const today = new Date()
 const { now } = useNow(1000)
+
+const FALLBACK_IMAGE = 'data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs='
 
 const NOTIFY_KEY = 'deskit_live_notifications'
 const WATCH_HISTORY_CONSENT_KEY = 'deskit_live_watch_history_consent_v1'
@@ -26,7 +31,14 @@ const normalizeDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getD
 const toast = ref<{ message: string; variant: 'success' | 'neutral' } | null>(null)
 const showWatchHistoryConsent = ref(false)
 const pendingLiveId = ref<string | null>(null)
+const liveItems = ref<LiveItem[]>([])
 let toastTimer: ReturnType<typeof setTimeout> | null = null
+const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080'
+const sseSource = ref<EventSource | null>(null)
+const sseConnected = ref(false)
+const sseRetryCount = ref(0)
+const sseRetryTimer = ref<number | null>(null)
+const refreshTimer = ref<number | null>(null)
 
 const hasWatchHistoryConsent = () => {
   try {
@@ -62,7 +74,7 @@ const handleCancelWatchHistory = () => {
 }
 
 const dayWindow = computed(() => getDayWindow(today))
-const selectedDay = ref(normalizeDay(dayWindow.value[3]))
+const selectedDay = ref(normalizeDay(dayWindow.value[3] ?? today))
 
 const formatTime = (value: string) => {
   const time = parseLiveDate(value)
@@ -71,9 +83,43 @@ const formatTime = (value: string) => {
   return `${hours}:${minutes}`
 }
 
+const handleImageError = (event: Event) => {
+  const target = event.target as HTMLImageElement | null
+  if (!target || target.dataset.fallbackApplied) return
+  target.dataset.fallbackApplied = 'true'
+  target.src = FALLBACK_IMAGE
+}
+
+const getLifecycleStatus = (item: LiveItem): BroadcastStatus => {
+  const startAtMs = parseLiveDate(item.startAt).getTime()
+  const normalizedStart = Number.isNaN(startAtMs) ? undefined : startAtMs
+  const endAtMs = parseLiveDate(item.endAt).getTime()
+  const normalizedEnd = Number.isNaN(endAtMs) ? getScheduledEndMs(normalizedStart) : endAtMs
+  return computeLifecycleStatus({
+    status: normalizeBroadcastStatus(item.status),
+    startAtMs: normalizedStart,
+    endAtMs: normalizedEnd,
+  })
+}
+
 const getStatus = (item: LiveItem) => getLiveStatus(item, now.value)
+const getSectionStatus = (item: LiveItem) => {
+  const status = getLifecycleStatus(item)
+  if (status === 'RESERVED') return 'UPCOMING'
+  if (status === 'VOD') return 'ENDED'
+  return 'LIVE'
+}
+const isPastScheduledEnd = (item: LiveItem): boolean => {
+  const startAtMs = parseLiveDate(item.startAt).getTime()
+  const normalizedStart = Number.isNaN(startAtMs) ? undefined : startAtMs
+  const endAtMs = parseLiveDate(item.endAt).getTime()
+  const normalizedEnd = Number.isNaN(endAtMs) ? getScheduledEndMs(normalizedStart) : endAtMs
+  if (!normalizedEnd) return false
+  return Date.now() > normalizedEnd
+}
+const isRowDisabled = (item: LiveItem) => getLifecycleStatus(item) === 'RESERVED'
 const getCountdownLabel = (item: LiveItem) => {
-  if (getStatus(item) !== 'UPCOMING') {
+  if (getSectionStatus(item) !== 'UPCOMING') {
     return ''
   }
   const start = parseLiveDate(item.startAt)
@@ -108,13 +154,21 @@ const getCountdownLabel = (item: LiveItem) => {
 }
 
 const itemsForDay = computed(() => {
-  return sortLivesByStartAt(filterLivesByDay(liveItems, selectedDay.value))
+  const filtered = filterLivesByDay(liveItems.value, selectedDay.value)
+  const visible = filtered.filter((item) => {
+    const status = getLifecycleStatus(item)
+    if (status === 'VOD') return false
+    if (status === 'CANCELED') return false
+    if (status === 'STOPPED' && isPastScheduledEnd(item)) return false
+    return true
+  })
+  return sortLivesByStartAt(visible)
 })
 
-const liveItemsForDay = computed(() => itemsForDay.value.filter((item) => getStatus(item) === 'LIVE'))
-const upcomingItemsForDay = computed(() => itemsForDay.value.filter((item) => getStatus(item) === 'UPCOMING'))
+const liveItemsForDay = computed(() => itemsForDay.value.filter((item) => getSectionStatus(item) === 'LIVE'))
+const upcomingItemsForDay = computed(() => itemsForDay.value.filter((item) => getSectionStatus(item) === 'UPCOMING'))
 const endedItemsForDay = computed(() =>
-  [...itemsForDay.value].filter((item) => getStatus(item) === 'ENDED').reverse(),
+  [...itemsForDay.value].filter((item) => getSectionStatus(item) === 'ENDED').reverse(),
 )
 
 const orderedItems = computed(() => [
@@ -124,7 +178,7 @@ const orderedItems = computed(() => [
 ])
 
 const statusWeight = (item: LiveItem) => {
-  const s = getStatus(item)
+  const s = getSectionStatus(item)
   if (s === 'LIVE') return 0
   if (s === 'UPCOMING') return 1
   return 2
@@ -175,7 +229,7 @@ const formatDayLabel = (day: Date) => {
   return { label, date }
 }
 
-const getDayCount = (day: Date) => filterLivesByDay(liveItems, day).length
+const getDayCount = (day: Date) => filterLivesByDay(liveItems.value, day).length
 
 const selectDay = (day: Date) => {
   selectedDay.value = normalizeDay(day)
@@ -186,11 +240,11 @@ const selectToday = () => {
 }
 
 const handleRowClick = (item: LiveItem) => {
-  const status = getStatus(item)
-  if (status === 'UPCOMING') {
+  const lifecycleStatus = getLifecycleStatus(item)
+  if (lifecycleStatus === 'RESERVED') {
     return
   }
-  if (status === 'LIVE') {
+  if (lifecycleStatus !== 'VOD') {
     if (!hasWatchHistoryConsent()) {
       requestWatchHistoryConsent(item.id)
       return
@@ -198,9 +252,7 @@ const handleRowClick = (item: LiveItem) => {
     router.push({ name: 'live-detail', params: { id: item.id } })
     return
   }
-  if (status === 'ENDED') {
-    router.push({ name: 'vod', params: { id: item.id } })
-  }
+  router.push({ name: 'vod', params: { id: item.id } })
 }
 
 const isNotified = (id: string) => notifiedIds.value.has(id)
@@ -250,6 +302,110 @@ onMounted(() => {
   }
 })
 
+const mapToLiveItems = (items: Array<{ broadcastId: number; title: string; notice?: string; thumbnailUrl?: string; startAt?: string; endAt?: string; liveViewerCount?: number; viewerCount?: number; sellerName?: string; status?: string }>) =>
+  items
+    .filter((item) => item.startAt)
+    .map((item) => ({
+      id: String(item.broadcastId),
+      title: item.title,
+      description: item.notice ?? '',
+      thumbnailUrl: item.thumbnailUrl ?? '',
+      startAt: item.startAt ?? '',
+      endAt: item.endAt ?? item.startAt ?? '',
+      viewerCount: item.liveViewerCount ?? item.viewerCount ?? 0,
+      status: item.status,
+      sellerName: item.sellerName ?? '',
+    }))
+
+const loadBroadcasts = async () => {
+  try {
+    const items = await fetchPublicBroadcastOverview()
+    liveItems.value = mapToLiveItems(items)
+  } catch {
+    liveItems.value = []
+  }
+}
+
+const parseSseData = (event: MessageEvent) => {
+  if (!event.data) return null
+  try {
+    return JSON.parse(event.data)
+  } catch {
+    return event.data
+  }
+}
+
+const scheduleRefresh = () => {
+  if (refreshTimer.value) window.clearTimeout(refreshTimer.value)
+  refreshTimer.value = window.setTimeout(() => {
+    void loadBroadcasts()
+  }, 500)
+}
+
+const handleSseEvent = (event: MessageEvent) => {
+  parseSseData(event)
+  switch (event.type) {
+    case 'BROADCAST_READY':
+    case 'BROADCAST_UPDATED':
+    case 'BROADCAST_STARTED':
+    case 'PRODUCT_PINNED':
+    case 'PRODUCT_SOLD_OUT':
+    case 'SANCTION_UPDATED':
+    case 'BROADCAST_CANCELED':
+    case 'BROADCAST_ENDED':
+    case 'BROADCAST_SCHEDULED_END':
+    case 'BROADCAST_STOPPED':
+      scheduleRefresh()
+      break
+    default:
+      break
+  }
+}
+
+const scheduleReconnect = () => {
+  if (sseRetryTimer.value) window.clearTimeout(sseRetryTimer.value)
+  const delay = Math.min(30000, 1000 * 2 ** sseRetryCount.value)
+  const jitter = Math.floor(Math.random() * 500)
+  sseRetryTimer.value = window.setTimeout(() => {
+    connectSse()
+  }, delay + jitter)
+  sseRetryCount.value += 1
+}
+
+const connectSse = () => {
+  sseSource.value?.close()
+  const user = getAuthUser()
+  const viewerId = resolveViewerId(user)
+  const query = viewerId ? `?viewerId=${encodeURIComponent(viewerId)}` : ''
+  const source = new EventSource(`${apiBase}/api/broadcasts/subscribe/all${query}`)
+  const events = [
+    'BROADCAST_READY',
+    'BROADCAST_UPDATED',
+    'BROADCAST_STARTED',
+    'PRODUCT_PINNED',
+    'PRODUCT_SOLD_OUT',
+    'SANCTION_UPDATED',
+    'BROADCAST_CANCELED',
+    'BROADCAST_ENDED',
+    'BROADCAST_SCHEDULED_END',
+    'BROADCAST_STOPPED',
+  ]
+  events.forEach((name) => source.addEventListener(name, handleSseEvent))
+  source.onopen = () => {
+    sseConnected.value = true
+    sseRetryCount.value = 0
+    scheduleRefresh()
+  }
+  source.onerror = () => {
+    sseConnected.value = false
+    source.close()
+    if (document.visibilityState === 'visible') {
+      scheduleReconnect()
+    }
+  }
+  sseSource.value = source
+}
+
 watchEffect(() => {
   localStorage.setItem(NOTIFY_KEY, JSON.stringify(Array.from(notifiedIds.value)))
 })
@@ -258,6 +414,16 @@ onBeforeUnmount(() => {
   if (toastTimer) {
     clearTimeout(toastTimer)
   }
+  if (sseRetryTimer.value) window.clearTimeout(sseRetryTimer.value)
+  sseRetryTimer.value = null
+  if (refreshTimer.value) window.clearTimeout(refreshTimer.value)
+  refreshTimer.value = null
+  sseSource.value?.close()
+})
+
+onMounted(() => {
+  void loadBroadcasts()
+  connectSse()
 })
 </script>
 
@@ -305,15 +471,15 @@ onBeforeUnmount(() => {
             :key="item.id"
             class="live-card-row"
             :class="{
-              'row--clickable': getStatus(item) !== 'UPCOMING',
-              'row--disabled': getStatus(item) === 'UPCOMING',
+              'row--clickable': !isRowDisabled(item),
+              'row--disabled': isRowDisabled(item),
             }"
-            :aria-disabled="getStatus(item) === 'UPCOMING' ? 'true' : undefined"
-            :tabindex="getStatus(item) === 'UPCOMING' ? -1 : 0"
+            :aria-disabled="isRowDisabled(item) ? 'true' : undefined"
+            :tabindex="isRowDisabled(item) ? -1 : 0"
             @click="handleRowClick(item)"
             @keydown="(e) => handleRowKeydown(e, item)"
           >
-            <img class="thumb" :src="item.thumbnailUrl" :alt="item.title" />
+            <img class="thumb" :src="item.thumbnailUrl" :alt="item.title" @error="handleImageError" />
             <div class="meta">
               <div class="meta__title-row">
                 <h4 class="meta__title">{{ item.title }}</h4>
@@ -534,6 +700,7 @@ onBeforeUnmount(() => {
   overflow: hidden;
   display: -webkit-box;
   -webkit-line-clamp: 2;
+  line-clamp: 2;
   -webkit-box-orient: vertical;
   white-space: normal;
   line-height: 1.4;

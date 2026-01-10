@@ -6,34 +6,67 @@ import SockJS from 'sockjs-client/dist/sockjs'
 import PageContainer from '../components/PageContainer.vue'
 import PageHeader from '../components/PageHeader.vue'
 import ConfirmModal from '../components/ConfirmModal.vue'
-import { allLiveItems } from '../lib/home-data'
 import { getLiveStatus, parseLiveDate } from '../lib/live/utils'
 import { useNow } from '../lib/live/useNow'
-import { getProductsForLive, type LiveProductItem } from '../lib/live/detail'
 import { getAuthUser } from '../lib/auth'
+import { resolveViewerId } from '../lib/live/viewer'
+import { fetchBroadcastProducts, fetchBroadcastStats, fetchPublicBroadcastDetail, type BroadcastProductItem } from '../lib/live/api'
+import type { LiveItem } from '../lib/live/types'
+import { computeLifecycleStatus, getScheduledEndMs, normalizeBroadcastStatus } from '../lib/broadcastStatus'
 
 const route = useRoute()
 const router = useRouter()
 const { now } = useNow(1000)
 const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080'
+const sseSource = ref<EventSource | null>(null)
+const sseConnected = ref(false)
+const sseRetryCount = ref(0)
+const sseRetryTimer = ref<number | null>(null)
+const statsTimer = ref<number | null>(null)
+const refreshTimer = ref<number | null>(null)
+
+const FALLBACK_IMAGE = 'data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs='
 
 const liveId = computed(() => {
   const value = route.params.id
   return Array.isArray(value) ? value[0] : value
 })
 
-const liveItem = computed(() => {
-  if (!liveId.value) {
-    return undefined
-  }
-  return allLiveItems.find((item) => item.id === liveId.value)
-})
+const liveItem = ref<LiveItem | null>(null)
 
 const status = computed(() => {
   if (!liveItem.value) {
     return undefined
   }
   return getLiveStatus(liveItem.value, now.value)
+})
+
+const lifecycleStatus = computed(() => {
+  if (!liveItem.value) {
+    return 'RESERVED'
+  }
+  const startAtMs = parseLiveDate(liveItem.value.startAt).getTime()
+  const endAtMs = parseLiveDate(liveItem.value.endAt).getTime()
+  return computeLifecycleStatus({
+    status: normalizeBroadcastStatus(liveItem.value.status),
+    startAtMs: Number.isNaN(startAtMs) ? undefined : startAtMs,
+    endAtMs: Number.isNaN(endAtMs) ? undefined : endAtMs,
+  })
+})
+
+const scheduledEndMs = computed(() => {
+  if (!liveItem.value) return undefined
+  const startAtMs = parseLiveDate(liveItem.value.startAt).getTime()
+  return Number.isNaN(startAtMs) ? undefined : getScheduledEndMs(startAtMs)
+})
+
+const isChatEnabled = computed(() => lifecycleStatus.value === 'ON_AIR')
+const isProductEnabled = computed(() => {
+  if (lifecycleStatus.value === 'ON_AIR') return true
+  if (lifecycleStatus.value === 'ENDED') {
+    return scheduledEndMs.value ? Date.now() <= scheduledEndMs.value : false
+  }
+  return false
 })
 
 const statusLabel = computed(() => {
@@ -45,6 +78,13 @@ const statusLabel = computed(() => {
   }
   return '예정'
 })
+
+const handleImageError = (event: Event) => {
+  const target = event.target as HTMLImageElement | null
+  if (!target || target.dataset.fallbackApplied) return
+  target.dataset.fallbackApplied = 'true'
+  target.src = FALLBACK_IMAGE
+}
 
 const scheduledLabel = computed(() => {
   if (!liveItem.value) {
@@ -60,19 +100,62 @@ const scheduledLabel = computed(() => {
   return `${month}.${date} (${day}) ${hours}:${minutes} 예정`
 })
 
-const products = computed<LiveProductItem[]>(() => {
-  if (!liveId.value) {
-    return []
+const buildLiveItem = (detail: { broadcastId: number; title: string; notice?: string; thumbnailUrl?: string; scheduledAt?: string; startedAt?: string; sellerName?: string; status?: string }) => {
+  const startAt = detail.startedAt ?? detail.scheduledAt ?? ''
+  const startAtMs = startAt ? parseLiveDate(startAt).getTime() : NaN
+  const endAtMs = Number.isNaN(startAtMs) ? undefined : getScheduledEndMs(startAtMs)
+  const endAt = endAtMs ? new Date(endAtMs).toISOString() : ''
+  return {
+    id: String(detail.broadcastId),
+    title: detail.title,
+    description: detail.notice ?? '',
+    thumbnailUrl: detail.thumbnailUrl ?? '',
+    startAt,
+    endAt,
+    status: detail.status,
+    sellerName: detail.sellerName ?? '',
   }
-  return getProductsForLive(liveId.value)
-})
+}
+
+const loadDetail = async () => {
+  if (!broadcastId.value) return
+  try {
+    const detail = await fetchPublicBroadcastDetail(broadcastId.value)
+    liveItem.value = buildLiveItem(detail)
+  } catch {
+    liveItem.value = null
+  }
+}
+
+const loadStats = async () => {
+  if (!broadcastId.value || !liveItem.value) return
+  try {
+    const stats = await fetchBroadcastStats(broadcastId.value)
+    liveItem.value = {
+      ...liveItem.value,
+      viewerCount: stats.viewerCount ?? liveItem.value.viewerCount ?? 0,
+    }
+  } catch {
+    return
+  }
+}
+
+const loadProducts = async () => {
+  if (!broadcastId.value) {
+    products.value = []
+    return
+  }
+  try {
+    products.value = await fetchBroadcastProducts(broadcastId.value)
+  } catch {
+    products.value = []
+  }
+}
+
+const products = ref<BroadcastProductItem[]>([])
 const sortedProducts = computed(() => {
   const list = products.value.slice()
-  const withPinned = list.map((item, index) => ({
-    ...item,
-    isPinned: index === 0,
-  }))
-  return withPinned.sort((a, b) => {
+  return list.sort((a, b) => {
     if (a.isPinned && !b.isPinned) return -1
     if (!a.isPinned && b.isPinned) return 1
     if (a.isSoldOut && !b.isSoldOut) return 1
@@ -86,6 +169,7 @@ const formatPrice = (price: number) => {
 }
 
 const handleProductClick = (productId: string) => {
+  if (!isProductEnabled.value) return
   router.push({ name: 'product-detail', params: { id: productId } })
 }
 
@@ -156,29 +240,7 @@ type ChatMessage = {
   kind?: 'system' | 'user'
 }
 
-const messages = ref<ChatMessage[]>([
-  {
-    id: 'sys-1',
-    user: 'system',
-    text: '라이브에 오신 것을 환영합니다.',
-    at: new Date(Date.now() - 1000 * 60 * 6),
-    kind: 'system',
-  },
-  {
-    id: 'msg-1',
-    user: 'desklover',
-    text: '오늘 소개하는 제품이 기대돼요!',
-    at: new Date(Date.now() - 1000 * 60 * 4),
-    kind: 'user',
-  },
-  {
-    id: 'msg-2',
-    user: 'setup_master',
-    text: '채팅 참여하실 분 손들기 🙌',
-    at: new Date(Date.now() - 1000 * 60 * 2),
-    kind: 'user',
-  },
-])
+const messages = ref<ChatMessage[]>([])
 
 const input = ref('')
 const isLoggedIn = ref(true)
@@ -216,6 +278,127 @@ const scrollToBottom = () => {
     }
     chatListRef.value.scrollTop = chatListRef.value.scrollHeight
   })
+}
+
+const parseSseData = (event: MessageEvent) => {
+  if (!event.data) return null
+  try {
+    return JSON.parse(event.data)
+  } catch {
+    return event.data
+  }
+}
+
+const scheduleRefresh = () => {
+  if (refreshTimer.value) window.clearTimeout(refreshTimer.value)
+  refreshTimer.value = window.setTimeout(() => {
+    void loadDetail()
+    void loadStats()
+    void loadProducts()
+  }, 500)
+}
+
+const handleSseEvent = (event: MessageEvent) => {
+  const data = parseSseData(event)
+  switch (event.type) {
+    case 'BROADCAST_READY':
+    case 'BROADCAST_UPDATED':
+    case 'BROADCAST_STARTED':
+      scheduleRefresh()
+      break
+    case 'PRODUCT_PINNED':
+    case 'PRODUCT_SOLD_OUT':
+      scheduleRefresh()
+      break
+    case 'SANCTION_ALERT':
+      alert(typeof data === 'object' && data ? `${data.type} 제재가 적용되었습니다.` : '제재가 적용되었습니다.')
+      router.push({ name: 'live' }).catch(() => {})
+      break
+    case 'BROADCAST_CANCELED':
+      alert('방송이 자동 취소되었습니다.')
+      router.push({ name: 'live' }).catch(() => {})
+      break
+    case 'BROADCAST_ENDED':
+      alert('방송이 종료되었습니다.')
+      scheduleRefresh()
+      break
+    case 'BROADCAST_SCHEDULED_END':
+      if (window.confirm('방송이 종료되었습니다.')) {
+        router.push({ name: 'live' }).catch(() => {})
+      }
+      break
+    case 'BROADCAST_STOPPED':
+      if (liveItem.value) {
+        liveItem.value = {
+          ...liveItem.value,
+          status: 'STOPPED',
+        }
+      }
+      scheduleRefresh()
+      if (window.confirm(typeof data === 'string' ? data : '관리자에 의해 방송이 중지되었습니다.')) {
+        router.push({ name: 'live' }).catch(() => {})
+      }
+      break
+    default:
+      break
+  }
+}
+
+const scheduleReconnect = (id: number) => {
+  if (sseRetryTimer.value) window.clearTimeout(sseRetryTimer.value)
+  const delay = Math.min(30000, 1000 * 2 ** sseRetryCount.value)
+  const jitter = Math.floor(Math.random() * 500)
+  sseRetryTimer.value = window.setTimeout(() => {
+    connectSse(id)
+  }, delay + jitter)
+  sseRetryCount.value += 1
+}
+
+const connectSse = (id: number) => {
+  sseSource.value?.close()
+  const user = getAuthUser()
+  const viewerId = resolveViewerId(user)
+  const query = viewerId ? `?viewerId=${encodeURIComponent(viewerId)}` : ''
+  const source = new EventSource(`${apiBase}/api/broadcasts/${id}/subscribe${query}`)
+  const events = [
+    'BROADCAST_READY',
+    'BROADCAST_UPDATED',
+    'BROADCAST_STARTED',
+    'PRODUCT_PINNED',
+    'PRODUCT_SOLD_OUT',
+    'SANCTION_ALERT',
+    'BROADCAST_ENDING_SOON',
+    'BROADCAST_CANCELED',
+    'BROADCAST_ENDED',
+    'BROADCAST_SCHEDULED_END',
+    'BROADCAST_STOPPED',
+  ]
+  events.forEach((name) => source.addEventListener(name, handleSseEvent))
+  source.onopen = () => {
+    sseConnected.value = true
+    sseRetryCount.value = 0
+    scheduleRefresh()
+  }
+  source.onerror = () => {
+    sseConnected.value = false
+    source.close()
+    if (document.visibilityState === 'visible') {
+      scheduleReconnect(id)
+    }
+  }
+  sseSource.value = source
+}
+
+const startStatsPolling = () => {
+  if (statsTimer.value) window.clearInterval(statsTimer.value)
+  statsTimer.value = window.setInterval(() => {
+    if (lifecycleStatus.value === 'ON_AIR' || !sseConnected.value) {
+      void loadStats()
+      if (!sseConnected.value) {
+        void loadProducts()
+      }
+    }
+  }, 30000)
 }
 
 const appendMessage = (message: ChatMessage) => {
@@ -391,7 +574,7 @@ const markEnterMessageSent = () => {
 }
 
 const sendMessage = () => {
-  if (!isLoggedIn.value || !isChatConnected.value) {
+  if (!isChatEnabled.value || !isLoggedIn.value || !isChatConnected.value) {
     return
   }
   const trimmed = input.value.trim()
@@ -509,14 +692,43 @@ watch(
     if (value === previous) {
       return
     }
+    void loadDetail()
+    void loadProducts()
+    void loadStats()
     messages.value = []
     disconnectChat()
+    sseSource.value?.close()
+    sseSource.value = null
+    sseConnected.value = false
+    if (sseRetryTimer.value) window.clearTimeout(sseRetryTimer.value)
+    sseRetryTimer.value = null
+    if (statsTimer.value) window.clearInterval(statsTimer.value)
+    statsTimer.value = null
+    if (refreshTimer.value) window.clearTimeout(refreshTimer.value)
+    refreshTimer.value = null
     if (value) {
-      fetchRecentMessages()
-      connectChat()
+      if (isChatEnabled.value) {
+        fetchRecentMessages()
+        connectChat()
+      }
+      connectSse(value)
+      startStatsPolling()
     }
   },
   { immediate: true }
+)
+
+watch(
+  isChatEnabled,
+  (enabled) => {
+    if (!broadcastId.value) return
+    if (enabled) {
+      fetchRecentMessages()
+      connectChat()
+    } else {
+      disconnectChat()
+    }
+  },
 )
 
 onBeforeUnmount(() => {
@@ -529,6 +741,15 @@ onBeforeUnmount(() => {
   panelResizeObserver?.disconnect()
   window.removeEventListener('deskit-user-updated', handleAuthUpdate)
   disconnectChat()
+  sseSource.value?.close()
+  sseSource.value = null
+  sseConnected.value = false
+  if (sseRetryTimer.value) window.clearTimeout(sseRetryTimer.value)
+  sseRetryTimer.value = null
+  if (statsTimer.value) window.clearInterval(statsTimer.value)
+  statsTimer.value = null
+  if (refreshTimer.value) window.clearTimeout(refreshTimer.value)
+  refreshTimer.value = null
 })
 </script>
 
@@ -726,7 +947,7 @@ onBeforeUnmount(() => {
             class="product-card"
             @click="handleProductClick(product.id)"
           >
-            <img class="product-card__thumb" :src="product.imageUrl" :alt="product.name" />
+            <img class="product-card__thumb" :src="product.imageUrl" :alt="product.name" @error="handleImageError" />
             <div class="product-card__info">
               <p class="product-card__name">{{ product.name }}</p>
               <p class="product-card__price">{{ formatPrice(product.price) }}</p>
@@ -1003,7 +1224,7 @@ onBeforeUnmount(() => {
   height: 18px;
   stroke: currentColor;
   fill: none;
-  stroke-width: 1.7px;
+  stroke-width: 2px;
 }
 
 .chat-panel {
