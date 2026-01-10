@@ -195,7 +195,7 @@ type BroadcastPayload = {
   thumbnailUrl: string
   waitScreenUrl: string | null
   broadcastLayout: string
-  products: Array<{ productId: number; salePrice: number; quantity: number }>
+  products: Array<{ productId: number; bpPrice: number; bpQuantity: number }>
   qcards: Array<{ question: string }>
 }
 

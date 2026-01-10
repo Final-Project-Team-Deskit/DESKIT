@@ -80,7 +80,7 @@ const isSelected = (productId: string, source: LiveCreateProduct[] = draft.value
 const resolveMaxQuantity = (product: LiveCreateProduct) => {
   const stock = Number.isFinite(product.stock) ? product.stock : 0
   const safetyStock = Number.isFinite(product.safetyStock) ? product.safetyStock : 0
-  const reservedQty = Number.isFinite(product.reservedBroadcastQty) ? product.reservedBroadcastQty : 0
+  const reservedQty = typeof product.reservedBroadcastQty === 'number' ? product.reservedBroadcastQty : 0
   return Math.max(stock - safetyStock - reservedQty, 0)
 }
 
@@ -405,8 +405,8 @@ const submit = () => {
     broadcastLayout: 'FULL',
     products: draft.value.products.map((product) => ({
       productId: Number(product.id.replace('prod-', '')),
-      salePrice: product.broadcastPrice,
-      quantity: product.quantity,
+      bpPrice: product.broadcastPrice,
+      bpQuantity: product.quantity,
     })),
     qcards: draft.value.questions.map((q) => ({ question: q.text.trim() })).filter((q) => q.question.length > 0),
   }
