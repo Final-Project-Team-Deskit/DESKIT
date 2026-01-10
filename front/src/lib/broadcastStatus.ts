@@ -76,11 +76,11 @@ export const getBroadcastStatusLabel = (status?: BroadcastStatus | string | null
     case 'READY':
       return '준비 중'
     case 'ON_AIR':
-      return '방송 중'
+      return 'ON AIR'
     case 'ENDED':
       return '종료됨'
     case 'STOPPED':
-      return '중단됨'
+      return '중지됨'
     case 'CANCELED':
       return '취소됨'
     case 'VOD':
