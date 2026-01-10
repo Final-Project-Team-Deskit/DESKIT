@@ -6,10 +6,14 @@ import {
   fetchBroadcastProducts,
   fetchBroadcastStats,
   fetchRecentLiveChats,
+  joinBroadcast,
   stopAdminBroadcast,
 } from '../../../lib/live/api'
 import { parseLiveDate } from '../../../lib/live/utils'
+import { useNow } from '../../../lib/live/useNow'
 import { computeLifecycleStatus, getBroadcastStatusLabel, getScheduledEndMs, normalizeBroadcastStatus } from '../../../lib/broadcastStatus'
+import { getAuthUser } from '../../../lib/auth'
+import { resolveViewerId } from '../../../lib/live/viewer'
 
 const route = useRoute()
 const router = useRouter()
@@ -23,6 +27,8 @@ type AdminDetail = {
   startedAt: string
   scheduledAt?: string
   status: string
+  waitScreenUrl?: string
+  stoppedReason?: string
   viewers: number
   reports: number
   likes: number
@@ -30,7 +36,7 @@ type AdminDetail = {
 }
 
 const detail = ref<AdminDetail | null>(null)
-const statusLabel = computed(() => getBroadcastStatusLabel(detail.value?.status))
+const { now } = useNow(1000)
 
 const stageRef = ref<HTMLDivElement | null>(null)
 const isFullscreen = ref(false)
@@ -67,6 +73,8 @@ const sseRetryCount = ref(0)
 const sseRetryTimer = ref<number | null>(null)
 const statsTimer = ref<number | null>(null)
 const refreshTimer = ref<number | null>(null)
+const joinInFlight = ref(false)
+const streamToken = ref<string | null>(null)
 const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080'
 const FALLBACK_IMAGE = 'data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs='
 
@@ -185,6 +193,8 @@ const loadDetail = async () => {
       startedAt,
       scheduledAt,
       status: detailResponse.status ?? '',
+      waitScreenUrl: detailResponse.waitScreenUrl ?? '',
+      stoppedReason: detailResponse.stoppedReason ?? '',
       viewers,
       reports,
       likes,
@@ -248,6 +258,8 @@ const refreshDetail = async (broadcastId: number) => {
       startedAt,
       scheduledAt,
       status: detailResponse.status ?? detail.value.status,
+      waitScreenUrl: detailResponse.waitScreenUrl ?? detail.value.waitScreenUrl,
+      stoppedReason: detailResponse.stoppedReason ?? detail.value.stoppedReason,
       elapsed: formatElapsed(startedAt),
     }
   } catch {
@@ -267,7 +279,68 @@ const lifecycleStatus = computed(() => {
   })
 })
 
+const statusLabel = computed(() => getBroadcastStatusLabel(lifecycleStatus.value))
 const isInteractive = computed(() => lifecycleStatus.value === 'ON_AIR')
+const isReadOnly = computed(() => lifecycleStatus.value !== 'ON_AIR')
+const waitingScreenUrl = computed(() => detail.value?.waitScreenUrl ?? '')
+const readyCountdownLabel = computed(() => {
+  if (lifecycleStatus.value !== 'READY') return ''
+  const baseTime = detail.value?.scheduledAt ?? detail.value?.startedAt
+  if (!baseTime) return '방송 시작 대기 중'
+  const startAtMs = parseLiveDate(baseTime).getTime()
+  if (Number.isNaN(startAtMs)) return '방송 시작 대기 중'
+  const diffMs = startAtMs - now.value.getTime()
+  if (diffMs <= 0) return '방송 시작 대기 중'
+  const totalSeconds = Math.ceil(diffMs / 1000)
+  const minutes = Math.floor(totalSeconds / 60)
+  const seconds = totalSeconds % 60
+  return `${minutes}분 ${String(seconds).padStart(2, '0')}초 뒤 방송 시작`
+})
+const endedCountdownLabel = computed(() => {
+  if (lifecycleStatus.value !== 'ENDED') return ''
+  const baseTime = detail.value?.scheduledAt ?? detail.value?.startedAt
+  if (!baseTime) return '방송 종료'
+  const startAtMs = parseLiveDate(baseTime).getTime()
+  if (Number.isNaN(startAtMs)) return '방송 종료'
+  const scheduledEndMs = getScheduledEndMs(startAtMs)
+  if (!scheduledEndMs) return '방송 종료'
+  const diffMs = scheduledEndMs - now.value.getTime()
+  if (diffMs <= 0) return '방송 종료'
+  const totalSeconds = Math.ceil(diffMs / 1000)
+  const minutes = Math.floor(totalSeconds / 60)
+  const seconds = totalSeconds % 60
+  return `종료까지 ${minutes}분 ${String(seconds).padStart(2, '0')}초`
+})
+const playerMessage = computed(() => {
+  if (lifecycleStatus.value === 'STOPPED') {
+    return detail.value?.stoppedReason
+      ? `방송이 운영 정책 위반으로 송출 중지되었습니다. (${detail.value.stoppedReason})`
+      : '방송이 운영 정책 위반으로 송출 중지되었습니다.'
+  }
+  if (lifecycleStatus.value === 'ENDED') {
+    return '방송이 종료되었습니다.'
+  }
+  if (lifecycleStatus.value === 'READY') {
+    return readyCountdownLabel.value || '방송 시작 대기 중'
+  }
+  return ''
+})
+
+const requestJoinToken = async () => {
+  if (!detail.value) return
+  if (!['READY', 'ON_AIR'].includes(lifecycleStatus.value)) return
+  if (joinInFlight.value) return
+  joinInFlight.value = true
+  try {
+    const user = getAuthUser()
+    const viewerId = resolveViewerId(user)
+    streamToken.value = await joinBroadcast(Number(detail.value.id), viewerId)
+  } catch {
+    return
+  } finally {
+    joinInFlight.value = false
+  }
+}
 
 const parseSseData = (event: MessageEvent) => {
   if (!event.data) return null
@@ -378,8 +451,12 @@ const connectSse = (broadcastId: number) => {
 const startStatsPolling = (broadcastId: number) => {
   if (statsTimer.value) window.clearInterval(statsTimer.value)
   statsTimer.value = window.setInterval(() => {
-    void refreshStats(broadcastId)
-    void refreshProducts(broadcastId)
+    if (['READY', 'ON_AIR', 'ENDED'].includes(lifecycleStatus.value) || !sseConnected.value) {
+      void refreshStats(broadcastId)
+      if (!sseConnected.value) {
+        void refreshProducts(broadcastId)
+      }
+    }
   }, 30000)
 }
 
@@ -546,6 +623,7 @@ watch(
     if (!Number.isNaN(idValue)) {
       connectSse(idValue)
       startStatsPolling(idValue)
+      void requestJoinToken()
     } else {
       sseSource.value?.close()
       sseSource.value = null
@@ -559,6 +637,13 @@ watch(
     }
   },
   { immediate: true },
+)
+
+watch(
+  lifecycleStatus,
+  () => {
+    void requestJoinToken()
+  },
 )
 </script>
 
@@ -581,9 +666,12 @@ watch(
         <h3>{{ detail.title }}</h3>
         <p><span>판매자</span>{{ detail.sellerName }}</p>
         <p><span>방송 시작</span>{{ detail.startedAt }}</p>
+        <p v-if="detail.scheduledAt"><span>예약 시간</span>{{ detail.scheduledAt }}</p>
         <p><span>시청자 수</span>{{ detail.viewers }}명</p>
         <p><span>신고 건수</span>{{ detail.reports ?? 0 }}건</p>
         <p><span>상태</span>{{ statusLabel }}</p>
+        <p v-if="lifecycleStatus === 'READY'"><span>카운트다운</span>{{ readyCountdownLabel }}</p>
+        <p v-if="lifecycleStatus === 'ENDED'"><span>종료까지</span>{{ endedCountdownLabel }}</p>
       </div>
     </section>
 
@@ -646,7 +734,17 @@ watch(
                     </svg>
                   </button>
                 </div>
-                <div class="player-label">송출 화면</div>
+                <div v-if="isReadOnly" class="player-placeholder">
+                  <img
+                    v-if="waitingScreenUrl"
+                    class="player-placeholder__image"
+                    :src="waitingScreenUrl"
+                    alt="대기 화면"
+                    @error="handleImageError"
+                  />
+                  <p v-if="playerMessage" class="player-placeholder__message">{{ playerMessage }}</p>
+                </div>
+                <div v-else class="player-label">송출 화면</div>
               </div>
             </div>
 
@@ -672,14 +770,15 @@ watch(
                 </div>
               </div>
               <div class="chat-input">
-                <input v-model="chatText" type="text" placeholder="메시지를 입력하세요" />
-                <button type="button" class="btn primary" @click="sendChat">전송</button>
+                <input v-model="chatText" type="text" placeholder="메시지를 입력하세요" :disabled="isReadOnly" />
+                <button type="button" class="btn primary" :disabled="isReadOnly" @click="sendChat">전송</button>
               </div>
+              <p v-if="isReadOnly" class="chat-helper">방송 중에만 채팅을 이용할 수 있습니다.</p>
             </aside>
           </div>
         </div>
 
-        <div v-show="activePane === 'products'" id="products-pane" class="products-pane ds-surface">
+        <div v-show="activePane === 'products'" id="products-pane" class="products-pane ds-surface" :class="{ 'products-pane--readonly': isReadOnly }">
           <header class="products-head">
             <div>
               <h4>상품 정보</h4>
@@ -900,6 +999,32 @@ watch(
   color: rgba(255, 255, 255, 0.6);
   font-weight: 800;
   letter-spacing: 0.08em;
+}
+
+.player-placeholder {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  text-align: center;
+  background: rgba(6, 10, 18, 0.92);
+}
+
+.player-placeholder__image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.player-placeholder__message {
+  color: #f8fafc;
+  font-weight: 800;
+  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+  max-width: min(520px, 100%);
 }
 
 .player-overlay {
@@ -1336,6 +1461,17 @@ watch(
   padding: 16px;
   background: var(--surface);
   border: 1px solid var(--border-color);
+}
+
+.products-pane--readonly {
+  opacity: 0.6;
+}
+
+.chat-helper {
+  margin: 8px 0 0;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  font-weight: 700;
 }
 
 .products-head {
