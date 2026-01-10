@@ -649,7 +649,7 @@ const getTrackStyle = (kind: LoopKind) => {
 
 const handleLoopTransitionEnd = (kind: LoopKind) => {
   const items = loopItemsFor(kind)
-  if (!items.length) return
+  if (items.length <= 1 || !isCarouselOverflowing(kind)) return
   const lastIndex = items.length - 1
   if (loopIndex.value[kind] === lastIndex) {
     loopTransition.value[kind] = false
@@ -669,6 +669,10 @@ const handleLoopTransitionEnd = (kind: LoopKind) => {
 const stepCarousel = (kind: LoopKind, delta: -1 | 1) => {
   const items = loopItemsFor(kind)
   if (items.length <= 1) return
+  if (!isCarouselOverflowing(kind)) {
+    loopIndex.value[kind] = getBaseLoopIndex(kind)
+    return
+  }
   const lastIndex = items.length - 1
   loopTransition.value[kind] = true
   const nextIndex = loopIndex.value[kind] + delta
@@ -684,7 +688,10 @@ const stepCarousel = (kind: LoopKind, delta: -1 | 1) => {
 
 const startAutoLoop = (kind: LoopKind) => {
   stopAutoLoop(kind)
-  if (!isCarouselOverflowing(kind)) return
+  if (!isCarouselOverflowing(kind)) {
+    loopIndex.value[kind] = getBaseLoopIndex(kind)
+    return
+  }
   autoTimers.value[kind] = window.setInterval(() => {
     if (!isCarouselOverflowing(kind)) {
       stopAutoLoop(kind)
