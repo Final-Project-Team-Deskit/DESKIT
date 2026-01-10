@@ -11,6 +11,7 @@ import {
   createEmptyDraft,
   type LiveCreateDraft,
   type LiveCreateProduct,
+  loadWorkingDraft,
   loadDraft,
   saveDraft,
   saveWorkingDraft,
@@ -144,22 +145,27 @@ const syncDraft = () => {
 }
 
 const restoreDraft = async () => {
-  const savedDraft = loadDraft()
   let baseDraft = createEmptyDraft()
-  if (!isEditMode.value && savedDraft && (!savedDraft.reservationId || savedDraft.reservationId === reservationId.value)) {
-    const decision = getDraftRestoreDecision()
-    if (decision === 'accepted') {
-      baseDraft = { ...createEmptyDraft(), ...savedDraft }
-    } else if (decision === 'declined') {
-      clearDraft()
-    } else {
-      const shouldRestore = window.confirm('이전에 작성 중인 내용을 불러올까요?')
-      if (shouldRestore) {
-        setDraftRestoreDecision('accepted')
+  const workingDraft = loadWorkingDraft()
+  if (workingDraft) {
+    baseDraft = { ...createEmptyDraft(), ...workingDraft }
+  } else {
+    const savedDraft = loadDraft()
+    if (!isEditMode.value && savedDraft && (!savedDraft.reservationId || savedDraft.reservationId === reservationId.value)) {
+      const decision = getDraftRestoreDecision()
+      if (decision === 'accepted') {
         baseDraft = { ...createEmptyDraft(), ...savedDraft }
-      } else {
-        setDraftRestoreDecision('declined')
+      } else if (decision === 'declined') {
         clearDraft()
+      } else {
+        const shouldRestore = window.confirm('이전에 작성 중인 내용을 불러올까요?')
+        if (shouldRestore) {
+          setDraftRestoreDecision('accepted')
+          baseDraft = { ...createEmptyDraft(), ...savedDraft }
+        } else {
+          setDraftRestoreDecision('declined')
+          clearDraft()
+        }
       }
     }
   }
