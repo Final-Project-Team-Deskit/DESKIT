@@ -742,9 +742,14 @@ watch(
         <div class="field-grid">
         <label class="field">
           <span class="field__label">방송 썸네일 업로드</span>
-          <input ref="thumbInputRef" type="file" accept="image/*" @change="handleThumbUpload" />
+          <div class="upload-control">
+            <label class="btn upload-button">
+              파일 선택
+              <input ref="thumbInputRef" class="upload-input" type="file" accept="image/*" @change="handleThumbUpload" />
+            </label>
+            <span class="upload-filename">{{ thumbDisplayName || '선택된 파일 없음' }}</span>
+          </div>
           <span v-if="thumbError" class="error">{{ thumbError }}</span>
-          <span class="upload-filename">{{ thumbDisplayName || '선택된 파일 없음' }}</span>
           <div v-if="draft.thumb" class="preview">
             <img :src="draft.thumb" alt="방송 썸네일 미리보기" @error="handleThumbError" />
           </div>
@@ -752,9 +757,20 @@ watch(
         </label>
         <label class="field">
           <span class="field__label">대기화면 업로드</span>
-          <input ref="standbyInputRef" type="file" accept="image/*" @change="handleStandbyUpload" />
+          <div class="upload-control">
+            <label class="btn upload-button">
+              파일 선택
+              <input
+                ref="standbyInputRef"
+                class="upload-input"
+                type="file"
+                accept="image/*"
+                @change="handleStandbyUpload"
+              />
+            </label>
+            <span class="upload-filename">{{ standbyDisplayName || '선택된 파일 없음' }}</span>
+          </div>
           <span v-if="standbyError" class="error">{{ standbyError }}</span>
-          <span class="upload-filename">{{ standbyDisplayName || '선택된 파일 없음' }}</span>
           <div v-if="draft.standbyThumb" class="preview">
             <img :src="draft.standbyThumb" alt="대기화면 미리보기" @error="handleStandbyError" />
           </div>
@@ -900,6 +916,25 @@ input[type='file'] {
   padding: 8px 0;
 }
 
+.upload-control {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.upload-input {
+  display: none;
+}
+
+.upload-button {
+  cursor: pointer;
+}
+
+.upload-button input {
+  display: none;
+}
+
 .section-block {
   display: flex;
   flex-direction: column;
@@ -1022,7 +1057,7 @@ input[type='file'] {
 }
 
 .upload-filename {
-  margin: 6px 0 0;
+  margin: 0;
   color: var(--text-muted);
   font-size: 13px;
 }
