@@ -5,6 +5,7 @@ import PageHeader from '../../components/PageHeader.vue'
 import {
   type BroadcastStatus,
   computeLifecycleStatus,
+  getBroadcastStatusLabel,
   getScheduledEndMs,
   normalizeBroadcastStatus,
 } from '../../lib/broadcastStatus'
@@ -317,6 +318,7 @@ const withLifecycleStatus = <T extends LiveItem>(item: T): T & { startAtMs?: num
 }
 
 const getLifecycleStatus = (item: LiveItem): BroadcastStatus => normalizeBroadcastStatus(item.lifecycleStatus ?? item.status)
+const formatStatusLabel = (status?: BroadcastStatus | string | null) => getBroadcastStatusLabel(status)
 
 const isPastScheduledEnd = (item: LiveItem): boolean => {
   const endAtMs = getScheduledEndMs(item.startAtMs, item.endAtMs)
@@ -967,7 +969,7 @@ onBeforeUnmount(() => {
             <div class="live-thumb">
               <img class="live-thumb__img" :src="item.thumb" :alt="item.title" loading="lazy" @error="handleImageError" />
               <div class="live-badges">
-                <span class="badge badge--live">{{ getLifecycleStatus(item) }}</span>
+                <span class="badge badge--live">{{ formatStatusLabel(getLifecycleStatus(item)) }}</span>
                 <span class="badge badge--viewer">시청자 {{ item.viewers }}명</span>
               </div>
             </div>
@@ -1021,7 +1023,7 @@ onBeforeUnmount(() => {
                 <div class="live-thumb">
                   <img class="live-thumb__img" :src="item.thumb" :alt="item.title" loading="lazy" @error="handleImageError" />
                   <div class="live-badges">
-                    <span class="badge badge--live">{{ getLifecycleStatus(item) }}</span>
+                    <span class="badge badge--live">{{ formatStatusLabel(getLifecycleStatus(item)) }}</span>
                     <span class="badge badge--viewer">시청자 {{ item.viewers }}명</span>
                   </div>
                 </div>
@@ -1119,7 +1121,7 @@ onBeforeUnmount(() => {
                     class="badge badge--scheduled"
                     :class="{ 'badge--cancelled': getLifecycleStatus(item) === 'CANCELED' }"
                   >
-                    {{ getLifecycleStatus(item) }}
+                    {{ formatStatusLabel(getLifecycleStatus(item)) }}
                   </span>
                   <span class="badge badge--viewer">{{ formatDDay(item) }}</span>
                 </div>
@@ -1178,7 +1180,7 @@ onBeforeUnmount(() => {
                       class="badge badge--scheduled"
                       :class="{ 'badge--cancelled': getLifecycleStatus(item) === 'CANCELED' }"
                     >
-                      {{ getLifecycleStatus(item) }}
+                      {{ formatStatusLabel(getLifecycleStatus(item)) }}
                     </span>
                     <span class="badge badge--viewer">{{ formatDDay(item) }}</span>
                   </div>
