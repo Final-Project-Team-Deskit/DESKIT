@@ -58,6 +58,7 @@ const handleCancel = () => {
         detail.value.status = 'CANCELED'
       }
       window.alert('예약이 취소되었습니다.')
+      router.push('/seller/live?tab=scheduled').catch(() => {})
     })
     .catch(() => {})
 }

@@ -743,16 +743,29 @@ const stepCarousel = (kind: LoopKind, delta: -1 | 1) => {
     loopIndex.value[kind] = getBaseLoopIndex(kind)
     return
   }
-  const lastIndex = items.length - 1
-  loopTransition.value[kind] = true
+  const firstRealIndex = 1
+  const lastRealIndex = items.length - 2
   const nextIndex = loopIndex.value[kind] + delta
-  if (nextIndex > lastIndex) {
-    loopIndex.value[kind] = lastIndex
-  } else if (nextIndex < 0) {
-    loopIndex.value[kind] = 0
-  } else {
-    loopIndex.value[kind] = nextIndex
+  if (nextIndex > lastRealIndex) {
+    loopTransition.value[kind] = false
+    loopIndex.value[kind] = firstRealIndex
+    requestAnimationFrame(() => {
+      loopTransition.value[kind] = true
+    })
+    restartAutoLoop(kind)
+    return
   }
+  if (nextIndex < firstRealIndex) {
+    loopTransition.value[kind] = false
+    loopIndex.value[kind] = lastRealIndex
+    requestAnimationFrame(() => {
+      loopTransition.value[kind] = true
+    })
+    restartAutoLoop(kind)
+    return
+  }
+  loopTransition.value[kind] = true
+  loopIndex.value[kind] = nextIndex
   restartAutoLoop(kind)
 }
 
