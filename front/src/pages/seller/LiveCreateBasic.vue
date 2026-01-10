@@ -929,6 +929,10 @@ input[type='file'] {
 
 .upload-button {
   cursor: pointer;
+  font-size: 0.7rem;
+  margin: 0;
+  padding: 0;
+  font-weight: bold;
 }
 
 .upload-button input {
