@@ -232,7 +232,7 @@ public class BroadcastService {
             }
 
             validateTransition(broadcast.getStatus(), BroadcastStatus.DELETED);
-            broadcast.cancelBroadcast("판매자 예약 취소");
+            broadcast.deleteBroadcast();
             log.info("방송 취소 처리 완료: id={}, status={}", broadcastId, broadcast.getStatus());
         } finally {
             redisService.releaseLock(lockKey);
