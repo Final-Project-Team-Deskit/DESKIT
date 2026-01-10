@@ -156,10 +156,16 @@ const getCountdownLabel = (item: LiveItem) => {
 const itemsForDay = computed(() => {
   const filtered = filterLivesByDay(liveItems.value, selectedDay.value)
   const visible = filtered.filter((item) => {
+    const rawStatus = (item.status ?? '').toUpperCase()
+    if (rawStatus === 'DELETED') return false
     const status = getLifecycleStatus(item)
-    if (status === 'VOD') return false
     if (status === 'CANCELED') return false
+    if (!['RESERVED', 'READY', 'ON_AIR', 'STOPPED', 'ENDED', 'VOD'].includes(status)) return false
     if (status === 'STOPPED' && isPastScheduledEnd(item)) return false
+    if (status === 'VOD') {
+      const visibility = (item as { isPublic?: boolean; public?: boolean }).isPublic ?? (item as { public?: boolean }).public
+      if (typeof visibility === 'boolean' && !visibility) return false
+    }
     return true
   })
   return sortLivesByStartAt(visible)
