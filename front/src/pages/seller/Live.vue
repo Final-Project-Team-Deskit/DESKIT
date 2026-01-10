@@ -570,10 +570,7 @@ const visibleVodItems = computed(() => filteredVodItems.value.slice(0, VOD_PAGE_
 
 const buildLoopItems = (items: LiveItem[]): LiveItem[] => {
   if (!items.length) return []
-  if (items.length === 1) {
-    const single = items[0]!
-    return [single, single, single]
-  }
+  if (items.length === 1) return items
   const first = items[0]!
   const last = items[items.length - 1]!
   return [last, ...items, first]
