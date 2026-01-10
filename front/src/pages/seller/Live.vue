@@ -283,6 +283,11 @@ const parseAmount = (value: unknown) => {
   return 0
 }
 
+const resolveRouteId = (item: LiveItem) => {
+  const parsed = parseBroadcastId(item.id)
+  return parsed ? String(parsed) : item.id
+}
+
 const mapBroadcastItem = (item: any, kind: 'live' | 'scheduled' | 'vod'): LiveItem => {
   const startAtMs = item.startAt ? parseLiveDate(item.startAt).getTime() : undefined
   const endAtMs = item.endAt ? parseLiveDate(item.endAt).getTime() : getScheduledEndMs(startAtMs)
@@ -544,7 +549,8 @@ const filteredScheduledItems = computed(() => {
     })
 
   if (scheduledStatus.value === 'canceled') return sortScheduled(canceled)
-  return sortScheduled(reserved)
+  if (scheduledStatus.value === 'reserved') return sortScheduled(reserved)
+  return sortScheduled([...reserved, ...canceled])
 })
 
 const categoryOptions = computed(() => categories.value)
@@ -570,10 +576,7 @@ const visibleVodItems = computed(() => filteredVodItems.value.slice(0, VOD_PAGE_
 
 const buildLoopItems = (items: LiveItem[]): LiveItem[] => {
   if (!items.length) return []
-  if (items.length === 1) {
-    const single = items[0]!
-    return [single, single, single]
-  }
+  if (items.length === 1) return items
   const first = items[0]!
   const last = items[items.length - 1]!
   return [last, ...items, first]
@@ -605,6 +608,8 @@ const { sentinelRef: vodSentinelRef } = useInfiniteScroll({
 const loopItemsFor = (kind: LoopKind) => (kind === 'scheduled' ? scheduledLoopItems.value : vodLoopItems.value)
 const baseItemsFor = (kind: LoopKind) => (kind === 'scheduled' ? scheduledSummary.value : vodSummary.value)
 
+const getBaseLoopIndex = (kind: LoopKind) => (loopItemsFor(kind).length > 1 ? 1 : 0)
+
 const setCarouselRef = (kind: LoopKind) => (el: Element | ComponentPublicInstance | null) => {
   const target =
     el && typeof el === 'object' && '$el' in el ? ((el as ComponentPublicInstance).$el as HTMLElement | null) : ((el as HTMLElement) || null)
@@ -617,6 +622,19 @@ const updateSlideWidth = (kind: LoopKind) => {
   if (!root) return
   const card = root.querySelector<HTMLElement>('.live-card')
   slideWidths.value[kind] = (card?.offsetWidth ?? 280)
+}
+
+const isCarouselOverflowing = (kind: LoopKind) => {
+  const root = carouselRefs.value[kind]
+  if (!root) return false
+  const viewport = root.parentElement
+  if (!viewport || viewport.clientWidth === 0) return false
+  const itemCount = baseItemsFor(kind).length
+  if (itemCount <= 1) return false
+  const cardWidth = slideWidths.value[kind] || root.querySelector<HTMLElement>('.live-card')?.offsetWidth || 0
+  if (!cardWidth) return false
+  const totalWidth = (cardWidth * itemCount) + (loopGap * (itemCount - 1))
+  return totalWidth > viewport.clientWidth
 }
 
 const getTrackStyle = (kind: LoopKind) => {
@@ -665,8 +683,13 @@ const stepCarousel = (kind: LoopKind, delta: -1 | 1) => {
 
 const startAutoLoop = (kind: LoopKind) => {
   stopAutoLoop(kind)
-  if (baseItemsFor(kind).length <= 1) return
+  if (!isCarouselOverflowing(kind)) return
   autoTimers.value[kind] = window.setInterval(() => {
+    if (!isCarouselOverflowing(kind)) {
+      stopAutoLoop(kind)
+      loopIndex.value[kind] = getBaseLoopIndex(kind)
+      return
+    }
     stepCarousel(kind, 1)
   }, 3200)
 }
@@ -683,11 +706,16 @@ const restartAutoLoop = (kind: LoopKind) => {
 }
 
 const resetLoop = (kind: LoopKind) => {
-  loopIndex.value[kind] = loopItemsFor(kind).length > 1 ? 1 : 0
+  loopIndex.value[kind] = getBaseLoopIndex(kind)
   loopTransition.value[kind] = true
   nextTick(() => {
     updateSlideWidth(kind)
-    startAutoLoop(kind)
+    if (isCarouselOverflowing(kind)) {
+      startAutoLoop(kind)
+    } else {
+      stopAutoLoop(kind)
+      loopIndex.value[kind] = getBaseLoopIndex(kind)
+    }
   })
 }
 
@@ -699,10 +727,19 @@ const resetAllLoops = () => {
 const handleResize = () => {
   updateSlideWidth('scheduled')
   updateSlideWidth('vod')
+  restartAutoLoop('scheduled')
+  restartAutoLoop('vod')
 }
 
-const setTab = (tab: LiveTab) => {
+const updateTabQuery = (tab: LiveTab, replace = true) => {
+  const query = { ...route.query, tab }
+  const action = replace ? router.replace : router.push
+  action({ query }).catch(() => {})
+}
+
+const setTab = (tab: LiveTab, replace = false) => {
   activeTab.value = tab
+  updateTabQuery(tab, replace)
 }
 
 const handleCreate = () => {
@@ -726,7 +763,9 @@ const syncTabFromRoute = () => {
   const tab = route.query.tab
   if (tab === 'scheduled' || tab === 'live' || tab === 'vod' || tab === 'all') {
     activeTab.value = tab
+    return
   }
+  setTab('all', true)
 }
 
 watch(
@@ -780,28 +819,28 @@ const handleCta = (kind: CarouselKind, item: LiveItem) => {
       showDeviceModal.value = true
       return
     }
-    router.push(`/seller/live/stream/${item.id}`).catch(() => {})
+    router.push({ path: `/seller/live/stream/${resolveRouteId(item)}`, query: { tab: activeTab.value } }).catch(() => {})
     return
   }
   if (kind === 'scheduled') {
-    router.push(`/seller/broadcasts/reservations/${item.id}`).catch(() => {})
+    router.push({ path: `/seller/broadcasts/reservations/${resolveRouteId(item)}`, query: { tab: activeTab.value } }).catch(() => {})
     return
   }
-  router.push(`/seller/broadcasts/vods/${item.id}`).catch(() => {})
+  router.push({ path: `/seller/broadcasts/vods/${resolveRouteId(item)}`, query: { tab: activeTab.value } }).catch(() => {})
 }
 
 const handleDeviceStart = () => {
   const target = selectedScheduled.value
   if (!target) return
-  router.push(`/seller/live/stream/${target.id}`).catch(() => {})
+  router.push({ path: `/seller/live/stream/${resolveRouteId(target)}`, query: { tab: activeTab.value } }).catch(() => {})
 }
 
 const openReservationDetail = (item: LiveItem) => {
-  router.push(`/seller/broadcasts/reservations/${item.id}`).catch(() => {})
+  router.push({ path: `/seller/broadcasts/reservations/${resolveRouteId(item)}`, query: { tab: activeTab.value } }).catch(() => {})
 }
 
 const openVodDetail = (item: LiveItem) => {
-  router.push(`/seller/broadcasts/vods/${item.id}`).catch(() => {})
+  router.push({ path: `/seller/broadcasts/vods/${resolveRouteId(item)}`, query: { tab: activeTab.value } }).catch(() => {})
 }
 
 async function loadCurrentLiveDetails(item: LiveItem | null) {

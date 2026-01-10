@@ -152,8 +152,15 @@ const visibleLive = computed(() => activeTab.value === 'all' || activeTab.value 
 const visibleScheduled = computed(() => activeTab.value === 'all' || activeTab.value === 'scheduled')
 const visibleVod = computed(() => activeTab.value === 'all' || activeTab.value === 'vod')
 
-const setTab = (tab: LiveTab) => {
+const updateTabQuery = (tab: LiveTab, replace = true) => {
+  const query = { ...route.query, tab }
+  const action = replace ? router.replace : router.push
+  action({ query }).catch(() => {})
+}
+
+const setTab = (tab: LiveTab, replace = false) => {
   activeTab.value = tab
+  updateTabQuery(tab, replace)
 }
 
 const toDateMs = (raw: string | undefined) => {
@@ -521,7 +528,8 @@ const filteredScheduled = computed(() => {
     })
 
   if (scheduledStatus.value === 'canceled') return sortScheduled(canceled)
-  return sortScheduled(reserved)
+  if (scheduledStatus.value === 'reserved') return sortScheduled(reserved)
+  return sortScheduled([...reserved, ...canceled])
 })
 
 const filteredVods = computed(() => {
@@ -612,10 +620,7 @@ const vodSummary = computed<AdminVodItem[]>(() =>
 
 const buildLoopItems = <T>(items: T[]): T[] => {
   if (!items.length) return []
-  if (items.length === 1) {
-    const single = items[0]!
-    return [single, single, single]
-  }
+  if (items.length === 1) return items
   const first = items[0]!
   const last = items[items.length - 1]!
   return [last, ...items, first]
@@ -627,17 +632,17 @@ const vodLoopItems = computed<AdminVodItem[]>(() => buildLoopItems(vodSummary.va
 
 const openReservationDetail = (id: string) => {
   if (!id) return
-  router.push(`/admin/live/reservations/${id}`).catch(() => {})
+  router.push({ path: `/admin/live/reservations/${id}`, query: { tab: activeTab.value } }).catch(() => {})
 }
 
 const openLiveDetail = (id: string) => {
   if (!id) return
-  router.push(`/admin/live/now/${id}`).catch(() => {})
+  router.push({ path: `/admin/live/now/${id}`, query: { tab: activeTab.value } }).catch(() => {})
 }
 
 const openVodDetail = (id: string) => {
   if (!id) return
-  router.push(`/admin/live/vods/${id}`).catch(() => {})
+  router.push({ path: `/admin/live/vods/${id}`, query: { tab: activeTab.value } }).catch(() => {})
 }
 
 const formatDDay = (item: { startAtMs?: number }) => {
@@ -656,7 +661,9 @@ const refreshTabFromQuery = () => {
   const tab = route.query.tab
   if (tab === 'scheduled' || tab === 'live' || tab === 'vod' || tab === 'all') {
     activeTab.value = tab
+    return
   }
+  setTab('all', true)
 }
 
 const setCarouselRef = (kind: LoopKind) => (el: Element | ComponentPublicInstance | null) => {
@@ -669,6 +676,19 @@ const updateSlideWidth = (kind: LoopKind) => {
   if (!root) return
   const card = root.querySelector<HTMLElement>('.live-card')
   slideWidths.value[kind] = card?.offsetWidth ?? 280
+}
+
+const isCarouselOverflowing = (kind: LoopKind) => {
+  const root = carouselRefs.value[kind]
+  if (!root) return false
+  const viewport = root.parentElement
+  if (!viewport || viewport.clientWidth === 0) return false
+  const itemCount = baseItemsFor(kind).length
+  if (itemCount <= 1) return false
+  const cardWidth = slideWidths.value[kind] || root.querySelector<HTMLElement>('.live-card')?.offsetWidth || 0
+  if (!cardWidth) return false
+  const totalWidth = (cardWidth * itemCount) + (loopGap * (itemCount - 1))
+  return totalWidth > viewport.clientWidth
 }
 
 const getTrackStyle = (kind: LoopKind) => {
@@ -691,6 +711,8 @@ const baseItemsFor = (kind: LoopKind) => {
   if (kind === 'scheduled') return scheduledSummary.value
   return vodSummary.value
 }
+
+const getBaseLoopIndex = (kind: LoopKind) => (loopItemsFor(kind).length > 1 ? 1 : 0)
 
 const handleLoopTransitionEnd = (kind: LoopKind) => {
   const items = loopItemsFor(kind)
@@ -729,8 +751,13 @@ const stepCarousel = (kind: LoopKind, delta: -1 | 1) => {
 
 const startAutoLoop = (kind: LoopKind) => {
   stopAutoLoop(kind)
-  if (baseItemsFor(kind).length <= 1) return
+  if (!isCarouselOverflowing(kind)) return
   autoTimers.value[kind] = window.setInterval(() => {
+    if (!isCarouselOverflowing(kind)) {
+      stopAutoLoop(kind)
+      loopIndex.value[kind] = getBaseLoopIndex(kind)
+      return
+    }
     stepCarousel(kind, 1)
   }, 3200)
 }
@@ -747,11 +774,16 @@ const restartAutoLoop = (kind: LoopKind) => {
 }
 
 const resetLoop = (kind: LoopKind) => {
-  loopIndex.value[kind] = loopItemsFor(kind).length > 1 ? 1 : 0
+  loopIndex.value[kind] = getBaseLoopIndex(kind)
   loopTransition.value[kind] = true
   nextTick(() => {
     updateSlideWidth(kind)
-    startAutoLoop(kind)
+    if (isCarouselOverflowing(kind)) {
+      startAutoLoop(kind)
+    } else {
+      stopAutoLoop(kind)
+      loopIndex.value[kind] = getBaseLoopIndex(kind)
+    }
   })
 }
 
@@ -765,6 +797,9 @@ const handleResize = () => {
   updateSlideWidth('live')
   updateSlideWidth('scheduled')
   updateSlideWidth('vod')
+  restartAutoLoop('live')
+  restartAutoLoop('scheduled')
+  restartAutoLoop('vod')
 }
 
 watch(
