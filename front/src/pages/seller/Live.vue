@@ -131,8 +131,8 @@ const slideWidths = ref<Record<LoopKind, number>>({
   vod: 0,
 })
 const loopIndex = ref<Record<LoopKind, number>>({
-  scheduled: 1,
-  vod: 1,
+  scheduled: 0,
+  vod: 0,
 })
 const loopTransition = ref<Record<LoopKind, boolean>>({
   scheduled: true,
@@ -141,6 +141,10 @@ const loopTransition = ref<Record<LoopKind, boolean>>({
 const autoTimers = ref<Record<LoopKind, number | null>>({
   scheduled: null,
   vod: null,
+})
+const loopEnabled = ref<Record<LoopKind, boolean>>({
+  scheduled: false,
+  vod: false,
 })
 const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080'
 const sseSource = ref<EventSource | null>(null)
@@ -553,7 +557,7 @@ const filteredScheduledItems = computed(() => {
 
   if (scheduledStatus.value === 'canceled') return sortScheduled(canceled)
   if (scheduledStatus.value === 'reserved') return sortScheduled(reserved)
-  return sortScheduled([...reserved, ...canceled])
+  return [...sortScheduled(reserved), ...sortScheduled(canceled)]
 })
 
 const categoryOptions = computed(() => categories.value)
@@ -577,16 +581,16 @@ const vodSummary = computed(() =>
 const visibleScheduledItems = computed(() => filteredScheduledItems.value.slice(0, SCHEDULED_PAGE_SIZE * scheduledPage.value))
 const visibleVodItems = computed(() => filteredVodItems.value.slice(0, VOD_PAGE_SIZE * vodPage.value))
 
-const buildLoopItems = (items: LiveItem[]): LiveItem[] => {
+const buildLoopItems = (items: LiveItem[], enableLoop: boolean): LiveItem[] => {
   if (!items.length) return []
-  if (items.length === 1) return items
+  if (!enableLoop || items.length === 1) return items
   const first = items[0]!
   const last = items[items.length - 1]!
   return [last, ...items, first]
 }
 
-const scheduledLoopItems = computed<LiveItem[]>(() => buildLoopItems(scheduledSummary.value))
-const vodLoopItems = computed<LiveItem[]>(() => buildLoopItems(vodSummary.value))
+const scheduledLoopItems = computed<LiveItem[]>(() => buildLoopItems(scheduledSummary.value, loopEnabled.value.scheduled))
+const vodLoopItems = computed<LiveItem[]>(() => buildLoopItems(vodSummary.value, loopEnabled.value.vod))
 
 const visibleLive = computed(() => activeTab.value === 'all' || activeTab.value === 'live')
 const visibleScheduled = computed(() => activeTab.value === 'all' || activeTab.value === 'scheduled')
@@ -611,7 +615,11 @@ const { sentinelRef: vodSentinelRef } = useInfiniteScroll({
 const loopItemsFor = (kind: LoopKind) => (kind === 'scheduled' ? scheduledLoopItems.value : vodLoopItems.value)
 const baseItemsFor = (kind: LoopKind) => (kind === 'scheduled' ? scheduledSummary.value : vodSummary.value)
 
-const getBaseLoopIndex = (kind: LoopKind) => (loopItemsFor(kind).length > 1 ? 1 : 0)
+const getBaseLoopIndex = (kind: LoopKind) => {
+  const items = loopItemsFor(kind)
+  if (!items.length) return 0
+  return loopEnabled.value[kind] && items.length > 1 ? 1 : 0
+}
 
 const setCarouselRef = (kind: LoopKind) => (el: Element | ComponentPublicInstance | null) => {
   const target =
@@ -650,6 +658,7 @@ const getTrackStyle = (kind: LoopKind) => {
 }
 
 const handleLoopTransitionEnd = (kind: LoopKind) => {
+  if (!loopEnabled.value[kind]) return
   const items = loopItemsFor(kind)
   if (items.length <= 1 || !isCarouselOverflowing(kind)) return
   const lastIndex = items.length - 1
@@ -671,6 +680,12 @@ const handleLoopTransitionEnd = (kind: LoopKind) => {
 const stepCarousel = (kind: LoopKind, delta: -1 | 1) => {
   const items = loopItemsFor(kind)
   if (items.length <= 1) return
+  if (!loopEnabled.value[kind]) {
+    const nextIndex = Math.min(Math.max(loopIndex.value[kind] + delta, 0), items.length - 1)
+    loopTransition.value[kind] = true
+    loopIndex.value[kind] = nextIndex
+    return
+  }
   if (!isCarouselOverflowing(kind)) {
     loopIndex.value[kind] = getBaseLoopIndex(kind)
     return
@@ -703,6 +718,10 @@ const stepCarousel = (kind: LoopKind, delta: -1 | 1) => {
 
 const startAutoLoop = (kind: LoopKind) => {
   stopAutoLoop(kind)
+  if (!loopEnabled.value[kind]) {
+    loopIndex.value[kind] = getBaseLoopIndex(kind)
+    return
+  }
   if (!isCarouselOverflowing(kind)) {
     loopIndex.value[kind] = getBaseLoopIndex(kind)
     return
@@ -733,7 +752,7 @@ const resetLoop = (kind: LoopKind) => {
   loopTransition.value[kind] = true
   nextTick(() => {
     updateSlideWidth(kind)
-    if (isCarouselOverflowing(kind)) {
+    if (loopEnabled.value[kind] && isCarouselOverflowing(kind)) {
       startAutoLoop(kind)
     } else {
       stopAutoLoop(kind)
