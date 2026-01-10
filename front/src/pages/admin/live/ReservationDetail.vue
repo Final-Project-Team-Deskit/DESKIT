@@ -39,7 +39,7 @@ const cancelDetail = ref('')
 const showCancelModal = ref(false)
 const cancelError = ref('')
 
-const cancelReasonOptions = ['판매자 요청', '방송 기획 변경', '상품 준비 지연', '기타']
+const cancelReasonOptions = ['운영 정책 위반', '상품 준비 지연', '기타']
 
 const formatScheduledAt = (scheduledAt?: string) => {
   if (!scheduledAt) return ''
