@@ -702,6 +702,8 @@ const baseItemsFor = (kind: LoopKind) => {
   return vodSummary.value
 }
 
+const getBaseLoopIndex = (kind: LoopKind) => (loopItemsFor(kind).length > 1 ? 1 : 0)
+
 const handleLoopTransitionEnd = (kind: LoopKind) => {
   const items = loopItemsFor(kind)
   if (!items.length) return
@@ -741,6 +743,11 @@ const startAutoLoop = (kind: LoopKind) => {
   stopAutoLoop(kind)
   if (!isCarouselOverflowing(kind)) return
   autoTimers.value[kind] = window.setInterval(() => {
+    if (!isCarouselOverflowing(kind)) {
+      stopAutoLoop(kind)
+      loopIndex.value[kind] = getBaseLoopIndex(kind)
+      return
+    }
     stepCarousel(kind, 1)
   }, 3200)
 }
@@ -757,11 +764,16 @@ const restartAutoLoop = (kind: LoopKind) => {
 }
 
 const resetLoop = (kind: LoopKind) => {
-  loopIndex.value[kind] = loopItemsFor(kind).length > 1 ? 1 : 0
+  loopIndex.value[kind] = getBaseLoopIndex(kind)
   loopTransition.value[kind] = true
   nextTick(() => {
     updateSlideWidth(kind)
-    startAutoLoop(kind)
+    if (isCarouselOverflowing(kind)) {
+      startAutoLoop(kind)
+    } else {
+      stopAutoLoop(kind)
+      loopIndex.value[kind] = getBaseLoopIndex(kind)
+    }
   })
 }
 

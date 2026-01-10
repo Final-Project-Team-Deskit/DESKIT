@@ -283,6 +283,11 @@ const parseAmount = (value: unknown) => {
   return 0
 }
 
+const resolveRouteId = (item: LiveItem) => {
+  const parsed = parseBroadcastId(item.id)
+  return parsed ? String(parsed) : item.id
+}
+
 const mapBroadcastItem = (item: any, kind: 'live' | 'scheduled' | 'vod'): LiveItem => {
   const startAtMs = item.startAt ? parseLiveDate(item.startAt).getTime() : undefined
   const endAtMs = item.endAt ? parseLiveDate(item.endAt).getTime() : getScheduledEndMs(startAtMs)
@@ -602,6 +607,8 @@ const { sentinelRef: vodSentinelRef } = useInfiniteScroll({
 const loopItemsFor = (kind: LoopKind) => (kind === 'scheduled' ? scheduledLoopItems.value : vodLoopItems.value)
 const baseItemsFor = (kind: LoopKind) => (kind === 'scheduled' ? scheduledSummary.value : vodSummary.value)
 
+const getBaseLoopIndex = (kind: LoopKind) => (loopItemsFor(kind).length > 1 ? 1 : 0)
+
 const setCarouselRef = (kind: LoopKind) => (el: Element | ComponentPublicInstance | null) => {
   const target =
     el && typeof el === 'object' && '$el' in el ? ((el as ComponentPublicInstance).$el as HTMLElement | null) : ((el as HTMLElement) || null)
@@ -677,6 +684,11 @@ const startAutoLoop = (kind: LoopKind) => {
   stopAutoLoop(kind)
   if (!isCarouselOverflowing(kind)) return
   autoTimers.value[kind] = window.setInterval(() => {
+    if (!isCarouselOverflowing(kind)) {
+      stopAutoLoop(kind)
+      loopIndex.value[kind] = getBaseLoopIndex(kind)
+      return
+    }
     stepCarousel(kind, 1)
   }, 3200)
 }
@@ -693,11 +705,16 @@ const restartAutoLoop = (kind: LoopKind) => {
 }
 
 const resetLoop = (kind: LoopKind) => {
-  loopIndex.value[kind] = loopItemsFor(kind).length > 1 ? 1 : 0
+  loopIndex.value[kind] = getBaseLoopIndex(kind)
   loopTransition.value[kind] = true
   nextTick(() => {
     updateSlideWidth(kind)
-    startAutoLoop(kind)
+    if (isCarouselOverflowing(kind)) {
+      startAutoLoop(kind)
+    } else {
+      stopAutoLoop(kind)
+      loopIndex.value[kind] = getBaseLoopIndex(kind)
+    }
   })
 }
 
@@ -792,28 +809,28 @@ const handleCta = (kind: CarouselKind, item: LiveItem) => {
       showDeviceModal.value = true
       return
     }
-    router.push(`/seller/live/stream/${item.id}`).catch(() => {})
+    router.push(`/seller/live/stream/${resolveRouteId(item)}`).catch(() => {})
     return
   }
   if (kind === 'scheduled') {
-    router.push(`/seller/broadcasts/reservations/${item.id}`).catch(() => {})
+    router.push(`/seller/broadcasts/reservations/${resolveRouteId(item)}`).catch(() => {})
     return
   }
-  router.push(`/seller/broadcasts/vods/${item.id}`).catch(() => {})
+  router.push(`/seller/broadcasts/vods/${resolveRouteId(item)}`).catch(() => {})
 }
 
 const handleDeviceStart = () => {
   const target = selectedScheduled.value
   if (!target) return
-  router.push(`/seller/live/stream/${target.id}`).catch(() => {})
+  router.push(`/seller/live/stream/${resolveRouteId(target)}`).catch(() => {})
 }
 
 const openReservationDetail = (item: LiveItem) => {
-  router.push(`/seller/broadcasts/reservations/${item.id}`).catch(() => {})
+  router.push(`/seller/broadcasts/reservations/${resolveRouteId(item)}`).catch(() => {})
 }
 
 const openVodDetail = (item: LiveItem) => {
-  router.push(`/seller/broadcasts/vods/${item.id}`).catch(() => {})
+  router.push(`/seller/broadcasts/vods/${resolveRouteId(item)}`).catch(() => {})
 }
 
 async function loadCurrentLiveDetails(item: LiveItem | null) {
