@@ -627,7 +627,7 @@ const isCarouselOverflowing = (kind: LoopKind) => {
   const root = carouselRefs.value[kind]
   if (!root) return false
   const viewport = root.parentElement
-  if (!viewport) return false
+  if (!viewport || viewport.clientWidth === 0) return false
   const itemCount = baseItemsFor(kind).length
   if (itemCount <= 1) return false
   const cardWidth = slideWidths.value[kind] || root.querySelector<HTMLElement>('.live-card')?.offsetWidth || 0
@@ -730,8 +730,15 @@ const handleResize = () => {
   restartAutoLoop('vod')
 }
 
-const setTab = (tab: LiveTab) => {
+const updateTabQuery = (tab: LiveTab, replace = true) => {
+  const query = { ...route.query, tab }
+  const action = replace ? router.replace : router.push
+  action({ query }).catch(() => {})
+}
+
+const setTab = (tab: LiveTab, replace = false) => {
   activeTab.value = tab
+  updateTabQuery(tab, replace)
 }
 
 const handleCreate = () => {
@@ -755,7 +762,9 @@ const syncTabFromRoute = () => {
   const tab = route.query.tab
   if (tab === 'scheduled' || tab === 'live' || tab === 'vod' || tab === 'all') {
     activeTab.value = tab
+    return
   }
+  setTab('all', true)
 }
 
 watch(
@@ -809,28 +818,28 @@ const handleCta = (kind: CarouselKind, item: LiveItem) => {
       showDeviceModal.value = true
       return
     }
-    router.push(`/seller/live/stream/${resolveRouteId(item)}`).catch(() => {})
+    router.push({ path: `/seller/live/stream/${resolveRouteId(item)}`, query: { tab: activeTab.value } }).catch(() => {})
     return
   }
   if (kind === 'scheduled') {
-    router.push(`/seller/broadcasts/reservations/${resolveRouteId(item)}`).catch(() => {})
+    router.push({ path: `/seller/broadcasts/reservations/${resolveRouteId(item)}`, query: { tab: activeTab.value } }).catch(() => {})
     return
   }
-  router.push(`/seller/broadcasts/vods/${resolveRouteId(item)}`).catch(() => {})
+  router.push({ path: `/seller/broadcasts/vods/${resolveRouteId(item)}`, query: { tab: activeTab.value } }).catch(() => {})
 }
 
 const handleDeviceStart = () => {
   const target = selectedScheduled.value
   if (!target) return
-  router.push(`/seller/live/stream/${resolveRouteId(target)}`).catch(() => {})
+  router.push({ path: `/seller/live/stream/${resolveRouteId(target)}`, query: { tab: activeTab.value } }).catch(() => {})
 }
 
 const openReservationDetail = (item: LiveItem) => {
-  router.push(`/seller/broadcasts/reservations/${resolveRouteId(item)}`).catch(() => {})
+  router.push({ path: `/seller/broadcasts/reservations/${resolveRouteId(item)}`, query: { tab: activeTab.value } }).catch(() => {})
 }
 
 const openVodDetail = (item: LiveItem) => {
-  router.push(`/seller/broadcasts/vods/${resolveRouteId(item)}`).catch(() => {})
+  router.push({ path: `/seller/broadcasts/vods/${resolveRouteId(item)}`, query: { tab: activeTab.value } }).catch(() => {})
 }
 
 async function loadCurrentLiveDetails(item: LiveItem | null) {

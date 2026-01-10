@@ -152,8 +152,15 @@ const visibleLive = computed(() => activeTab.value === 'all' || activeTab.value 
 const visibleScheduled = computed(() => activeTab.value === 'all' || activeTab.value === 'scheduled')
 const visibleVod = computed(() => activeTab.value === 'all' || activeTab.value === 'vod')
 
-const setTab = (tab: LiveTab) => {
+const updateTabQuery = (tab: LiveTab, replace = true) => {
+  const query = { ...route.query, tab }
+  const action = replace ? router.replace : router.push
+  action({ query }).catch(() => {})
+}
+
+const setTab = (tab: LiveTab, replace = false) => {
   activeTab.value = tab
+  updateTabQuery(tab, replace)
 }
 
 const toDateMs = (raw: string | undefined) => {
@@ -624,17 +631,17 @@ const vodLoopItems = computed<AdminVodItem[]>(() => buildLoopItems(vodSummary.va
 
 const openReservationDetail = (id: string) => {
   if (!id) return
-  router.push(`/admin/live/reservations/${id}`).catch(() => {})
+  router.push({ path: `/admin/live/reservations/${id}`, query: { tab: activeTab.value } }).catch(() => {})
 }
 
 const openLiveDetail = (id: string) => {
   if (!id) return
-  router.push(`/admin/live/now/${id}`).catch(() => {})
+  router.push({ path: `/admin/live/now/${id}`, query: { tab: activeTab.value } }).catch(() => {})
 }
 
 const openVodDetail = (id: string) => {
   if (!id) return
-  router.push(`/admin/live/vods/${id}`).catch(() => {})
+  router.push({ path: `/admin/live/vods/${id}`, query: { tab: activeTab.value } }).catch(() => {})
 }
 
 const formatDDay = (item: { startAtMs?: number }) => {
@@ -653,7 +660,9 @@ const refreshTabFromQuery = () => {
   const tab = route.query.tab
   if (tab === 'scheduled' || tab === 'live' || tab === 'vod' || tab === 'all') {
     activeTab.value = tab
+    return
   }
+  setTab('all', true)
 }
 
 const setCarouselRef = (kind: LoopKind) => (el: Element | ComponentPublicInstance | null) => {
@@ -672,7 +681,7 @@ const isCarouselOverflowing = (kind: LoopKind) => {
   const root = carouselRefs.value[kind]
   if (!root) return false
   const viewport = root.parentElement
-  if (!viewport) return false
+  if (!viewport || viewport.clientWidth === 0) return false
   const itemCount = baseItemsFor(kind).length
   if (itemCount <= 1) return false
   const cardWidth = slideWidths.value[kind] || root.querySelector<HTMLElement>('.live-card')?.offsetWidth || 0
