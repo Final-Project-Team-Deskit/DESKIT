@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import LiveImageCropModal from './LiveImageCropModal.vue'
-import { fetchCategories, type BroadcastCategory } from '../lib/live/api'
+import { deleteSellerImage, fetchCategories, type BroadcastCategory, uploadSellerImage, type UploadImageType } from '../lib/live/api'
 
 type BroadcastInfo = {
   title: string
@@ -33,6 +33,8 @@ const cropperFileName = ref('')
 const cropTarget = ref<'thumbnail' | 'waiting' | null>(null)
 const thumbnailName = ref('')
 const waitingName = ref('')
+const thumbnailStoredName = ref('')
+const waitingStoredName = ref('')
 const thumbInputRef = ref<HTMLInputElement | null>(null)
 const waitingInputRef = ref<HTMLInputElement | null>(null)
 
@@ -52,6 +54,16 @@ const extractFileName = (source: string) => {
   const segments = path.split('/')
   const last = segments[segments.length - 1] ?? ''
   return decodeURIComponent(last)
+}
+
+const extractStoredName = (source: string) => {
+  if (!source) return ''
+  try {
+    const url = new URL(source)
+    return (url.pathname ?? '').replace(/^\//, '')
+  } catch {
+    return source.replace(/^\//, '')
+  }
 }
 
 const thumbnailDisplayName = computed(() => thumbnailName.value || extractFileName(thumbnailPreview.value))
@@ -120,25 +132,62 @@ const handleFile = (event: Event, target: 'thumbnail' | 'waiting') => {
 }
 
 const applyCroppedImage = (payload: { dataUrl: string; fileName: string }) => {
-  if (cropTarget.value === 'thumbnail') {
-    thumbnailPreview.value = payload.dataUrl
-    thumbnailName.value = payload.fileName
+  const target = cropTarget.value
+  if (!target) return
+  const uploadTarget = target === 'thumbnail' ? 'THUMBNAIL' : 'WAIT_SCREEN'
+  const existingUrl = target === 'thumbnail' ? thumbnailPreview.value : waitingPreview.value
+  const existingStored = target === 'thumbnail' ? thumbnailStoredName.value : waitingStoredName.value
+  const prevStoredName = existingStored || extractStoredName(existingUrl)
+  const [header, base64] = payload.dataUrl.split(',')
+  if (!header || !base64) return
+  const mimeMatch = header.match(/data:(.*?);base64/)
+  const mimeType = mimeMatch?.[1] ?? 'image/jpeg'
+  const binary = atob(base64)
+  const bytes = new Uint8Array(binary.length)
+  for (let i = 0; i < binary.length; i += 1) {
+    bytes[i] = binary.charCodeAt(i)
   }
-  if (cropTarget.value === 'waiting') {
-    waitingPreview.value = payload.dataUrl
-    waitingName.value = payload.fileName
-  }
+  const file = new File([bytes], payload.fileName, { type: mimeType })
+  uploadSellerImage(uploadTarget as UploadImageType, file)
+      .then((response) => {
+        if (target === 'thumbnail') {
+          thumbnailPreview.value = response.fileUrl
+          thumbnailName.value = response.originalFileName
+          thumbnailStoredName.value = response.storedFileName
+        }
+        if (target === 'waiting') {
+          waitingPreview.value = response.fileUrl
+          waitingName.value = response.originalFileName
+          waitingStoredName.value = response.storedFileName
+        }
+        if (prevStoredName && prevStoredName !== response.storedFileName) {
+          void deleteSellerImage(prevStoredName)
+        }
+      })
+      .catch(() => {
+        alert('이미지 업로드에 실패했습니다.')
+      })
 }
 
 const clearThumbnail = () => {
+  const storedName = thumbnailStoredName.value || extractStoredName(thumbnailPreview.value)
+  if (storedName) {
+    void deleteSellerImage(storedName)
+  }
   thumbnailPreview.value = ''
   thumbnailName.value = ''
+  thumbnailStoredName.value = ''
   if (thumbInputRef.value) thumbInputRef.value.value = ''
 }
 
 const clearWaiting = () => {
+  const storedName = waitingStoredName.value || extractStoredName(waitingPreview.value)
+  if (storedName) {
+    void deleteSellerImage(storedName)
+  }
   waitingPreview.value = ''
   waitingName.value = ''
+  waitingStoredName.value = ''
   if (waitingInputRef.value) waitingInputRef.value.value = ''
 }
 

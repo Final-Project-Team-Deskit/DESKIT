@@ -22,10 +22,13 @@ import {
 import {
   type BroadcastCategory,
   createBroadcast,
+  deleteSellerImage,
   fetchCategories,
   fetchReservationSlots,
   fetchSellerProducts,
   type ReservationSlot,
+  type UploadImageType,
+  uploadSellerImage,
   updateBroadcast,
 } from '../../lib/live/api'
 
@@ -53,6 +56,8 @@ const thumbInputRef = ref<HTMLInputElement | null>(null)
 const standbyInputRef = ref<HTMLInputElement | null>(null)
 const thumbName = ref('')
 const standbyName = ref('')
+const thumbStoredName = ref('')
+const standbyStoredName = ref('')
 
 const reservationId = computed(() => {
   const queryValue = route.query.reservationId
@@ -67,6 +72,16 @@ const extractFileName = (source: string) => {
   const segments = path.split('/')
   const last = segments[segments.length - 1] ?? ''
   return decodeURIComponent(last)
+}
+const extractStoredName = (source: string) => {
+  if (!source) return ''
+  try {
+    const url = new URL(source)
+    const path = url.pathname?.replace(/^\//, '') ?? ''
+    return path
+  } catch {
+    return source.replace(/^\//, '')
+  }
 }
 const thumbDisplayName = computed(() => thumbName.value || extractFileName(draft.value.thumb))
 const standbyDisplayName = computed(() => standbyName.value || extractFileName(draft.value.standbyThumb))
@@ -295,26 +310,63 @@ const handleStandbyUpload = (event: Event) => {
 }
 
 const applyCroppedImage = (payload: { dataUrl: string; fileName: string }) => {
-  cropperApplied.value = true
-  if (cropTarget.value === 'thumb') {
-    draft.value.thumb = payload.dataUrl
-    thumbName.value = payload.fileName
+  const target = cropTarget.value
+  if (!target) return
+  const uploadTarget = target === 'thumb' ? 'THUMBNAIL' : 'WAIT_SCREEN'
+  const existingUrl = target === 'thumb' ? draft.value.thumb : draft.value.standbyThumb
+  const existingStored = target === 'thumb' ? thumbStoredName.value : standbyStoredName.value
+  const prevStoredName = existingStored || extractStoredName(existingUrl)
+  const [header, base64] = payload.dataUrl.split(',')
+  if (!header || !base64) return
+  const mimeMatch = header.match(/data:(.*?);base64/)
+  const mimeType = mimeMatch?.[1] ?? 'image/jpeg'
+  const binary = atob(base64)
+  const bytes = new Uint8Array(binary.length)
+  for (let i = 0; i < binary.length; i += 1) {
+    bytes[i] = binary.charCodeAt(i)
   }
-  if (cropTarget.value === 'standby') {
-    draft.value.standbyThumb = payload.dataUrl
-    standbyName.value = payload.fileName
-  }
+  const file = new File([bytes], payload.fileName, { type: mimeType })
+  uploadSellerImage(uploadTarget as UploadImageType, file)
+      .then((response) => {
+        cropperApplied.value = true
+        if (target === 'thumb') {
+          draft.value.thumb = response.fileUrl
+          thumbName.value = response.originalFileName
+          thumbStoredName.value = response.storedFileName
+        }
+        if (target === 'standby') {
+          draft.value.standbyThumb = response.fileUrl
+          standbyName.value = response.originalFileName
+          standbyStoredName.value = response.storedFileName
+        }
+        if (prevStoredName && prevStoredName !== response.storedFileName) {
+          void deleteSellerImage(prevStoredName)
+        }
+      })
+      .catch(() => {
+        error.value = '이미지 업로드에 실패했습니다.'
+      })
 }
 
 const clearThumb = () => {
+  const storedName = thumbStoredName.value || extractStoredName(draft.value.thumb)
+  if (storedName) {
+    void deleteSellerImage(storedName)
+  }
   draft.value.thumb = ''
   thumbName.value = ''
+  thumbStoredName.value = ''
   if (thumbInputRef.value) thumbInputRef.value.value = ''
 }
 
 const clearStandby = () => {
+  const storedName = standbyStoredName.value || extractStoredName(draft.value.standbyThumb)
+  if (storedName) {
+    void deleteSellerImage(storedName)
+  }
   draft.value.standbyThumb = ''
   standbyName.value = ''
+  standbyStoredName.value = ''
   if (standbyInputRef.value) standbyInputRef.value.value = ''
 }
 
