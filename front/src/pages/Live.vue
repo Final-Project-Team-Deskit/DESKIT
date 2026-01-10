@@ -4,13 +4,7 @@ import { useRouter } from 'vue-router'
 import ConfirmModal from '../components/ConfirmModal.vue'
 import PageContainer from '../components/PageContainer.vue'
 import PageHeader from '../components/PageHeader.vue'
-import {
-  filterLivesByDay,
-  getDayWindow,
-  getLiveStatus,
-  parseLiveDate,
-  sortLivesByStartAt,
-} from '../lib/live/utils'
+import { filterLivesByDay, getDayWindow, parseLiveDate, sortLivesByStartAt } from '../lib/live/utils'
 import { computeLifecycleStatus, getScheduledEndMs, normalizeBroadcastStatus, type BroadcastStatus } from '../lib/broadcastStatus'
 import type { LiveItem } from '../lib/live/types'
 import { useNow } from '../lib/live/useNow'
@@ -102,7 +96,12 @@ const getLifecycleStatus = (item: LiveItem): BroadcastStatus => {
   })
 }
 
-const getStatus = (item: LiveItem) => getLiveStatus(item, now.value)
+const getStatus = (item: LiveItem) => {
+  const status = getLifecycleStatus(item)
+  if (status === 'RESERVED') return 'UPCOMING'
+  if (status === 'VOD') return 'ENDED'
+  return 'LIVE'
+}
 const getSectionStatus = (item: LiveItem) => {
   const status = getLifecycleStatus(item)
   if (status === 'RESERVED') return 'UPCOMING'

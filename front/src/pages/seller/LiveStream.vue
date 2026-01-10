@@ -220,6 +220,20 @@ const lifecycleStatus = computed(() =>
   }),
 )
 const isInteractive = computed(() => lifecycleStatus.value === 'ON_AIR')
+const streamPlaceholderTitle = computed(() => {
+  if (lifecycleStatus.value === 'STOPPED') return '송출 중지됨'
+  if (lifecycleStatus.value === 'ENDED') return '방송 종료'
+  if (lifecycleStatus.value === 'READY' || lifecycleStatus.value === 'RESERVED') return '방송 시작 대기 중'
+  return '송출 화면 (WebRTC Stream)'
+})
+const streamPlaceholderSubtitle = computed(() => {
+  if (lifecycleStatus.value === 'STOPPED') return '운영 정책 위반으로 송출이 중지되었습니다.'
+  if (lifecycleStatus.value === 'ENDED') return '송출이 종료되어 대기 화면으로 전환되었습니다.'
+  if (lifecycleStatus.value === 'READY' || lifecycleStatus.value === 'RESERVED') {
+    return '예약 시간이 되면 자동으로 방송 송출이 시작됩니다.'
+  }
+  return '현재 송출 중인 화면이 표시됩니다.'
+})
 
 const clearStartTimer = () => {
   if (startTimer.value) {
@@ -606,7 +620,7 @@ const connectSse = (broadcastId: number) => {
 const startStatsPolling = (broadcastId: number) => {
   if (statsTimer.value) window.clearInterval(statsTimer.value)
   statsTimer.value = window.setInterval(() => {
-    if (lifecycleStatus.value === 'ON_AIR' || !sseConnected.value) {
+    if (['READY', 'ON_AIR', 'ENDED'].includes(lifecycleStatus.value) || !sseConnected.value) {
       void refreshStats(broadcastId)
       if (!sseConnected.value) {
         void refreshProducts(broadcastId)
@@ -978,8 +992,8 @@ const toggleFullscreen = async () => {
               </div>
             </div>
             <div v-else class="stream-placeholder">
-              <p class="stream-title">송출 화면 (WebRTC Stream)</p>
-              <p class="stream-sub">현재 송출 중인 화면이 표시됩니다.</p>
+              <p class="stream-title">{{ streamPlaceholderTitle }}</p>
+              <p class="stream-sub">{{ streamPlaceholderSubtitle }}</p>
             </div>
           </div>
         </div>

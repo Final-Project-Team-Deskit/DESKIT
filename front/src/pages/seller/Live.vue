@@ -357,6 +357,17 @@ const liveItemsSorted = computed(() => {
 const currentLive = computed(() => liveItemsSorted.value[0] ?? null)
 const showLiveStats = computed(() => Boolean(currentLive.value && liveStats.value?.hasData))
 const showLiveProducts = computed(() => Boolean(currentLive.value && liveProducts.value.length))
+const sortedLiveProducts = computed(() => {
+  const items = [...liveProducts.value]
+  items.sort((a, b) => {
+    const aSoldOut = a.status === '품절'
+    const bSoldOut = b.status === '품절'
+    if (aSoldOut !== bSoldOut) return aSoldOut ? 1 : -1
+    if (a.pinned !== b.pinned) return a.pinned ? -1 : 1
+    return 0
+  })
+  return items
+})
 const formatStatusLabel = (status?: BroadcastStatus | string | null) => getBroadcastStatusLabel(status)
 
 const loadSellerData = async () => {
@@ -1092,7 +1103,7 @@ onBeforeUnmount(() => {
             <span class="live-products__count">{{ liveProducts.length }}개</span>
           </div>
           <div class="live-products__list">
-            <div v-for="item in liveProducts" :key="item.id" class="product-row">
+            <div v-for="item in sortedLiveProducts" :key="item.id" class="product-row">
               <div class="product-thumb">
                 <img :src="item.thumb" :alt="item.title" loading="lazy" />
                 <span v-if="item.pinned" class="product-pin">PIN</span>

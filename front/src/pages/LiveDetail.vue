@@ -6,8 +6,7 @@ import SockJS from 'sockjs-client/dist/sockjs'
 import PageContainer from '../components/PageContainer.vue'
 import PageHeader from '../components/PageHeader.vue'
 import ConfirmModal from '../components/ConfirmModal.vue'
-import { getLiveStatus, parseLiveDate } from '../lib/live/utils'
-import { useNow } from '../lib/live/useNow'
+import { parseLiveDate } from '../lib/live/utils'
 import { getAuthUser } from '../lib/auth'
 import { resolveViewerId } from '../lib/live/viewer'
 import { fetchBroadcastProducts, fetchBroadcastStats, fetchPublicBroadcastDetail, type BroadcastProductItem } from '../lib/live/api'
@@ -16,7 +15,6 @@ import { computeLifecycleStatus, getBroadcastStatusLabel, getScheduledEndMs, nor
 
 const route = useRoute()
 const router = useRouter()
-const { now } = useNow(1000)
 const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080'
 const sseSource = ref<EventSource | null>(null)
 const sseConnected = ref(false)
@@ -38,7 +36,10 @@ const status = computed(() => {
   if (!liveItem.value) {
     return undefined
   }
-  return getLiveStatus(liveItem.value, now.value)
+  const lifecycle = lifecycleStatus.value
+  if (lifecycle === 'RESERVED') return 'UPCOMING'
+  if (lifecycle === 'VOD') return 'ENDED'
+  return 'LIVE'
 })
 
 const lifecycleStatus = computed(() => {
@@ -148,10 +149,10 @@ const products = ref<BroadcastProductItem[]>([])
 const sortedProducts = computed(() => {
   const list = products.value.slice()
   return list.sort((a, b) => {
-    if (a.isPinned && !b.isPinned) return -1
-    if (!a.isPinned && b.isPinned) return 1
     if (a.isSoldOut && !b.isSoldOut) return 1
     if (!a.isSoldOut && b.isSoldOut) return -1
+    if (a.isPinned && !b.isPinned) return -1
+    if (!a.isPinned && b.isPinned) return 1
     return a.name.localeCompare(b.name)
   })
 })
@@ -384,7 +385,7 @@ const connectSse = (id: number) => {
 const startStatsPolling = () => {
   if (statsTimer.value) window.clearInterval(statsTimer.value)
   statsTimer.value = window.setInterval(() => {
-    if (lifecycleStatus.value === 'ON_AIR' || !sseConnected.value) {
+    if (['READY', 'ON_AIR', 'ENDED'].includes(lifecycleStatus.value) || !sseConnected.value) {
       void loadStats()
       if (!sseConnected.value) {
         void loadProducts()
@@ -790,8 +791,14 @@ onBeforeUnmount(() => {
           </div>
 
           <div ref="stageRef" class="player-frame" :class="{ 'player-frame--fullscreen': isFullscreen }">
-            <span class="player-frame__label" v-if="status === 'ENDED'">대기 화면</span>
-            <span class="player-frame__label" v-else>LIVE 플레이어</span>
+            <span v-if="lifecycleStatus === 'STOPPED'" class="player-frame__label">
+              운영 정책 위반으로 송출 중지되었습니다.
+            </span>
+            <span v-else-if="lifecycleStatus === 'ENDED'" class="player-frame__label">방송이 종료되었습니다.</span>
+            <span v-else-if="lifecycleStatus === 'READY' || lifecycleStatus === 'RESERVED'" class="player-frame__label">
+              방송 시작 대기 중
+            </span>
+            <span v-else class="player-frame__label">LIVE 플레이어</span>
             <div class="player-actions">
               <button
                 type="button"
