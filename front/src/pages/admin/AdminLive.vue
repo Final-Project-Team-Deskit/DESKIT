@@ -612,10 +612,7 @@ const vodSummary = computed<AdminVodItem[]>(() =>
 
 const buildLoopItems = <T>(items: T[]): T[] => {
   if (!items.length) return []
-  if (items.length === 1) {
-    const single = items[0]!
-    return [single, single, single]
-  }
+  if (items.length === 1) return items
   const first = items[0]!
   const last = items[items.length - 1]!
   return [last, ...items, first]
@@ -671,6 +668,19 @@ const updateSlideWidth = (kind: LoopKind) => {
   slideWidths.value[kind] = card?.offsetWidth ?? 280
 }
 
+const isCarouselOverflowing = (kind: LoopKind) => {
+  const root = carouselRefs.value[kind]
+  if (!root) return false
+  const viewport = root.parentElement
+  if (!viewport) return false
+  const itemCount = baseItemsFor(kind).length
+  if (itemCount <= 1) return false
+  const cardWidth = slideWidths.value[kind] || root.querySelector<HTMLElement>('.live-card')?.offsetWidth || 0
+  if (!cardWidth) return false
+  const totalWidth = (cardWidth * itemCount) + (loopGap * (itemCount - 1))
+  return totalWidth > viewport.clientWidth
+}
+
 const getTrackStyle = (kind: LoopKind) => {
   const width = (slideWidths.value[kind] || 280) + loopGap
   const translate = loopIndex.value[kind] * width
@@ -691,6 +701,8 @@ const baseItemsFor = (kind: LoopKind) => {
   if (kind === 'scheduled') return scheduledSummary.value
   return vodSummary.value
 }
+
+const getBaseLoopIndex = (kind: LoopKind) => (loopItemsFor(kind).length > 1 ? 1 : 0)
 
 const handleLoopTransitionEnd = (kind: LoopKind) => {
   const items = loopItemsFor(kind)
@@ -729,8 +741,13 @@ const stepCarousel = (kind: LoopKind, delta: -1 | 1) => {
 
 const startAutoLoop = (kind: LoopKind) => {
   stopAutoLoop(kind)
-  if (baseItemsFor(kind).length <= 1) return
+  if (!isCarouselOverflowing(kind)) return
   autoTimers.value[kind] = window.setInterval(() => {
+    if (!isCarouselOverflowing(kind)) {
+      stopAutoLoop(kind)
+      loopIndex.value[kind] = getBaseLoopIndex(kind)
+      return
+    }
     stepCarousel(kind, 1)
   }, 3200)
 }
@@ -747,11 +764,16 @@ const restartAutoLoop = (kind: LoopKind) => {
 }
 
 const resetLoop = (kind: LoopKind) => {
-  loopIndex.value[kind] = loopItemsFor(kind).length > 1 ? 1 : 0
+  loopIndex.value[kind] = getBaseLoopIndex(kind)
   loopTransition.value[kind] = true
   nextTick(() => {
     updateSlideWidth(kind)
-    startAutoLoop(kind)
+    if (isCarouselOverflowing(kind)) {
+      startAutoLoop(kind)
+    } else {
+      stopAutoLoop(kind)
+      loopIndex.value[kind] = getBaseLoopIndex(kind)
+    }
   })
 }
 
@@ -765,6 +787,9 @@ const handleResize = () => {
   updateSlideWidth('live')
   updateSlideWidth('scheduled')
   updateSlideWidth('vod')
+  restartAutoLoop('live')
+  restartAutoLoop('scheduled')
+  restartAutoLoop('vod')
 }
 
 watch(
