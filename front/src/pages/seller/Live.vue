@@ -616,6 +616,19 @@ const updateSlideWidth = (kind: LoopKind) => {
   slideWidths.value[kind] = (card?.offsetWidth ?? 280)
 }
 
+const isCarouselOverflowing = (kind: LoopKind) => {
+  const root = carouselRefs.value[kind]
+  if (!root) return false
+  const viewport = root.parentElement
+  if (!viewport) return false
+  const itemCount = baseItemsFor(kind).length
+  if (itemCount <= 1) return false
+  const cardWidth = slideWidths.value[kind] || root.querySelector<HTMLElement>('.live-card')?.offsetWidth || 0
+  if (!cardWidth) return false
+  const totalWidth = (cardWidth * itemCount) + (loopGap * (itemCount - 1))
+  return totalWidth > viewport.clientWidth
+}
+
 const getTrackStyle = (kind: LoopKind) => {
   const width = (slideWidths.value[kind] || 280) + loopGap
   const translate = loopIndex.value[kind] * width
@@ -662,7 +675,7 @@ const stepCarousel = (kind: LoopKind, delta: -1 | 1) => {
 
 const startAutoLoop = (kind: LoopKind) => {
   stopAutoLoop(kind)
-  if (baseItemsFor(kind).length <= 1) return
+  if (!isCarouselOverflowing(kind)) return
   autoTimers.value[kind] = window.setInterval(() => {
     stepCarousel(kind, 1)
   }, 3200)
@@ -696,6 +709,8 @@ const resetAllLoops = () => {
 const handleResize = () => {
   updateSlideWidth('scheduled')
   updateSlideWidth('vod')
+  restartAutoLoop('scheduled')
+  restartAutoLoop('vod')
 }
 
 const setTab = (tab: LiveTab) => {
