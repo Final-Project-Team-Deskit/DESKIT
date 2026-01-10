@@ -12,6 +12,7 @@ import {
   type BroadcastResult,
   updateSellerVodVisibility,
 } from '../../../lib/live/api'
+import { getBroadcastStatusLabel } from '../../../lib/broadcastStatus'
 
 const route = useRoute()
 const router = useRouter()
@@ -46,6 +47,7 @@ const isVodPublic = computed(() => detail.value?.vod.visibility === '공개')
 const isPlaying = ref(false)
 const isFullscreen = ref(false)
 const showDeleteConfirm = ref(false)
+const statusLabel = computed(() => getBroadcastStatusLabel(detail.value?.statusLabel))
 
 const goBack = () => {
   router.back()
@@ -246,7 +248,7 @@ watch(vodId, () => {
           <h3>{{ detail.title }}</h3>
           <p><span>방송 시작 시간</span>{{ detail.startedAt }}</p>
           <p><span>방송 종료 시간</span>{{ detail.endedAt }}</p>
-          <p><span>상태</span>{{ detail.statusLabel }}</p>
+          <p><span>상태</span>{{ statusLabel }}</p>
           <p v-if="detail.statusLabel === 'STOPPED' && detail.stopReason"><span>중지 사유</span>{{ detail.stopReason }}</p>
         </div>
       </div>
