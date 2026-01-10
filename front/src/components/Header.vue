@@ -368,26 +368,40 @@ const handleLogout = async () => {
         </nav>
         <nav v-else class="mobile-menu__nav">
           <template v-if="isSellerRoute">
-            <RouterLink
-              v-for="tab in sellerTabs"
-              :key="`seller-${tab.to}`"
-              :to="tab.to"
-              class="mobile-menu__link"
-              @click="closeMenu"
-            >
-              {{ tab.label }}
-            </RouterLink>
+            <div v-for="tab in sellerTabs" :key="`seller-${tab.to}`" class="mobile-menu__group">
+              <RouterLink :to="tab.to" class="mobile-menu__link" @click="closeMenu">
+                {{ tab.label }}
+              </RouterLink>
+              <div v-if="tab.children" class="mobile-menu__subnav">
+                <RouterLink
+                  v-for="child in tab.children"
+                  :key="`seller-${tab.to}-${child.to}`"
+                  :to="child.to"
+                  class="mobile-menu__sublink"
+                  @click="closeMenu"
+                >
+                  {{ child.label }}
+                </RouterLink>
+              </div>
+            </div>
           </template>
           <template v-else>
-            <RouterLink
-              v-for="tab in adminTabs"
-              :key="`admin-${tab.to}`"
-              :to="tab.to"
-              class="mobile-menu__link"
-              @click="closeMenu"
-            >
-              {{ tab.label }}
-            </RouterLink>
+            <div v-for="tab in adminTabs" :key="`admin-${tab.to}`" class="mobile-menu__group">
+              <RouterLink :to="tab.to" class="mobile-menu__link" @click="closeMenu">
+                {{ tab.label }}
+              </RouterLink>
+              <div v-if="tab.children" class="mobile-menu__subnav">
+                <RouterLink
+                  v-for="child in tab.children"
+                  :key="`admin-${tab.to}-${child.to}`"
+                  :to="child.to"
+                  class="mobile-menu__sublink"
+                  @click="closeMenu"
+                >
+                  {{ child.label }}
+                </RouterLink>
+              </div>
+            </div>
           </template>
         </nav>
         <div class="mobile-menu__actions">
@@ -775,6 +789,37 @@ const handleLogout = async () => {
   display: flex;
   flex-direction: column;
   gap: 6px;
+}
+
+.mobile-menu__group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.mobile-menu__subnav {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-left: 12px;
+  border-left: 1px solid var(--border-color);
+  padding-left: 8px;
+}
+
+.mobile-menu__sublink {
+  padding: 8px 10px;
+  border-radius: 10px;
+  color: var(--text-muted);
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  min-height: 38px;
+  transition: background 0.2s ease, color 0.2s ease;
+}
+
+.mobile-menu__sublink:hover {
+  background: var(--surface-weak);
+  color: var(--text-strong);
 }
 
 .mobile-menu__actions {
