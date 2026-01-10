@@ -227,7 +227,7 @@ public class BroadcastService {
                 throw new BusinessException(ErrorCode.FORBIDDEN_ACCESS);
             }
 
-            if (broadcast.getStatus() != BroadcastStatus.RESERVED) {
+            if (broadcast.getStatus() != BroadcastStatus.RESERVED && broadcast.getStatus() != BroadcastStatus.CANCELED) {
                 throw new BusinessException(ErrorCode.INVALID_INPUT_VALUE);
             }
 
@@ -1234,7 +1234,8 @@ public class BroadcastService {
         }
         return switch (from) {
             case RESERVED -> to == BroadcastStatus.READY || to == BroadcastStatus.CANCELED || to == BroadcastStatus.DELETED;
-            case READY -> to == BroadcastStatus.ON_AIR || to == BroadcastStatus.STOPPED;
+            case CANCELED -> to == BroadcastStatus.RESERVED || to == BroadcastStatus.DELETED;
+            case READY -> to == BroadcastStatus.ON_AIR || to == BroadcastStatus.STOPPED || to == BroadcastStatus.CANCELED;
             case ON_AIR -> to == BroadcastStatus.ENDED || to == BroadcastStatus.STOPPED;
             case ENDED -> to == BroadcastStatus.VOD || to == BroadcastStatus.STOPPED;
             case STOPPED -> to == BroadcastStatus.VOD;
