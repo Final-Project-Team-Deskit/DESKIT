@@ -5,6 +5,8 @@ import com.deskit.deskit.account.entity.*;
 import com.deskit.deskit.account.enums.*;
 import com.deskit.deskit.account.oauth.CustomOAuth2User;
 import com.deskit.deskit.account.repository.*;
+import com.deskit.deskit.account.service.SignupPhoneSessionKeys;
+import com.deskit.deskit.account.service.SignupPhoneVerificationService;
 import com.deskit.deskit.common.util.verification.PhoneSendRequest;
 import com.deskit.deskit.common.util.verification.PhoneSendResponse;
 import com.deskit.deskit.common.util.verification.PhoneVerifyRequest;
@@ -23,21 +25,11 @@ import org.springframework.web.bind.annotation.*;
 import java.time.LocalDateTime;
 import java.util.Base64;
 import java.util.Objects;
-import java.util.concurrent.ThreadLocalRandom;
 
 @RestController
 @RequiredArgsConstructor
 @RequestMapping("/api/signup/social")
 public class SignupController {
-
-    // 세션 키 값 : 인증받을 폰 번호
-    private static final String SESSION_PHONE_NUMBER = "pendingPhoneNumber";
-
-    // 세션 키 값 : 인증코드
-    private static final String SESSION_PHONE_CODE = "pendingPhoneCode";
-
-    // 세션 키 값 : 인증 확인 여부
-    private static final String SESSION_PHONE_VERIFIED = "pendingPhoneVerified";
 
     private final MemberRepository memberRepository;
     private final SellerRepository sellerRepository;
@@ -46,6 +38,7 @@ public class SignupController {
     private final SellerGradeRepository sellerGradeRepository;
     private final InvitationRepository invitationRepository;
     private final SellerPlanEvaluationService sellerPlanEvaluationService;
+    private final SignupPhoneVerificationService signupPhoneVerificationService;
 
     // 소셜 로그인 후 추가 정보 입력 후 회원 가입 진행 - 대기중인 상태
     @GetMapping("/pending")
@@ -90,18 +83,20 @@ public class SignupController {
             return new ResponseEntity<>("phone number required", HttpStatus.BAD_REQUEST);
         }
 
-        // 개발용 인증 코드 6자리 생성
-        String code = String.format("%06d", ThreadLocalRandom.current().nextInt(100000, 1000000));
+        String code = signupPhoneVerificationService.sendCode(phoneNumber, session);
+        if (code == null) {
+            return new ResponseEntity<>("sms send failed", HttpStatus.INTERNAL_SERVER_ERROR);
+        }
 
-        // 세션에 인증 관련 정보 담기
-        session.setAttribute(SESSION_PHONE_NUMBER, phoneNumber);
-        session.setAttribute(SESSION_PHONE_CODE, code);
-        session.setAttribute(SESSION_PHONE_VERIFIED, false);
+        // Development-only flow (kept for reference)
+        // String devCode = String.format("%06d", ThreadLocalRandom.current().nextInt(100000, 1000000));
+        // session.setAttribute(SignupPhoneSessionKeys.SESSION_PHONE_NUMBER, phoneNumber);
+        // session.setAttribute(SignupPhoneSessionKeys.SESSION_PHONE_CODE, devCode);
+        // session.setAttribute(SignupPhoneSessionKeys.SESSION_PHONE_VERIFIED, false);
 
-        // 개발용 인증 코드 담은 Response payload
         PhoneSendResponse response = PhoneSendResponse.builder()
-                .message("verification code generated")
-                .code(code)
+                .message("등록된 전화번호로 인증번호가 발송되었습니다.")
+                // .code(code) // development-only
                 .build();
 
         return new ResponseEntity<>(response, HttpStatus.OK);
@@ -126,15 +121,10 @@ public class SignupController {
         String phoneNumber = request.getPhoneNumber();
         String code = request.getCode();
 
-        // 세션에 저장된 번호와 코드 꺼내기
-        String storedPhone = (String) session.getAttribute(SESSION_PHONE_NUMBER);
-        String storedCode = (String) session.getAttribute(SESSION_PHONE_CODE);
-
-        if (!Objects.equals(phoneNumber, storedPhone) || !Objects.equals(code, storedCode)) {
+        boolean verified = signupPhoneVerificationService.verifyCode(phoneNumber, code, session);
+        if (!verified) {
             return new ResponseEntity<>("verification failed", HttpStatus.BAD_REQUEST);
         }
-
-        session.setAttribute(SESSION_PHONE_VERIFIED, true);
 
         return new ResponseEntity<>("verified", HttpStatus.OK);
     }
@@ -168,12 +158,12 @@ public class SignupController {
             return new ResponseEntity<>("already signed up", HttpStatus.CONFLICT);
         }
 
-        Boolean verified = (Boolean) session.getAttribute(SESSION_PHONE_VERIFIED);
+        Boolean verified = (Boolean) session.getAttribute(SignupPhoneSessionKeys.SESSION_PHONE_VERIFIED);
         if (verified == null || !verified) {
             return new ResponseEntity<>("phone verification required", HttpStatus.BAD_REQUEST);
         }
 
-        String storedPhone = (String) session.getAttribute(SESSION_PHONE_NUMBER);
+        String storedPhone = (String) session.getAttribute(SignupPhoneSessionKeys.SESSION_PHONE_NUMBER);
         if (!Objects.equals(storedPhone, request.getPhoneNumber())) {
             return new ResponseEntity<>("phone number mismatch", HttpStatus.BAD_REQUEST);
         }
@@ -457,9 +447,9 @@ public class SignupController {
 
     // 폰 인증 세션 삭제
     private void clearPhoneSession(HttpSession session) {
-        session.removeAttribute(SESSION_PHONE_NUMBER);
-        session.removeAttribute(SESSION_PHONE_CODE);
-        session.removeAttribute(SESSION_PHONE_VERIFIED);
+        session.removeAttribute(SignupPhoneSessionKeys.SESSION_PHONE_NUMBER);
+        session.removeAttribute(SignupPhoneSessionKeys.SESSION_PHONE_CODE);
+        session.removeAttribute(SignupPhoneSessionKeys.SESSION_PHONE_VERIFIED);
     }
 
     // 사업계획서 디코딩

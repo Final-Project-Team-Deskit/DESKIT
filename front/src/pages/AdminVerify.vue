@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import PageContainer from '../components/PageContainer.vue'
 import PageHeader from '../components/PageHeader.vue'
@@ -20,6 +20,11 @@ type VerifyResponse = {
 const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080'
 const router = useRouter()
 const pending = ref<PendingAdmin | null>(null)
+const hasSentCode = ref(false)
+
+const sendButtonLabel = computed(() =>
+  hasSentCode.value ? '인증번호 재전송' : '인증번호 전송',
+)
 
 const form = reactive({
   code: '',
@@ -52,7 +57,8 @@ const sendCode = async () => {
   }
 
   const data = await response.json()
-  form.sentMessage = `인증번호가 발송되었습니다. (개발용 코드: ${data.code})`
+  form.sentMessage = data.message || '등록된 전화번호로 인증번호가 발송되었습니다.'
+  hasSentCode.value = true
 }
 
 const storeAuthUser = (payload: VerifyResponse) => {
@@ -125,7 +131,7 @@ onMounted(() => {
             </div>
           </label>
 
-          <button type="button" class="btn ghost" @click="sendCode">인증번호 재전송</button>
+          <button type="button" class="btn ghost" @click="sendCode">{{ sendButtonLabel }}</button>
         </div>
 
         <div v-else class="alert">

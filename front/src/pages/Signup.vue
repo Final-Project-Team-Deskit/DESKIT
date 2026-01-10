@@ -356,7 +356,7 @@ const sendCode = async () => {
   }
 
   const data = await response.json()
-  form.message = `인증번호가 발송되었습니다. (개발용 코드: ${data.code})`
+  form.message = data.message || '등록된 전화번호로 인증번호가 발송되었습니다.'
 }
 
 const verifyCode = async () => {

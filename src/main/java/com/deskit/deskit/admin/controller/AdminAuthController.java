@@ -53,18 +53,22 @@ public class AdminAuthController {
             return new ResponseEntity<>("unauthorized", HttpStatus.UNAUTHORIZED);
         }
 
-        String code = adminAuthService.resendCode(session);
+        String code = adminAuthService.sendVerificationCode(null, session);
         if (code == null) {
             Admin admin = adminRepository.findByLoginId(loginId);
             if (admin == null) {
                 return new ResponseEntity<>("unauthorized", HttpStatus.UNAUTHORIZED);
             }
-            code = adminAuthService.startSession(admin, session);
+            code = adminAuthService.sendVerificationCode(admin, session);
+        }
+
+        if (code == null) {
+            return new ResponseEntity<>("sms send failed", HttpStatus.INTERNAL_SERVER_ERROR);
         }
 
         PhoneSendResponse response = PhoneSendResponse.builder()
-                .message("verification code generated")
-                .code(code)
+                .message("등록된 전화번호로 인증번호가 발송되었습니다.")
+                // .code(code) // development-only
                 .build();
 
         return new ResponseEntity<>(response, HttpStatus.OK);

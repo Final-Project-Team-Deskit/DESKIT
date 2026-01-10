@@ -1,13 +1,18 @@
 package com.deskit.deskit.admin.service;
 
 import com.deskit.deskit.admin.entity.Admin;
+import com.deskit.deskit.common.util.verification.SmsVerificationService;
 import jakarta.servlet.http.HttpSession;
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
 import java.util.concurrent.ThreadLocalRandom;
 
 @Service
+@RequiredArgsConstructor
 public class AdminAuthService {
+
+    private final SmsVerificationService smsVerificationService;
 
     public String startSession(Admin admin, HttpSession session) {
         if (admin == null || session == null) {
@@ -104,5 +109,33 @@ public class AdminAuthService {
 
     private String generateCode() {
         return String.format("%06d", ThreadLocalRandom.current().nextInt(100000, 1000000));
+    }
+
+    public String sendVerificationCode(Admin admin, HttpSession session) {
+        if (session == null) {
+            return null;
+        }
+
+        String code;
+        String phone;
+
+        String loginId = (String) session.getAttribute(AdminAuthSessionKeys.SESSION_ADMIN_LOGIN_ID);
+        if (loginId != null && !loginId.isBlank()) {
+            phone = (String) session.getAttribute(AdminAuthSessionKeys.SESSION_ADMIN_PHONE);
+            code = resendCode(session);
+        } else {
+            if (admin == null) {
+                return null;
+            }
+            phone = admin.getPhone();
+            code = startSession(admin, session);
+        }
+
+        if (phone == null || phone.isBlank() || code == null) {
+            return null;
+        }
+
+        boolean sent = smsVerificationService.sendVerificationCode(phone, code);
+        return sent ? code : null;
     }
 }
