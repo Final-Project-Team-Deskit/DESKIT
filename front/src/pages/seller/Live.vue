@@ -549,7 +549,8 @@ const filteredScheduledItems = computed(() => {
     })
 
   if (scheduledStatus.value === 'canceled') return sortScheduled(canceled)
-  return sortScheduled(reserved)
+  if (scheduledStatus.value === 'reserved') return sortScheduled(reserved)
+  return sortScheduled([...reserved, ...canceled])
 })
 
 const categoryOptions = computed(() => categories.value)
