@@ -110,7 +110,7 @@ const normalizeReceipt = (raw: any): OrderReceipt | null => {
   const paymentMethodLabel =
     typeof raw?.paymentMethodLabel === 'string' && raw.paymentMethodLabel.trim()
       ? raw.paymentMethodLabel
-      : '토스페이 (예정)'
+      : '토스페이'
   const status: OrderReceipt['status'] =
     raw?.status &&
     ['CREATED', 'PAID', 'CANCEL_REQUESTED', 'CANCELED', 'REFUND_REJECTED', 'REFUNDED'].includes(

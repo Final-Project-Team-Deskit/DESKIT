@@ -80,9 +80,9 @@ const cancelReasonCategory = ref('')
 const cancelError = ref('')
 const cancelReasons = [
   '단순 변심',
-  '가격/혜택(쿠폰·프로모션) 불만',
-  '옵션/수량/정보를 잘못 선택',
-  '배송이 늦을 것 같아서(일정 문제)',
+  '가격 변동(쿠폰·프로모션) 불만',
+  '옵션/수량/정보 선택 오류',
+  '배송 지연(일정 문제)',
   '재고 없음/판매자 사정으로 취소(품절 포함)',
   '기타',
 ]
@@ -116,7 +116,7 @@ const mapOrderSummaryToView = (order: OrderSummaryResponse): OrderViewModel => (
     address1: '',
     address2: '',
   },
-  paymentMethodLabel: '토스페이 (예정)',
+  paymentMethodLabel: '토스페이',
   totals: {
     listPriceTotal: Number(order.order_amount ?? 0) || 0,
     salePriceTotal: Number(order.order_amount ?? 0) || 0,
@@ -259,7 +259,7 @@ const resolveItemName = (productId: string, index: number) => {
   return String(p?.name ?? `상품 ${index + 1}`)
 }
 
-const itemLoadErrorMessage = '상품 정보를 불러올 수 없습니다. 다시 시도해주세요.'
+const itemLoadErrorMessage = '상품 정보를 불러오지 못했습니다. 다시 시도해주세요.'
 
 const handleItemsToggle = async (order: OrderViewModel, event: Event) => {
   const target = event.target
@@ -371,11 +371,7 @@ onMounted(() => {
           <div class="info">
             <div class="info__row header">
               <div class="thumb" :class="{ 'thumb--empty': !thumbOf(order) }">
-                <img
-                  v-if="thumbOf(order)"
-                  :src="thumbOf(order)"
-                  :alt="order.items[0]?.name || '상품'"
-                />
+                <img v-if="thumbOf(order)" :src="thumbOf(order)" :alt="order.items[0]?.name || '상품'" />
                 <span v-else class="thumb__ph">DESKIT</span>
               </div>
               <div class="header-block">
@@ -409,7 +405,7 @@ onMounted(() => {
               <summary>주문 상품 보기 ({{ order.items.length }})</summary>
               <div class="items-list">
                 <div class="items-meta">
-                  <span>총 금액 · {{ formatPrice(order.totals.total) }}</span>
+                  <span>총금액 · {{ formatPrice(order.totals.total) }}</span>
                   <span>수량 · {{ quantityOf(order) }}개</span>
                 </div>
                 <div class="items-header">
@@ -433,11 +429,11 @@ onMounted(() => {
                     class="item-link"
                   >
                     {{ item.name }}
-                    <span v-if="item.quantity > 1" class="item-qty">×{{ item.quantity }}</span>
+                    <span v-if="item.quantity > 1" class="item-qty">x{{ item.quantity }}</span>
                   </RouterLink>
                   <span v-else class="item-name">
                     {{ item.name }}
-                    <span v-if="item.quantity > 1" class="item-qty">×{{ item.quantity }}</span>
+                    <span v-if="item.quantity > 1" class="item-qty">x{{ item.quantity }}</span>
                   </span>
                   <span class="item-price">
                     {{ (item.price * item.quantity).toLocaleString('ko-KR') }}원
@@ -472,7 +468,7 @@ onMounted(() => {
       <div v-if="isModalOpen" class="modal-overlay" @click.self="closeModal">
         <div class="modal">
           <h3 class="modal__title">주문 취소</h3>
-          <p class="modal__subtitle">취소 사유를 입력해주세요.</p>
+          <p class="modal__subtitle">취소 사유를 선택해주세요.</p>
           <div v-if="selectedOrderId" class="modal__summary">
             <p>주문번호: {{ selectedOrderId }}</p>
             <p>{{ modalTitle(selectedOrderId) }}</p>
@@ -657,13 +653,13 @@ onMounted(() => {
 }
 
 .reason-summary::after {
-  content: '▾';
+  content: '▼';
   font-weight: 900;
   opacity: 0.7;
 }
 
 .reason-disclosure[open] .reason-summary::after {
-  content: '▴';
+  content: '▲';
 }
 
 .reason-summary:hover,

@@ -4,6 +4,8 @@ import { RouterLink, useRoute, useRouter } from 'vue-router'
 import PageContainer from '../components/PageContainer.vue'
 import PageHeader from '../components/PageHeader.vue'
 import { getMyOrderDetail } from '../api/orders'
+import { productsData } from '../lib/products-data'
+import { loadLastOrder } from '../lib/order/order-storage'
 
 const router = useRouter()
 const route = useRoute()
@@ -37,7 +39,7 @@ const statusConfig = computed(() => {
   const status = receipt.value?.status
   if (status === 'PAYMENT_PENDING' || status === 'CREATED') {
     return {
-      title: '결제 대기 중',
+      title: '결제 진행 중입니다.',
       description: '결제 확인 후 주문이 완료됩니다.',
       ctaLabel: '주문 내역 보기',
       ctaPath: '/my/orders',
@@ -45,7 +47,7 @@ const statusConfig = computed(() => {
   }
   if (status === 'COMPLETED' || status === 'PAID') {
     return {
-      title: '주문이 완료되었습니다',
+      title: '주문이 완료되었습니다.',
       description: '주문 내역에서 배송 정보를 확인하세요.',
       ctaLabel: '주문 내역 보기',
       ctaPath: '/my/orders',
@@ -59,19 +61,24 @@ const statusConfig = computed(() => {
     status === 'REFUND_REJECTED'
   ) {
     return {
-      title: '주문이 취소되었습니다',
+      title: '주문이 취소되었습니다.',
       description: '취소된 주문입니다.',
       ctaLabel: '메인으로 이동',
       ctaPath: '/',
     }
   }
   return {
-    title: '결제가 완료되었어요.',
+    title: '결제가 완료되었습니다.',
     description: '주문 정보가 준비되었습니다.',
     ctaLabel: '메인으로 이동',
     ctaPath: '/',
   }
 })
+
+const resolveItemName = (productId: string, index: number) => {
+  const product = productsData.find((item: any) => String(item.product_id) === String(productId))
+  return String(product?.name ?? `상품 ${index + 1}`)
+}
 
 const loadOrderDetail = async (orderId: string) => {
   if (!orderId) {
@@ -97,25 +104,35 @@ const loadOrderDetail = async (orderId: string) => {
       receipt.value = null
       return
     }
-    const items = response.items.map((item, index) => ({
-      productId: String(item.product_id),
-      name: `상품 ${index + 1}`,
-      quantity: item.quantity,
-      price: item.unit_price,
-    }))
+    const cached = loadLastOrder()
+    const resolvedOrderId = response.order_number || String(response.order_id)
+    const cachedMatches = cached?.orderId === resolvedOrderId
+    const cachedItems = cachedMatches ? cached?.items ?? [] : []
+    const items = response.items.map((item, index) => {
+      const productId = String(item.product_id)
+      const cachedItem = cachedItems.find((cachedItem) => cachedItem.productId === productId)
+      return {
+        productId,
+        name: cachedItem?.name ?? resolveItemName(productId, index),
+        quantity: item.quantity,
+        price: item.unit_price,
+      }
+    })
     const total = Number(response.order_amount ?? 0) || 0
     receipt.value = {
-      orderId: response.order_number || String(response.order_id),
+      orderId: resolvedOrderId,
       createdAt: response.created_at,
       items,
       status: response.status ?? undefined,
-      shipping: {
-        buyerName: '',
-        zipcode: '',
-        address1: '',
-        address2: '',
-      },
-      paymentMethodLabel: '토스페이(예정)',
+      shipping: cachedMatches && cached
+        ? cached.shipping
+        : {
+            buyerName: '',
+            zipcode: '',
+            address1: '',
+            address2: '',
+          },
+      paymentMethodLabel: cachedMatches && cached ? cached.paymentMethodLabel : '토스페이',
       totals: {
         total,
       },
@@ -131,7 +148,7 @@ const loadOrderDetail = async (orderId: string) => {
       receipt.value = null
       return
     }
-    errorMessage.value = '주문 정보를 불러올 수 없습니다.'
+    errorMessage.value = '주문 정보를 불러오지 못했습니다.'
     receipt.value = null
   } finally {
     isLoading.value = false
@@ -183,13 +200,13 @@ const handlePrimaryAction = () => {
       </div>
 
       <p class="meta">
-        {{ receipt.shipping.buyerName || '고객' }} 고객님의
-        {{ receipt.items[0]?.name }} 외 {{ Math.max(receipt.items.length - 1, 0) }}건에 대한 결제 내역입니다.
+        {{ receipt.shipping.buyerName || '고객' }} 고객의
+        {{ receipt.items[0]?.name }} 등 {{receipt.items.length}}건에 대한 결제 내역입니다.
       </p>
 
       <div class="table">
         <div class="table-head">
-          <span>순번</span>
+          <span>번호</span>
           <span>상품명</span>
           <span>개수</span>
           <span>가격</span>
@@ -218,7 +235,7 @@ const handlePrimaryAction = () => {
           <strong>{{ receipt.paymentMethodLabel }}</strong>
         </div>
         <div class="summary-row">
-          <span>배송 장소</span>
+          <span>배송 주소</span>
           <strong>
             {{ receipt.shipping.zipcode }} {{ receipt.shipping.address1 }} {{ receipt.shipping.address2 }}
           </strong>
