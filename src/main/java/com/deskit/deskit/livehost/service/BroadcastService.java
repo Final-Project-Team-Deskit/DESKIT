@@ -251,18 +251,41 @@ public class BroadcastService {
         var statusField = field(name("p", "status"), String.class);
         var deletedAt = field(name("p", "deleted_at"), LocalDateTime.class);
 
+        var broadcastTable = table(name("broadcast")).as("b");
+        var broadcastId = field(name("b", "broadcast_id"), Long.class);
+        var broadcastStatus = field(name("b", "status"), String.class);
+
+        var broadcastProductTable = table(name("broadcast_product")).as("bp");
+        var bpProductId = field(name("bp", "product_id"), Long.class);
+        var bpQuantity = field(name("bp", "bp_quantity"), Integer.class);
+        var bpStatus = field(name("bp", "status"), String.class);
+        var bpBroadcastId = field(name("bp", "broadcast_id"), Long.class);
+
         List<String> statuses = List.of(Status.ON_SALE.name(), Status.READY.name(), Status.LIMITED_SALE.name());
+        List<String> reservedStatuses = List.of(BroadcastStatus.RESERVED.name(), BroadcastStatus.READY.name());
+
+        var reservedQuantityField = org.jooq.impl.DSL.coalesce(org.jooq.impl.DSL.sum(bpQuantity), 0).as("reserved_qty");
+        var reservedSubquery = dsl.select(bpProductId, reservedQuantityField)
+                .from(broadcastProductTable)
+                .join(broadcastTable).on(bpBroadcastId.eq(broadcastId))
+                .where(broadcastStatus.in(reservedStatuses).and(bpStatus.ne("DELETED")))
+                .groupBy(bpProductId)
+                .asTable("reserved");
+        var reservedProductId = field(name("reserved", "product_id"), Long.class);
+        var reservedQty = field(name("reserved", "reserved_qty"), Integer.class);
+        var availableQty = stockQty.sub(safetyStock).sub(org.jooq.impl.DSL.coalesce(reservedQty, 0));
 
         var condition = sellerField.eq(sellerId)
                 .and(statusField.in(statuses))
-                .and(stockQty.sub(safetyStock).gt(0))
+                .and(availableQty.gt(0))
                 .and(deletedAt.isNull());
         if (keyword != null && !keyword.isBlank()) {
             condition = condition.and(productName.containsIgnoreCase(keyword));
         }
 
-        return dsl.select(productId, productName, price, stockQty, safetyStock)
+        return dsl.select(productId, productName, price, stockQty, safetyStock, org.jooq.impl.DSL.coalesce(reservedQty, 0).as("reserved_qty"))
                 .from(productTable)
+                .leftJoin(reservedSubquery).on(productId.eq(reservedProductId))
                 .where(condition)
                 .orderBy(productId.asc())
                 .fetch(record -> ProductSelectResponse.builder()
@@ -271,6 +294,7 @@ public class BroadcastService {
                         .price(record.get(price))
                         .stockQty(record.get(stockQty))
                         .safetyStock(record.get(safetyStock))
+                        .reservedBroadcastQty(record.get("reserved_qty", Integer.class))
                         .imageUrl(null)
                         .build());
     }
