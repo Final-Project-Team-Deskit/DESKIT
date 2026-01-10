@@ -59,7 +59,10 @@ public class LiveAuthUtils {
         // 1. 소셜 로그인 (CustomOAuth2User)
         if (principal instanceof CustomOAuth2User) {
             CustomOAuth2User oauthUser = (CustomOAuth2User) principal;
-            // CustomOAuth2User 내부 구조상 userDTO를 통해 loginId를 가져옴
+            String username = oauthUser.getUsername();
+            if (username != null && !username.isBlank()) {
+                return username;
+            }
             return oauthUser.getEmail();
         }
 
