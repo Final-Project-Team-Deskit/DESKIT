@@ -612,10 +612,7 @@ const vodSummary = computed<AdminVodItem[]>(() =>
 
 const buildLoopItems = <T>(items: T[]): T[] => {
   if (!items.length) return []
-  if (items.length === 1) {
-    const single = items[0]!
-    return [single, single, single]
-  }
+  if (items.length === 1) return items
   const first = items[0]!
   const last = items[items.length - 1]!
   return [last, ...items, first]
