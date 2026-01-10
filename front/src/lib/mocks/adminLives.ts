@@ -98,7 +98,7 @@ const seedLives = (): AdminLiveSummary[] => [
     category: categories[2],
   },
   {
-    id: 'live-104',
+    id: 'live-11',
     title: '무선 주변기기 라이브 Q&A',
     subtitle: '키보드/마우스 실시간 비교와 시연',
     thumb: gradientThumb('1f2937', '0f172a'),

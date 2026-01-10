@@ -1,486 +1,853 @@
 <script setup lang="ts">
+
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+
 import { useRoute, useRouter } from 'vue-router'
+
+import { Client, type StompSubscription } from '@stomp/stompjs'
+
+import SockJS from 'sockjs-client/dist/sockjs'
+
 import { ADMIN_LIVES_EVENT, getAdminLiveSummaries, stopAdminLiveBroadcast } from '../../../lib/mocks/adminLives'
 
+import { getAuthUser } from '../../../lib/auth'
+
+
+
 const route = useRoute()
+
 const router = useRouter()
+
+const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080'
+
+
 
 const liveId = computed(() => (typeof route.params.liveId === 'string' ? route.params.liveId : ''))
 
+
+
+// 웹소켓 통신을 위한 숫자형 ID 변환
+
+const broadcastId = computed(() => {
+
+  if (!liveId.value) return undefined
+
+  const numeric = Number.parseInt(liveId.value.replace(/[^0-9]/g, ''), 10)
+
+  return Number.isFinite(numeric) ? numeric : undefined
+
+})
+
+
+
 const detail = ref<ReturnType<typeof getAdminLiveSummaries>[number] | null>(null)
 
+
+
 const stageRef = ref<HTMLDivElement | null>(null)
+
 const isFullscreen = ref(false)
+
 const showStopModal = ref(false)
+
 const stopReason = ref('')
+
 const stopDetail = ref('')
+
 const error = ref('')
+
 const showChat = ref(true)
+
 const chatText = ref('')
-const chatMessages = ref<{ id: string; user: string; text: string; time: string }[]>([])
+
 const chatListRef = ref<HTMLDivElement | null>(null)
+
 const seededLiveId = ref('')
+
 const showModerationModal = ref(false)
+
 const moderationTarget = ref<{ user: string } | null>(null)
+
 const moderationType = ref('')
+
 const moderationReason = ref('')
+
 const moderatedUsers = ref<Record<string, { type: string; reason: string; at: string }>>({})
+
 const activePane = ref<'monitor' | 'products'>('monitor')
-const liveProducts = ref(
-    [
-      {
-        id: 'p-1',
-        name: '모던 스탠딩 데스크',
-        option: '1200mm · 오프화이트',
-        price: '₩229,000',
-        sale: '₩189,000',
-        status: '판매중',
-        thumb: '',
-        sold: 128,
-        stock: 42,
-      },
-      {
-        id: 'p-2',
-        name: '무선 기계식 키보드',
-        option: '갈축 · 무선',
-        price: '₩139,000',
-        sale: '₩109,000',
-        status: '판매중',
-        thumb: '',
-        sold: 93,
-        stock: 65,
-      },
-      {
-        id: 'p-3',
-        name: '프리미엄 데스크 매트',
-        option: '900mm · 샌드',
-        price: '₩59,000',
-        sale: '₩45,000',
-        status: '품절',
-        thumb: '',
-        sold: 210,
-        stock: 0,
-      },
-      {
-        id: 'p-4',
-        name: '알루미늄 모니터암',
-        option: '싱글 · 블랙',
-        price: '₩169,000',
-        sale: '₩129,000',
-        status: '판매중',
-        thumb: '',
-        sold: 77,
-        stock: 18,
-      },
-    ],
-)
-const gradientPalette = ['111827', '0f172a', '1f2937', '334155'] as const
 
-const gradientThumb = (from: string, to: string) =>
-    `data:image/svg+xml;utf8,` +
-    `<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 320 200'>` +
-    `<defs><linearGradient id='g' x1='0' x2='1' y1='0' y2='1'>` +
-    `<stop offset='0' stop-color='%23${from}'/>` +
-    `<stop offset='1' stop-color='%23${to}'/>` +
-    `</linearGradient></defs>` +
-    `<rect width='320' height='200' fill='url(%23g)'/>` +
-    `</svg>`
-const seedProductThumbs = () => {
-  liveProducts.value = liveProducts.value.map((item, index) => ({
-    ...item,
-    thumb: gradientThumb(gradientPalette[index % gradientPalette.length], '0f172a'),
-  }))
+
+
+// 채팅 관련 상태 추가
+
+type LiveMessageType = 'TALK' | 'ENTER' | 'EXIT' | 'PURCHASE' | 'NOTICE'
+
+type LiveChatMessageDTO = {
+
+  broadcastId: number
+
+  memberEmail: string
+
+  type: LiveMessageType
+
+  sender: string
+
+  content: string
+
+  vodPlayTime: number
+
+  sentAt?: number
+
 }
 
-const reasonOptions = [
-  '음란물',
-  '폭력',
-  '국가기밀 누설',
-  '불쾌감/공포심/불안감 조성',
-  '비방',
-  '취급 불가 상품 판매',
-  '사이트 운영정책에 맞지 않는 상품',
-  '기타',
-]
 
-const seedChat = (id: string) => {
-  chatMessages.value = [
-    { id: `${id}-c1`, user: '관리자', text: '상태 모니터링 중입니다.', time: '오후 2:10' },
-    { id: `${id}-c2`, user: '시청자A', text: '화질 좋네요.', time: '오후 2:11' },
-    { id: `${id}-c3`, user: '시청자B', text: '상품 정보 공유 부탁해요.', time: '오후 2:12' },
-  ]
+
+const chatMessages = ref<{ id: string; user: string; text: string; time: string; kind?: 'system' | 'user' }[]>([])
+
+const stompClient = ref<Client | null>(null)
+
+let stompSubscription: StompSubscription | null = null
+
+const isChatConnected = ref(false)
+
+const memberEmail = ref("")
+
+const nickname = ref("관리자")
+
+
+
+const liveProducts = ref([
+
+  { id: 'p-1', name: '모던 스탠딩 데스크', option: '1200mm · 오프화이트', price: '₩229,000', sale: '₩189,000', status: '판매중', thumb: '', sold: 128, stock: 42 },
+
+  { id: 'p-2', name: '무선 기계식 키보드', option: '갈축 · 무선', price: '₩139,000', sale: '₩109,000', status: '판매중', thumb: '', sold: 93, stock: 65 },
+
+  { id: 'p-3', name: '프리미엄 데스크 매트', option: '900mm · 샌드', price: '₩59,000', sale: '₩45,000', status: '품절', thumb: '', sold: 210, stock: 0 },
+
+  { id: 'p-4', name: '알루미늄 모니터암', option: '싱글 · 블랙', price: '₩169,000', sale: '₩129,000', status: '판매중', thumb: '', sold: 77, stock: 18 },
+
+])
+
+
+
+const getAccessToken = () => localStorage.getItem('access') || sessionStorage.getItem('access')
+
+
+
+const refreshAuth = () => {
+
+  const user = getAuthUser()
+
+  if (user) {
+
+    memberEmail.value = user.email || ""
+
+    nickname.value = user.name || "관리자"
+
+  }
+
 }
 
-const goBack = () => {
-  router.back()
+
+
+// 실시간 메시지 수신 처리
+
+const handleIncomingMessage = (payload: LiveChatMessageDTO) => {
+
+  const sentAt = payload.sentAt ? new Date(payload.sentAt) : new Date()
+
+  const timeStr = `${sentAt.getHours()}시 ${String(sentAt.getMinutes()).padStart(2, '0')}분`
+
+
+
+  chatMessages.value.push({
+
+    id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+
+    user: payload.type === 'TALK' ? (payload.sender || '알 수 없음') : 'SYSTEM',
+
+    text: payload.content || '',
+
+    time: timeStr,
+
+    kind: payload.type === 'TALK' ? 'user' : 'system'
+
+  })
+
+
+
+  nextTick(() => {
+
+    if (chatListRef.value) {
+
+      chatListRef.value.scrollTop = chatListRef.value.scrollHeight
+
+    }
+
+  })
+
 }
 
-const goToList = () => {
-  router.push('/admin/live?tab=live').catch(() => {})
+
+
+// 최근 채팅 내역 조회
+
+const fetchRecentMessages = async () => {
+
+  if (!broadcastId.value) return
+
+  try {
+
+    const response = await fetch(`${apiBase}/livechats/${broadcastId.value}/recent?seconds=60`)
+
+    if (!response.ok) return
+
+    const recent = (await response.json()) as LiveChatMessageDTO[]
+
+    if (!Array.isArray(recent)) return
+
+
+
+    chatMessages.value = recent
+
+        .filter((item) => item.type === 'TALK')
+
+        .map((item) => {
+
+          const at = new Date(item.sentAt ?? Date.now())
+
+          return {
+
+            id: `${item.sentAt ?? Date.now()}-${Math.random().toString(16).slice(2)}`,
+
+            user: item.sender || 'unknown',
+
+            text: item.content ?? '',
+
+            time: `${at.getHours()}시 ${String(at.getMinutes()).padStart(2, '0')}분`,
+
+            kind: 'user'
+
+          }
+
+        })
+
+  } catch (error) {
+
+    console.error('[admin chat] recent fetch failed', error)
+
+  }
+
 }
+
+
+
+// 웹소켓 연결 설정
+
+const connectChat = () => {
+
+  if (!broadcastId.value || stompClient.value?.active) return
+
+
+
+  const client = new Client({
+
+    webSocketFactory: () => new SockJS(`${apiBase}/ws`, undefined, { withCredentials: true }),
+
+    reconnectDelay: 5000,
+
+  })
+
+
+
+  const access = getAccessToken()
+
+  if (access) {
+
+    client.connectHeaders = { access, Authorization: `Bearer ${access}` }
+
+  }
+
+
+
+  client.onConnect = () => {
+
+    isChatConnected.value = true
+
+    stompSubscription?.unsubscribe()
+
+    // 채널 구독: 시청자와 동일한 broadcastId 채널 사용
+
+    stompSubscription = client.subscribe(`/sub/chat/${broadcastId.value}`, (frame) => {
+
+      try {
+
+        handleIncomingMessage(JSON.parse(frame.body))
+
+      } catch (error) {
+
+        console.error('[admin chat] message parse failed', error)
+
+      }
+
+    })
+
+  }
+
+
+
+  client.onWebSocketClose = () => { isChatConnected.value = false }
+
+  client.onDisconnect = () => { isChatConnected.value = false }
+
+
+
+  stompClient.value = client
+
+  client.activate()
+
+}
+
+
+
+const disconnectChat = () => {
+
+  stompSubscription?.unsubscribe()
+
+  stompSubscription = null
+
+  stompClient.value?.deactivate()
+
+  stompClient.value = null
+
+  isChatConnected.value = false
+
+}
+
+
+
+// 메시지 전송 (WebSocket 발행)
+
+const sendChat = () => {
+
+  if (!chatText.value.trim() || !isChatConnected.value || !broadcastId.value) return
+
+
+
+  const payload: LiveChatMessageDTO = {
+
+    broadcastId: broadcastId.value,
+
+    memberEmail: memberEmail.value,
+
+    type: 'TALK',
+
+    sender: nickname.value,
+
+    content: chatText.value.trim(),
+
+    vodPlayTime: 0,
+
+    sentAt: Date.now(),
+
+  }
+
+
+
+  stompClient.value?.publish({
+
+    destination: '/pub/chat/message',
+
+    body: JSON.stringify(payload),
+
+  })
+
+
+
+  chatText.value = ''
+
+}
+
+
 
 const loadDetail = () => {
+
   const items = getAdminLiveSummaries()
+
   detail.value = items.find((item) => item.id === liveId.value) ?? items[0] ?? null
-  const seedId = liveId.value || items[0]?.id || 'live'
-  if (seededLiveId.value !== seedId) {
-    chatMessages.value = []
-    seedChat(seedId)
-    seededLiveId.value = seedId
-  }
+
 }
+
+
 
 const openStopConfirm = () => {
+
   if (!detail.value || detail.value.status === 'STOPPED') return
+
   showStopModal.value = true
-  error.value = ''
+
 }
+
+
 
 const closeStopModal = () => {
+
   showStopModal.value = false
+
   stopReason.value = ''
+
   stopDetail.value = ''
-  error.value = ''
+
 }
+
+
 
 const handleStopSave = () => {
+
   if (!detail.value) return
-  if (!stopReason.value) {
-    error.value = '유형을 선택해주세요.'
-    return
+
+  if (!stopReason.value) { error.value = '유형을 선택해주세요.'; return }
+
+  if (stopReason.value === '기타' && !stopDetail.value.trim()) { error.value = '중지 사유를 입력해주세요.'; return }
+
+
+
+  if (window.confirm('방송 송출을 중지하시겠습니까?')) {
+
+    stopAdminLiveBroadcast(detail.value.id, {
+
+      reason: stopReason.value,
+
+      detail: stopReason.value === '기타' ? stopDetail.value.trim() : undefined,
+
+    })
+
+    showStopModal.value = false
+
   }
-  if (stopReason.value === '기타' && !stopDetail.value.trim()) {
-    error.value = '중지 사유를 입력해주세요.'
-    return
-  }
-  const ok = window.confirm('방송 송출을 중지하시겠습니까?')
-  if (!ok) return
-  stopAdminLiveBroadcast(detail.value.id, {
-    reason: stopReason.value,
-    detail: stopReason.value === '기타' ? stopDetail.value.trim() : undefined,
-  })
-  showStopModal.value = false
+
 }
 
-const syncFullscreen = () => {
-  isFullscreen.value = Boolean(document.fullscreenElement)
+
+
+const syncFullscreen = () => { isFullscreen.value = Boolean(document.fullscreenElement) }
+
+const toggleFullscreen = async () => {
+
+  if (!stageRef.value) return
+
+  try {
+
+    if (document.fullscreenElement) await document.exitFullscreen()
+
+    else await stageRef.value.requestFullscreen()
+
+  } catch { /* ignore */ }
+
 }
+
+
+
+const openModeration = (msg: any) => {
+
+  if (msg.user === 'SYSTEM' || msg.user === '관리자') return
+
+  moderationTarget.value = { user: msg.user }
+
+  showModerationModal.value = true
+
+}
+
+
+
+const closeModeration = () => {
+
+  showModerationModal.value = false
+
+  moderationTarget.value = null
+
+}
+
+
+
+const saveModeration = () => {
+
+  if (!moderationType.value || !moderationReason.value.trim()) {
+
+    window.alert('필수 정보를 입력해주세요.')
+
+    return
+
+  }
+
+  if (window.confirm('시청자를 제재하시겠습니까?')) {
+
+    const target = moderationTarget.value?.user || ''
+
+    moderatedUsers.value[target] = {
+
+      type: moderationType.value,
+
+      reason: moderationReason.value.trim(),
+
+      at: new Date().toLocaleTimeString()
+
+    }
+
+    // 시스템 메시지 형식으로 채팅창에 표시
+
+    chatMessages.value.push({
+
+      id: `sys-${Date.now()}`,
+
+      user: 'SYSTEM',
+
+      text: `${target}님을 '${moderationType.value}' 처리했습니다.`,
+
+      time: new Date().toLocaleTimeString()
+
+    })
+
+    closeModeration()
+
+  }
+
+}
+
+
+
+onMounted(() => {
+
+  refreshAuth()
+
+  loadDetail()
+
+  document.addEventListener('fullscreenchange', syncFullscreen)
+
+  window.addEventListener(ADMIN_LIVES_EVENT, loadDetail)
+
+})
+
+
+
+onBeforeUnmount(() => {
+
+  document.removeEventListener('fullscreenchange', syncFullscreen)
+
+  window.removeEventListener(ADMIN_LIVES_EVENT, loadDetail)
+
+  disconnectChat()
+
+})
+
+
+
+watch(broadcastId, (val) => {
+
+  chatMessages.value = []
+
+  disconnectChat()
+
+  if (val) {
+
+    fetchRecentMessages()
+
+    connectChat()
+
+  }
+
+}, { immediate: true })
+
+
 
 const modalHostTarget = computed(() => (isFullscreen.value && stageRef.value ? stageRef.value : 'body'))
 
-const toggleFullscreen = async () => {
-  const el = stageRef.value
-  if (!el) return
-  try {
-    if (document.fullscreenElement) {
-      await document.exitFullscreen()
-      return
-    }
-    if (el.requestFullscreen) {
-      await el.requestFullscreen()
-    }
-  } catch {
-    return
-  }
-}
-
-const toggleChat = () => {
-  showChat.value = !showChat.value
-}
-
-const closeChat = () => {
-  showChat.value = false
-}
-
-const sendChat = () => {
-  if (!chatText.value.trim()) return
-  const now = new Date()
-  const time = `${now.getHours()}시 ${String(now.getMinutes()).padStart(2, '0')}분`
-  chatMessages.value = [
-    ...chatMessages.value,
-    { id: `${liveId.value}-${Date.now()}`, user: '관리자', text: chatText.value.trim(), time },
-  ]
-  chatText.value = ''
-  nextTick(() => {
-    const el = chatListRef.value
-    if (!el) return
-    el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
-  })
-}
-
-const openModeration = (msg: { user: string }) => {
-  if (msg.user === 'SYSTEM' || msg.user === '관리자') return
-  console.log('[admin chat] moderation open', msg.user)
-  moderationTarget.value = { user: msg.user }
-  moderationType.value = ''
-  moderationReason.value = ''
-  showModerationModal.value = true
-}
-
-const closeModeration = () => {
-  showModerationModal.value = false
-  moderationTarget.value = null
-  moderationType.value = ''
-  moderationReason.value = ''
-}
-
-const saveModeration = () => {
-  if (!moderationType.value) {
-    window.alert('제재 유형을 선택해주세요.')
-    return
-  }
-  if (!moderationReason.value.trim()) {
-    window.alert('제재 사유를 입력해주세요.')
-    return
-  }
-  const confirmModeration = window.confirm('입력한 내용으로 시청자를 제재하시겠습니까?')
-  if (!confirmModeration) return
-  const target = moderationTarget.value
-  if (!target) return
-  const now = new Date()
-  const at = `${now.getHours()}시 ${String(now.getMinutes()).padStart(2, '0')}분`
-  moderatedUsers.value = {
-    ...moderatedUsers.value,
-    [target.user]: { type: moderationType.value, reason: moderationReason.value.trim(), at },
-  }
-  chatMessages.value = [
-    ...chatMessages.value,
-    {
-      id: `sys-${Date.now()}`,
-      user: 'SYSTEM',
-      text: `관리자가 ${target.user}님을 '${moderationType.value}' 처리했습니다. (사유: ${moderationReason.value.trim()})`,
-      time: at,
-    },
-  ]
-  closeModeration()
-  nextTick(() => {
-    const el = chatListRef.value
-    if (!el) return
-    el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
-  })
-}
-
-onMounted(() => {
-  loadDetail()
-  seedProductThumbs()
-  document.addEventListener('fullscreenchange', syncFullscreen)
-  window.addEventListener(ADMIN_LIVES_EVENT, loadDetail)
-})
-
-onBeforeUnmount(() => {
-  document.removeEventListener('fullscreenchange', syncFullscreen)
-  window.removeEventListener(ADMIN_LIVES_EVENT, loadDetail)
-})
-
-watch(liveId, loadDetail, { immediate: true })
 </script>
 
+
+
 <template>
+
   <div v-if="detail" class="live-detail">
+
     <header class="detail-header">
-      <button type="button" class="back-link" @click="goBack">← 뒤로 가기</button>
+
+      <button type="button" class="back-link" @click="router.back()">← 뒤로 가기</button>
+
       <div class="header-actions">
-        <button type="button" class="btn" @click="goToList">목록으로</button>
+
+        <button type="button" class="btn" @click="router.push('/admin/live?tab=live')">목록으로</button>
+
         <button type="button" class="btn danger" :disabled="detail.status === 'STOPPED'" @click="openStopConfirm">
+
           {{ detail.status === 'STOPPED' ? '송출 중지됨' : '방송 송출 중지' }}
+
         </button>
+
       </div>
+
     </header>
+
+
 
     <h2 class="page-title">방송 모니터링</h2>
 
+
+
     <section class="detail-card ds-surface meta-card">
+
       <div class="detail-meta">
+
         <h3>{{ detail.title }}</h3>
+
         <p><span>판매자</span>{{ detail.sellerName }}</p>
+
         <p><span>방송 시작</span>{{ detail.startedAt }}</p>
+
         <p><span>시청자 수</span>{{ detail.viewers }}명</p>
+
         <p><span>신고 건수</span>{{ detail.reports ?? 0 }}건</p>
+
         <p><span>상태</span>{{ detail.status }}</p>
+
       </div>
+
     </section>
+
+
 
     <section class="player-card">
+
       <div class="player-tabs">
-        <div class="tab-list" role="tablist" aria-label="모니터링 패널">
-          <button
-              type="button"
-              class="tab"
-              :class="{ 'tab--active': activePane === 'monitor' }"
-              role="tab"
-              aria-controls="monitor-pane"
-              :aria-selected="activePane === 'monitor'"
-              @click="activePane = 'monitor'"
-          >
-            모니터링
-          </button>
-          <button
-              type="button"
-              class="tab"
-              :class="{ 'tab--active': activePane === 'products' }"
-              role="tab"
-              aria-controls="products-pane"
-              :aria-selected="activePane === 'products'"
-              @click="activePane = 'products'"
-          >
-            상품
-          </button>
+
+        <div class="tab-list" role="tablist">
+
+          <button type="button" class="tab" :class="{ 'tab--active': activePane === 'monitor' }" @click="activePane = 'monitor'">모니터링</button>
+
+          <button type="button" class="tab" :class="{ 'tab--active': activePane === 'products' }" @click="activePane = 'products'">상품</button>
+
         </div>
 
-        <div v-show="activePane === 'monitor'" id="monitor-pane">
+
+
+        <div v-show="activePane === 'monitor'">
+
           <div ref="stageRef" class="monitor-stage" :class="{ 'monitor-stage--chat': showChat }">
+
             <div class="player-wrap">
+
               <div class="player-frame" :class="{ 'player-frame--fullscreen': isFullscreen }">
+
                 <div class="player-overlay">
+
                   <div class="overlay-item">⏱ {{ detail.elapsed }}</div>
+
                   <div class="overlay-item">👥 {{ detail.viewers }}명</div>
-                  <div class="overlay-item">❤ {{ detail.likes }}</div>
-                  <div class="overlay-item">🚩 {{ detail.reports ?? 0 }}건</div>
+
                 </div>
+
                 <div class="overlay-actions">
-                  <button type="button" class="icon-circle" :class="{ active: showChat }" @click="toggleChat" :title="showChat ? '채팅 닫기' : '채팅 보기'">
-                    <svg aria-hidden="true" class="icon" viewBox="0 0 24 24" focusable="false">
-                      <path d="M3 20l1.62-3.24A2 2 0 0 1 6.42 16H20a1 1 0 0 0 1-1V5a1 1 0 0 0-1-1H4a1 1 0 0 0-1 1v15z" stroke="currentColor" stroke-width="1.7" />
-                      <path d="M7 9h10M7 12h6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" />
-                    </svg>
+
+                  <button type="button" class="icon-circle" :class="{ active: showChat }" @click="showChat = !showChat">
+
+                    <svg class="icon" viewBox="0 0 24 24"><path d="M3 20l1.62-3.24A2 2 0 0 1 6.42 16H20a1 1 0 0 0 1-1V5a1 1 0 0 0-1-1H4a1 1 0 0 0-1 1v15z" stroke="currentColor" fill="none" /></svg>
+
                   </button>
-                  <button type="button" class="icon-circle ghost" :class="{ active: isFullscreen }" @click="toggleFullscreen" :title="isFullscreen ? '전체화면 종료' : '전체화면'">
-                    <svg v-if="!isFullscreen" aria-hidden="true" class="icon" viewBox="0 0 24 24" focusable="false">
-                      <path d="M4 9V4h5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" />
-                      <path d="M20 9V4h-5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" />
-                      <path d="M4 15v5h5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" />
-                      <path d="M20 15v5h-5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" />
-                    </svg>
-                    <svg v-else aria-hidden="true" class="icon" viewBox="0 0 24 24" focusable="false">
-                      <path d="M9 5H5v4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" />
-                      <path d="M15 19h4v-4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" />
-                      <path d="M9 19H5v-4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" />
-                      <path d="M15 5h4v4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" />
-                    </svg>
+
+                  <button type="button" class="icon-circle ghost" @click="toggleFullscreen">
+
+                    <svg class="icon" viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" stroke="currentColor" fill="none" /></svg>
+
                   </button>
+
                 </div>
+
                 <div class="player-label">송출 화면</div>
+
               </div>
+
             </div>
+
+
 
             <aside v-if="showChat" class="chat-panel ds-surface">
+
               <header class="chat-head">
-                <h4>실시간 채팅</h4>
-                <button type="button" class="chat-close" @click="closeChat">×</button>
+
+                <h4>실시간 채팅 ({{ isChatConnected ? '연결됨' : '연결 중...' }})</h4>
+
               </header>
+
               <div ref="chatListRef" class="chat-messages">
-                <div
-                    v-for="msg in chatMessages"
-                    :key="msg.id"
-                    class="chat-message"
-                    :class="{ 'chat-message--system': msg.user === 'SYSTEM', 'chat-message--muted': moderatedUsers[msg.user] }"
-                    @contextmenu.prevent="openModeration(msg)"
-                >
+
+                <div v-for="msg in chatMessages" :key="msg.id" class="chat-message"
+
+                     :class="{ 'chat-message--system': msg.kind === 'system' }"
+
+                     @contextmenu.prevent="openModeration(msg)">
+
                   <div class="chat-meta">
+
                     <span class="chat-user">{{ msg.user }}</span>
+
                     <span class="chat-time">{{ msg.time }}</span>
-                    <span v-if="msg.user !== 'SYSTEM' && moderatedUsers[msg.user]" class="chat-badge">{{ moderatedUsers[msg.user].type }}</span>
+
                   </div>
+
                   <p class="chat-text">{{ msg.text }}</p>
+
                 </div>
+
               </div>
+
               <div class="chat-input">
-                <input v-model="chatText" type="text" placeholder="메시지를 입력하세요" />
-                <button type="button" class="btn primary" @click="sendChat">전송</button>
+
+                <input v-model="chatText" type="text" placeholder="관리자 메시지 입력" @keydown.enter="sendChat" :disabled="!isChatConnected" />
+
+                <button type="button" class="btn primary" @click="sendChat" :disabled="!isChatConnected">전송</button>
+
               </div>
+
             </aside>
+
           </div>
+
         </div>
 
-        <div v-show="activePane === 'products'" id="products-pane" class="products-pane ds-surface">
+
+
+        <div v-show="activePane === 'products'" class="products-pane ds-surface">
+
           <header class="products-head">
-            <div>
-              <h4>상품 정보</h4>
-              <p class="ds-section-sub">방송에 연결된 상품 현황을 확인하세요.</p>
-            </div>
+
+            <h4>연결 상품 현황</h4>
+
             <span class="pill">총 {{ liveProducts.length }}개</span>
+
           </header>
+
           <div class="product-list">
+
             <article v-for="product in liveProducts" :key="product.id" class="product-row">
-              <div class="product-thumb">
-                <img :src="product.thumb" :alt="product.name" loading="lazy" />
-              </div>
+
               <div class="product-meta">
+
                 <p class="product-name">{{ product.name }}</p>
+
                 <p class="product-option">{{ product.option }}</p>
-                <p class="product-price">
-                  <span class="product-sale">{{ product.sale }}</span>
-                  <span class="product-origin">{{ product.price }}</span>
-                </p>
-                <p class="product-stats">판매 {{ product.sold }} · 재고 {{ product.stock }}</p>
+
+                <p class="product-price"><span class="product-sale">{{ product.sale }}</span></p>
+
               </div>
+
               <span class="product-status" :class="{ 'is-soldout': product.status === '품절' }">{{ product.status }}</span>
+
             </article>
+
           </div>
+
         </div>
+
       </div>
+
     </section>
 
+
+
     <Teleport :to="modalHostTarget">
+
       <div v-if="showStopModal" class="stop-modal">
+
         <div class="stop-modal__backdrop" @click="closeStopModal"></div>
+
         <div class="stop-modal__card ds-surface">
+
           <header class="stop-modal__head">
+
             <h3>방송 송출 중지</h3>
-            <button type="button" class="close-btn" @click="closeStopModal">×</button>
+
           </header>
+
           <div class="stop-modal__body">
+
             <label class="field">
-              <span class="field__label">유형</span>
+
+              <span class="field__label">사유 유형</span>
+
               <select v-model="stopReason" class="field-input">
+
                 <option value="">선택해주세요</option>
-                <option v-for="option in reasonOptions" :key="option" :value="option">{{ option }}</option>
+
+                <option value="운영정책 위반">운영정책 위반</option>
+
+                <option value="부적절한 콘텐츠">부적절한 콘텐츠</option>
+
+                <option value="기타">기타</option>
+
               </select>
+
             </label>
-            <label v-if="stopReason === '기타'" class="field">
-              <span class="field__label">중지 사유(기타 선택 시)</span>
-              <textarea v-model="stopDetail" class="field-input" rows="4" placeholder="사유를 입력해주세요."></textarea>
-            </label>
-            <p v-if="error" class="error">{{ error }}</p>
+
+            <textarea v-if="stopReason === '기타'" v-model="stopDetail" class="field-input" rows="3" placeholder="상세 사유 입력"></textarea>
+
           </div>
+
           <div class="stop-modal__actions">
-            <button type="button" class="btn ghost" @click="closeStopModal">취소</button>
-            <button type="button" class="btn primary" @click="handleStopSave">저장</button>
+
+            <button class="btn ghost" @click="closeStopModal">취소</button>
+
+            <button class="btn primary" @click="handleStopSave">중지 실행</button>
+
           </div>
+
         </div>
+
       </div>
 
+
+
       <div v-if="showModerationModal" class="moderation-modal">
+
         <div class="moderation-modal__backdrop" @click="closeModeration"></div>
+
         <div class="moderation-modal__card ds-surface">
-          <header class="moderation-modal__head">
-            <h3>채팅 관리</h3>
-            <button type="button" class="close-btn" @click="closeModeration">×</button>
-          </header>
+
+          <header class="moderation-modal__head"><h3>채팅 유저 제재</h3></header>
+
           <div class="moderation-modal__body">
-            <p class="moderation-target">대상: {{ moderationTarget?.user }}</p>
-            <label class="field">
-              <span class="field__label">제재 유형</span>
-              <select v-model="moderationType" class="field-input">
-                <option value="">선택해주세요</option>
-                <option value="채팅 금지">채팅 금지</option>
-                <option value="강제 퇴장">강제 퇴장</option>
-              </select>
-            </label>
-            <label class="field">
-              <span class="field__label">제재 사유</span>
-              <textarea v-model="moderationReason" class="field-input" rows="4" placeholder="사유를 입력해주세요."></textarea>
-            </label>
+
+            <p>대상: {{ moderationTarget?.user }}</p>
+
+            <select v-model="moderationType" class="field-input">
+
+              <option value="">제재 유형 선택</option>
+
+              <option value="채팅 금지">채팅 금지</option>
+
+              <option value="강제 퇴장">강제 퇴장</option>
+
+            </select>
+
+            <textarea v-model="moderationReason" class="field-input" rows="3" placeholder="제재 사유 입력"></textarea>
+
           </div>
+
           <div class="moderation-modal__actions">
-            <button type="button" class="btn ghost" @click="closeModeration">취소</button>
-            <button type="button" class="btn primary" @click="saveModeration">저장</button>
+
+            <button class="btn ghost" @click="closeModeration">취소</button>
+
+            <button class="btn primary" @click="saveModeration">저장</button>
+
           </div>
+
         </div>
+
       </div>
+
     </Teleport>
+
   </div>
+
 </template>
 
 <style scoped>
