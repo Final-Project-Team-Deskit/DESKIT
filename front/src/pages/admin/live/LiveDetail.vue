@@ -324,9 +324,14 @@ const endedCountdownLabel = computed(() => {
   const seconds = totalSeconds % 60
   return `종료까지 ${minutes}분 ${String(seconds).padStart(2, '0')}초`
 })
+const elapsedLabel = computed(() => {
+  if (!detail.value?.startedAt) return '00:00:00'
+  now.value
+  return formatElapsed(detail.value.startedAt)
+})
 const playerMessage = computed(() => {
   if (lifecycleStatus.value === 'STOPPED') {
-    return '방송이 운영정책 위반으로 송출 중지되었습니다.'
+    return '방송 운영 정책 위반으로 송출 중지되었습니다.'
   }
   if (lifecycleStatus.value === 'ENDED') {
     return '방송이 종료되었습니다.'
@@ -858,7 +863,7 @@ watch(streamToken, () => {
               <div class="player-frame" :class="{ 'player-frame--fullscreen': isFullscreen }">
                 <div v-show="hasSubscriberStream" ref="viewerContainerRef" class="player-frame__viewer"></div>
                 <div class="player-overlay">
-                  <div class="overlay-item">⏱ {{ detail.elapsed }}</div>
+                  <div class="overlay-item">⏱ {{ elapsedLabel }}</div>
                   <div class="overlay-item">👥 {{ detail.viewers }}명</div>
                   <div class="overlay-item">❤ {{ detail.likes }}</div>
                   <div class="overlay-item">🚩 {{ detail.reports ?? 0 }}건</div>
@@ -887,7 +892,7 @@ watch(streamToken, () => {
                 </div>
                 <div v-if="isReadOnly" class="player-placeholder">
                   <img
-                    v-if="waitingScreenUrl"
+                    v-if="waitingScreenUrl && lifecycleStatus !== 'STOPPED'"
                     class="player-placeholder__image"
                     :src="waitingScreenUrl"
                     alt="대기 화면"
@@ -1187,10 +1192,11 @@ watch(streamToken, () => {
 }
 
 .player-placeholder__message {
-  color: #f8fafc;
-  font-weight: 800;
-  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+  color: #ffffff;
+  font-weight: 900;
+  text-shadow: 0 3px 12px rgba(0, 0, 0, 0.45);
   max-width: min(520px, 100%);
+  font-size: 1.35rem;
 }
 
 .player-overlay {

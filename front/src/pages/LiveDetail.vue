@@ -73,6 +73,9 @@ const scheduledEndMs = computed(() => {
   return Number.isNaN(startAtMs) ? undefined : getScheduledEndMs(startAtMs)
 })
 
+const stopConfirmOpen = ref(false)
+const stopConfirmMessage = ref('')
+
 const isChatEnabled = computed(() => lifecycleStatus.value === 'ON_AIR')
 const isProductEnabled = computed(() => {
   if (lifecycleStatus.value === 'ON_AIR') return true
@@ -100,6 +103,21 @@ const readyCountdownLabel = computed(() => {
   const seconds = totalSeconds % 60
   return `${minutes}분 ${String(seconds).padStart(2, '0')}초 뒤 방송 시작`
 })
+const elapsedLabel = computed(() => {
+  if (!liveItem.value?.startAt) return ''
+  const started = parseLiveDate(liveItem.value.startAt)
+  if (Number.isNaN(started.getTime())) return ''
+  const diffMs = Math.max(0, now.value.getTime() - started.getTime())
+  const totalSeconds = Math.floor(diffMs / 1000)
+  const hours = Math.floor(totalSeconds / 3600)
+  const minutes = Math.floor((totalSeconds % 3600) / 60)
+  const seconds = totalSeconds % 60
+  const pad = (value: number) => String(value).padStart(2, '0')
+  if (hours > 0) {
+    return `${pad(hours)}:${pad(minutes)}`
+  }
+  return `${pad(minutes)}:${pad(seconds)}`
+})
 const endedCountdownLabel = computed(() => {
   if (lifecycleStatus.value !== 'ENDED' || !scheduledEndMs.value) return ''
   const diffMs = scheduledEndMs.value - now.value.getTime()
@@ -111,13 +129,22 @@ const endedCountdownLabel = computed(() => {
 })
 const playerMessage = computed(() => {
   if (lifecycleStatus.value === 'STOPPED') {
-    return '방송이 운영정책 위반으로 송출 중지되었습니다.'
+    return '방송 운영 정책 위반으로 송출 중지되었습니다.'
   }
   if (lifecycleStatus.value === 'ENDED') {
     return '방송이 종료되었습니다.'
   }
   if (lifecycleStatus.value === 'READY') {
     return readyCountdownLabel.value || '방송 시작 대기 중'
+  }
+  return ''
+})
+const viewerExtraLabel = computed(() => {
+  if (lifecycleStatus.value === 'READY') {
+    return readyCountdownLabel.value || '방송 시작 대기 중'
+  }
+  if (['ON_AIR', 'STOPPED', 'ENDED'].includes(lifecycleStatus.value)) {
+    return elapsedLabel.value ? `경과 ${elapsedLabel.value}` : ''
   }
   return ''
 })
@@ -488,14 +515,18 @@ const buildStopConfirmMessage = () => {
   return '방송 운영 정책 위반으로 방송이 중지되었습니다.\n방송에서 나가시겠습니까?'
 }
 
-const handleStopDecision = (message: string) => {
-  const ok = window.confirm(message)
-  if (ok) {
-    router.push({ name: 'live' }).catch(() => {})
-    return
-  }
+const handleStopConfirm = () => {
+  router.push({ name: 'live' }).catch(() => {})
+}
+
+const handleStopCancel = () => {
   isStopRestricted.value = true
   showChat.value = false
+}
+
+const handleStopDecision = (message: string) => {
+  stopConfirmMessage.value = message
+  stopConfirmOpen.value = true
 }
 
 const promptStoppedEntry = () => {
@@ -1054,6 +1085,7 @@ onBeforeUnmount(() => {
 
 <template>
   <PageContainer>
+    <div v-if="stopConfirmOpen" class="stop-blocker" aria-hidden="true"></div>
     <ConfirmModal
       v-model="showWatchHistoryConsent"
       title="시청 기록 수집 안내"
@@ -1062,6 +1094,15 @@ onBeforeUnmount(() => {
       cancel-text="취소"
       @confirm="handleConfirmWatchHistory"
       @cancel="handleCancelWatchHistory"
+    />
+    <ConfirmModal
+      v-model="stopConfirmOpen"
+      title="방송 송출 중지"
+      :description="stopConfirmMessage"
+      confirm-text="나가기"
+      cancel-text="계속 보기"
+      @confirm="handleStopConfirm"
+      @cancel="handleStopCancel"
     />
     <PageHeader eyebrow="DESKIT LIVE" title="라이브 상세" />
 
@@ -1086,6 +1127,7 @@ onBeforeUnmount(() => {
               </span>
               <span v-if="liveItem.viewerCount != null" class="status-viewers">
                 {{ liveItem.viewerCount.toLocaleString() }}명 시청 중
+                <span v-if="viewerExtraLabel"> · {{ viewerExtraLabel }}</span>
               </span>
               <span v-else-if="lifecycleStatus === 'RESERVED'" class="status-schedule">
                 {{ scheduledLabel }}
@@ -1106,7 +1148,7 @@ onBeforeUnmount(() => {
             <div v-show="hasSubscriberStream" ref="viewerContainerRef" class="player-frame__viewer"></div>
             <div v-if="['READY', 'ENDED', 'STOPPED'].includes(lifecycleStatus)" class="player-frame__placeholder">
               <img
-                v-if="waitingScreenUrl"
+                v-if="waitingScreenUrl && lifecycleStatus !== 'STOPPED'"
                 class="player-frame__image"
                 :src="waitingScreenUrl"
                 alt="대기 화면"
@@ -1298,6 +1340,13 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
+.stop-blocker {
+  position: fixed;
+  inset: 0;
+  background: var(--surface);
+  z-index: 1300;
+}
+
 .live-detail-layout {
   display: flex;
   flex-direction: column;
@@ -1561,10 +1610,11 @@ onBeforeUnmount(() => {
 }
 
 .player-frame__message {
-  font-weight: 700;
-  color: #f5f7ff;
-  text-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
+  font-weight: 900;
+  color: #ffffff;
+  text-shadow: 0 3px 12px rgba(0, 0, 0, 0.45);
   max-width: min(560px, 100%);
+  font-size: 1.35rem;
 }
 
 .player-actions {
