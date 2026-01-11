@@ -20,6 +20,7 @@ import {
   pinSellerBroadcastProduct,
   saveMediaConfig,
   updateBroadcast,
+  type MediaConfig,
   type BroadcastDetailResponse,
 } from '../../lib/live/api'
 import { parseLiveDate } from '../../lib/live/utils'
@@ -288,6 +289,13 @@ const resolveMediaSelection = (value: string, fallback: string) => {
   const trimmed = value?.trim()
   if (!trimmed || trimmed === 'default') return fallback
   return trimmed
+}
+
+const hasPersistedMediaConfig = (mediaConfig?: MediaConfig | null) => {
+  if (!mediaConfig) return false
+  const cameraId = mediaConfig.cameraId?.trim()
+  const microphoneId = mediaConfig.microphoneId?.trim()
+  return (cameraId && cameraId !== 'default') || (microphoneId && microphoneId !== 'default')
 }
 
 const toMediaId = (value: string, fallback: string) => {
@@ -743,7 +751,7 @@ const hydrateStream = async () => {
       micEnabled.value = mediaConfig.microphoneOn
       videoEnabled.value = mediaConfig.cameraOn
       volume.value = mediaConfig.volume
-      hasSavedMediaConfig.value = true
+      hasSavedMediaConfig.value = hasPersistedMediaConfig(mediaConfig)
     } else {
       selectedMic.value = '기본 마이크'
       selectedCamera.value = '기본 카메라'
