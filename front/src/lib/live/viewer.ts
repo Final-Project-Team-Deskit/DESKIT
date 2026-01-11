@@ -1,6 +1,12 @@
 import type { AuthUser } from '../auth'
 
 const VIEWER_ID_KEY = 'deskit_live_viewer_id_v1'
+let memoryViewerId: string | null = null
+
+const buildViewerId = () =>
+  window.crypto?.randomUUID
+    ? window.crypto.randomUUID()
+    : `${Date.now()}-${Math.random().toString(16).slice(2)}`
 
 const getStoredViewerId = (): string | null => {
   try {
@@ -8,13 +14,14 @@ const getStoredViewerId = (): string | null => {
     if (existing) {
       return existing
     }
-    const next = window.crypto?.randomUUID
-      ? window.crypto.randomUUID()
-      : `${Date.now()}-${Math.random().toString(16).slice(2)}`
+    const next = buildViewerId()
     localStorage.setItem(VIEWER_ID_KEY, next)
     return next
   } catch {
-    return null
+    if (!memoryViewerId) {
+      memoryViewerId = buildViewerId()
+    }
+    return memoryViewerId
   }
 }
 
