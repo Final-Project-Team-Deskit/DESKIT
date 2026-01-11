@@ -477,8 +477,19 @@ public class BroadcastService {
                 throw new BusinessException(ErrorCode.FORBIDDEN_ACCESS);
             }
 
-            if (broadcast.getScheduledAt() != null && LocalDateTime.now().isBefore(broadcast.getScheduledAt())) {
+            if (broadcast.getStatus() != BroadcastStatus.ON_AIR
+                    && broadcast.getScheduledAt() != null
+                    && LocalDateTime.now().isBefore(broadcast.getScheduledAt())) {
                 throw new BusinessException(ErrorCode.INVALID_INPUT_VALUE);
+            }
+
+            if (broadcast.getStatus() == BroadcastStatus.ON_AIR) {
+                try {
+                    Map<String, Object> params = Map.of("role", "HOST", "sellerId", sellerId);
+                    return openViduService.createToken(broadcastId, params);
+                } catch (Exception e) {
+                    throw new BusinessException(ErrorCode.OPENVIDU_ERROR);
+                }
             }
 
             validateTransition(broadcast.getStatus(), BroadcastStatus.ON_AIR);

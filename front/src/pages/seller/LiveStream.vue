@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { OpenVidu, type Publisher, type Session } from 'openvidu-browser'
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
 import BasicInfoEditModal from '../../components/BasicInfoEditModal.vue'
@@ -76,6 +77,7 @@ const elapsed = ref('00:00:00')
 const monitorRef = ref<HTMLElement | null>(null)
 const streamGridRef = ref<HTMLElement | null>(null)
 const streamCenterRef = ref<HTMLElement | null>(null)
+const publisherContainerRef = ref<HTMLElement | null>(null)
 const isFullscreen = ref(false)
 const modalHostTarget = computed(() => (isFullscreen.value && monitorRef.value ? monitorRef.value : 'body'))
 const micEnabled = ref(true)
@@ -137,6 +139,13 @@ const sseRetryTimer = ref<number | null>(null)
 const statsTimer = ref<number | null>(null)
 const refreshTimer = ref<number | null>(null)
 const startTimer = ref<number | null>(null)
+const publisherToken = ref<string | null>(null)
+const publisherTokenInFlight = ref(false)
+const openviduInstance = ref<OpenVidu | null>(null)
+const openviduSession = ref<Session | null>(null)
+const openviduPublisher = ref<Publisher | null>(null)
+const openviduConnected = ref(false)
+let publisherRestartTimer: number | null = null
 const joinInFlight = ref(false)
 const startRequested = ref(false)
 const endRequested = ref(false)
@@ -218,6 +227,7 @@ const monitorColumns = computed(() => {
   if (showChat.value) return 'minmax(0, 1fr) 320px'
   return 'minmax(0, 1fr)'
 })
+const hasPublisherStream = computed(() => openviduConnected.value && !!openviduPublisher.value)
 
 const streamPaneHeight = computed(() => {
   const dynamic = gridHeight.value
@@ -315,6 +325,123 @@ const ensureLocalMediaAccess = async () => {
   } catch {
     return
   }
+}
+
+const clearPublisherRestartTimer = () => {
+  if (publisherRestartTimer) {
+    window.clearTimeout(publisherRestartTimer)
+    publisherRestartTimer = null
+  }
+}
+
+const resetOpenViduState = () => {
+  openviduConnected.value = false
+  publisherToken.value = null
+  openviduPublisher.value = null
+  openviduSession.value = null
+  openviduInstance.value = null
+  if (publisherContainerRef.value) {
+    publisherContainerRef.value.innerHTML = ''
+  }
+}
+
+const disconnectOpenVidu = () => {
+  if (openviduSession.value) {
+    try {
+      if (openviduPublisher.value) {
+        openviduSession.value.unpublish(openviduPublisher.value)
+      }
+      openviduSession.value.disconnect()
+    } catch {
+      // noop
+    }
+  }
+  resetOpenViduState()
+}
+
+const buildPublisherOptions = () => {
+  const audioSource = toMediaId(selectedMic.value, '기본 마이크')
+  const videoSource = toMediaId(selectedCamera.value, '기본 카메라')
+  return {
+    audioSource: audioSource === 'default' ? undefined : audioSource,
+    videoSource: videoSource === 'default' ? undefined : videoSource,
+    publishAudio: micEnabled.value,
+    publishVideo: videoEnabled.value,
+    insertMode: 'append' as const,
+    mirror: true,
+  }
+}
+
+const applyPublisherVolume = () => {
+  if (!publisherContainerRef.value) return
+  const video = publisherContainerRef.value.querySelector('video') as HTMLVideoElement | null
+  if (!video) return
+  video.muted = false
+  video.volume = Math.min(1, Math.max(0, volume.value / 100))
+}
+
+const restartPublisher = async () => {
+  if (!openviduSession.value || !openviduInstance.value || !publisherContainerRef.value) return
+  try {
+    if (openviduPublisher.value) {
+      openviduSession.value.unpublish(openviduPublisher.value)
+    }
+    publisherContainerRef.value.innerHTML = ''
+    openviduPublisher.value = openviduInstance.value.initPublisher(
+      publisherContainerRef.value,
+      buildPublisherOptions(),
+    )
+    await openviduSession.value.publish(openviduPublisher.value)
+    applyPublisherVolume()
+  } catch {
+    disconnectOpenVidu()
+  }
+}
+
+const connectPublisher = async (token: string) => {
+  if (openviduConnected.value) return
+  if (!publisherContainerRef.value) return
+  try {
+    disconnectOpenVidu()
+    openviduInstance.value = new OpenVidu()
+    openviduSession.value = openviduInstance.value.initSession()
+    await openviduSession.value.connect(token)
+    openviduPublisher.value = openviduInstance.value.initPublisher(
+      publisherContainerRef.value,
+      buildPublisherOptions(),
+    )
+    await openviduSession.value.publish(openviduPublisher.value)
+    openviduConnected.value = true
+    applyPublisherVolume()
+  } catch {
+    disconnectOpenVidu()
+  }
+}
+
+const requestPublisherToken = async (broadcastId: number) => {
+  if (publisherTokenInFlight.value) return null
+  publisherTokenInFlight.value = true
+  try {
+    const token = await startSellerBroadcast(broadcastId)
+    publisherToken.value = token
+    return token
+  } catch {
+    publisherToken.value = null
+    return null
+  } finally {
+    publisherTokenInFlight.value = false
+  }
+}
+
+const ensurePublisherConnected = async (broadcastId: number) => {
+  if (openviduConnected.value) return
+  await ensureLocalMediaAccess()
+  if (!publisherToken.value) {
+    const token = await requestPublisherToken(broadcastId)
+    if (!token) return
+  }
+  if (!publisherToken.value) return
+  await connectPublisher(publisherToken.value)
 }
 
 const clearStartTimer = () => {
@@ -427,6 +554,8 @@ const resetRealtimeState = () => {
   refreshTimer.value = null
   clearStartTimer()
   clearEndRequestTimer()
+  clearPublisherRestartTimer()
+  disconnectOpenVidu()
   startRequested.value = false
   endRequested.value = false
 }
@@ -435,7 +564,9 @@ const requestStartBroadcast = async (broadcastId: number) => {
   if (startRequested.value) return
   startRequested.value = true
   try {
-    await startSellerBroadcast(broadcastId)
+    const token = await startSellerBroadcast(broadcastId)
+    publisherToken.value = token
+    await connectPublisher(token)
     scheduleRefresh(broadcastId)
   } catch {
     startRequested.value = false
@@ -1046,6 +1177,11 @@ watch(lifecycleStatus, () => {
   const idValue = streamId.value ? Number(streamId.value) : NaN
   if (Number.isNaN(idValue)) return
   void requestJoinToken(idValue)
+  if (lifecycleStatus.value === 'ON_AIR') {
+    void ensurePublisherConnected(idValue)
+    return
+  }
+  disconnectOpenVidu()
 })
 
 onBeforeRouteLeave(async () => {
@@ -1061,6 +1197,24 @@ watch([selectedMic, micEnabled], () => {
 
 watch([selectedMic, selectedCamera, micEnabled, videoEnabled, volume], () => {
   scheduleMediaConfigSave()
+})
+
+watch([selectedMic, selectedCamera], () => {
+  if (!openviduConnected.value) return
+  clearPublisherRestartTimer()
+  publisherRestartTimer = window.setTimeout(() => {
+    void restartPublisher()
+  }, 200)
+})
+
+watch([micEnabled, videoEnabled], ([micOn, videoOn]) => {
+  if (!openviduPublisher.value) return
+  openviduPublisher.value.publishAudio(micOn)
+  openviduPublisher.value.publishVideo(videoOn)
+})
+
+watch(volume, () => {
+  applyPublisherVolume()
 })
 
 watch(stream, (value) => {
@@ -1287,6 +1441,11 @@ const toggleFullscreen = async () => {
               'stream-player--constrained': hasSidePanels,
             }"
           >
+            <div
+              v-show="hasPublisherStream"
+              ref="publisherContainerRef"
+              class="stream-player__publisher"
+            ></div>
             <div class="stream-overlay stream-overlay--stack">
               <div class="stream-overlay__row">⏱ 경과 {{ elapsed }}</div>
               <div class="stream-overlay__row">👥 {{ viewerCount.toLocaleString('ko-KR') }}명</div>
@@ -1350,7 +1509,12 @@ const toggleFullscreen = async () => {
                 <button type="button" class="stream-btn" @click="handleGoToList">목록으로 이동</button>
               </div>
             </div>
-            <div v-else class="stream-placeholder" :class="{ 'stream-placeholder--waiting': lifecycleStatus !== 'ON_AIR' }">
+            <div
+              v-else
+              v-show="!hasPublisherStream"
+              class="stream-placeholder"
+              :class="{ 'stream-placeholder--waiting': lifecycleStatus !== 'ON_AIR' }"
+            >
               <img
                 v-if="waitingScreenUrl && lifecycleStatus !== 'ON_AIR'"
                 class="stream-placeholder__image"
@@ -1818,6 +1982,20 @@ const toggleFullscreen = async () => {
   overflow: hidden;
   min-height: 320px;
   max-width: 100%;
+}
+
+.stream-player__publisher {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: #000;
+}
+
+.stream-player__publisher :deep(video) {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 .stream-player--fullscreen {
