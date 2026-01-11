@@ -17,6 +17,9 @@ import {
   startSellerBroadcast,
   endSellerBroadcast,
   pinSellerBroadcastProduct,
+  saveMediaConfig,
+  updateBroadcast,
+  type BroadcastDetailResponse,
 } from '../../lib/live/api'
 import { parseLiveDate } from '../../lib/live/utils'
 import { useNow } from '../../lib/live/useNow'
@@ -120,6 +123,7 @@ const pinnedProductId = ref<string | null>(null)
 const sanctionTarget = ref<string | null>(null)
 const sanctionedUsers = ref<Record<string, { type: string; reason: string }>>({})
 const broadcastInfo = ref<(EditableBroadcastInfo & { qCards: string[] }) | null>(null)
+const latestDetail = ref<BroadcastDetailResponse | null>(null)
 const stream = ref<StreamData | null>(null)
 const chatMessages = ref<StreamChat[]>([])
 const streamStatus = ref<BroadcastStatus>('RESERVED')
@@ -141,6 +145,8 @@ const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080'
 const viewerId = ref<string | null>(resolveViewerId(getAuthUser()))
 const joinedBroadcastId = ref<number | null>(null)
 const leaveRequested = ref(false)
+const mediaConfigReady = ref(false)
+let mediaSaveTimer: number | null = null
 
 const streamId = computed(() => {
   const id = route.params.id
@@ -262,6 +268,17 @@ const streamPlaceholderMessage = computed(() => {
   return '송출 화면 (WebRTC Stream)'
 })
 
+const resolveMediaSelection = (value: string, fallback: string) => {
+  const trimmed = value?.trim()
+  if (!trimmed || trimmed === 'default') return fallback
+  return trimmed
+}
+
+const toMediaId = (value: string, fallback: string) => {
+  if (!value || value === fallback) return 'default'
+  return value
+}
+
 const loadMediaDevices = async () => {
   if (!navigator.mediaDevices?.enumerateDevices) {
     availableMics.value = []
@@ -375,6 +392,27 @@ const startMicMeter = async () => {
   } catch {
     micInputLevel.value = 0
   }
+}
+
+const scheduleMediaConfigSave = () => {
+  if (!mediaConfigReady.value) return
+  const idValue = streamId.value ? Number(streamId.value) : NaN
+  if (Number.isNaN(idValue)) return
+  if (mediaSaveTimer) window.clearTimeout(mediaSaveTimer)
+  mediaSaveTimer = window.setTimeout(async () => {
+    const payload = {
+      cameraId: toMediaId(selectedCamera.value, '기본 카메라'),
+      microphoneId: toMediaId(selectedMic.value, '기본 마이크'),
+      cameraOn: videoEnabled.value,
+      microphoneOn: micEnabled.value,
+      volume: volume.value,
+    }
+    try {
+      await saveMediaConfig(idValue, payload)
+    } catch {
+      return
+    }
+  }, 400)
 }
 
 const resetRealtimeState = () => {
@@ -514,6 +552,7 @@ const hydrateStream = async () => {
   }
 
   try {
+    mediaConfigReady.value = false
     const [detail, stats, chats, mediaConfig] = await Promise.all([
       fetchSellerBroadcastDetail(idValue),
       fetchBroadcastStats(idValue).catch(() => null),
@@ -547,6 +586,7 @@ const hydrateStream = async () => {
     }
 
     pinnedProductId.value = products.find((item) => item.pinned)?.id ?? null
+    latestDetail.value = detail
     broadcastInfo.value = {
       title: detail.title ?? '',
       category: detail.categoryName ?? '',
@@ -561,12 +601,19 @@ const hydrateStream = async () => {
     elapsed.value = formatElapsed(detail.startedAt)
 
     if (mediaConfig) {
-      selectedMic.value = mediaConfig.microphoneId?.trim() ? mediaConfig.microphoneId : '기본 마이크'
-      selectedCamera.value = mediaConfig.cameraId?.trim() ? mediaConfig.cameraId : '기본 카메라'
+      selectedMic.value = resolveMediaSelection(mediaConfig.microphoneId, '기본 마이크')
+      selectedCamera.value = resolveMediaSelection(mediaConfig.cameraId, '기본 카메라')
       micEnabled.value = mediaConfig.microphoneOn
       videoEnabled.value = mediaConfig.cameraOn
       volume.value = mediaConfig.volume
+    } else {
+      selectedMic.value = '기본 마이크'
+      selectedCamera.value = '기본 카메라'
+      micEnabled.value = true
+      videoEnabled.value = true
+      volume.value = 50
     }
+    mediaConfigReady.value = true
 
     chatMessages.value = chats.map((item) => ({
       id: `${item.sentAt}-${item.sender}`,
@@ -587,6 +634,7 @@ const hydrateStream = async () => {
     scheduleStartAtMs.value = null
     scheduleEndAtMs.value = null
     isLoadingStream.value = false
+    mediaConfigReady.value = false
     clearStartTimer()
     clearEndRequestTimer()
     startRequested.value = false
@@ -654,6 +702,7 @@ const refreshInfo = async (broadcastId: number) => {
         qCards: (detail.qcards ?? []).map((card) => card.question),
       }
     }
+    latestDetail.value = detail
     scheduleAutoStart(broadcastId, scheduleStartAtMs.value, streamStatus.value)
   } catch {
     return
@@ -872,6 +921,10 @@ onBeforeUnmount(() => {
   if (navigator.mediaDevices?.removeEventListener) {
     navigator.mediaDevices.removeEventListener('devicechange', loadMediaDevices)
   }
+  if (mediaSaveTimer) {
+    window.clearTimeout(mediaSaveTimer)
+    mediaSaveTimer = null
+  }
   gridObserver?.disconnect()
   stopMicMeter()
   resetRealtimeState()
@@ -1006,6 +1059,10 @@ watch([selectedMic, micEnabled], () => {
   }
 })
 
+watch([selectedMic, selectedCamera, micEnabled, videoEnabled, volume], () => {
+  scheduleMediaConfigSave()
+})
+
 watch(stream, (value) => {
   if (value && !hasOpenedDeviceModal.value) {
     showDeviceModal.value = true
@@ -1013,9 +1070,63 @@ watch(stream, (value) => {
   }
 })
 
-const handleBasicInfoSave = (payload: EditableBroadcastInfo) => {
+type UpdateBroadcastPayload = Parameters<typeof updateBroadcast>[1]
+
+const buildUpdatePayload = (detail: BroadcastDetailResponse, info: EditableBroadcastInfo): UpdateBroadcastPayload => {
+  const products = (detail.products ?? []).map((product) => ({
+    productId: product.productId,
+    bpPrice: product.bpPrice,
+    bpQuantity: product.bpQuantity,
+  }))
+  const status = normalizeBroadcastStatus(detail.status)
+  const scheduledAt = status === 'RESERVED' || status === 'CANCELED' ? detail.scheduledAt ?? null : null
+
+  return {
+    title: info.title.trim() || detail.title,
+    notice: info.notice?.trim() ?? detail.notice ?? '',
+    categoryId: detail.categoryId ?? 0,
+    scheduledAt,
+    thumbnailUrl: info.thumbnail ?? detail.thumbnailUrl ?? '',
+    waitScreenUrl: info.waitingScreen ?? detail.waitScreenUrl ?? null,
+    broadcastLayout: detail.layout ?? 'FULL',
+    products,
+    qcards: (detail.qcards ?? []).map((card) => ({ question: card.question })),
+  }
+}
+
+const handleBasicInfoSave = async (payload: EditableBroadcastInfo) => {
   if (!broadcastInfo.value) return
-  broadcastInfo.value = { ...broadcastInfo.value, ...payload }
+  const idValue = streamId.value ? Number(streamId.value) : NaN
+  const detail = latestDetail.value
+  if (Number.isNaN(idValue) || !detail) {
+    broadcastInfo.value = { ...broadcastInfo.value, ...payload }
+    return
+  }
+  if (!detail.categoryId) {
+    alert('카테고리 정보를 불러올 수 없습니다.')
+    return
+  }
+  if (!detail.products || detail.products.length === 0) {
+    alert('판매 상품 정보를 불러올 수 없습니다.')
+    return
+  }
+  try {
+    await updateBroadcast(idValue, buildUpdatePayload(detail, payload))
+    await refreshInfo(idValue)
+  } catch {
+    alert('기본정보 수정에 실패했습니다.')
+  }
+}
+
+const handleDeviceSetupApply = (payload: { cameraId: string; microphoneId: string }) => {
+  if (payload.cameraId) {
+    selectedCamera.value = payload.cameraId
+  }
+  if (payload.microphoneId) {
+    selectedMic.value = payload.microphoneId
+  }
+  mediaConfigReady.value = true
+  scheduleMediaConfigSave()
 }
 
 const handleGoToList = () => {
@@ -1384,7 +1495,7 @@ const toggleFullscreen = async () => {
         <p v-if="isReadOnly" class="chat-helper">방송 중에만 채팅을 이용할 수 있습니다.</p>
       </aside>
     </section>
-  <Teleport :to="modalHostTarget">
+    <Teleport :to="modalHostTarget">
       <ConfirmModal
         v-model="confirmState.open"
         :title="confirmState.title"
@@ -1398,7 +1509,13 @@ const toggleFullscreen = async () => {
       <BasicInfoEditModal v-if="broadcastInfo" v-model="showBasicInfo" :broadcast="broadcastInfo" @save="handleBasicInfoSave" />
       <ChatSanctionModal v-model="showSanctionModal" :username="sanctionTarget" @save="applySanction" />
     </Teleport>
-    <DeviceSetupModal v-model="showDeviceModal" :broadcast-title="displayTitle" />
+    <DeviceSetupModal
+      v-model="showDeviceModal"
+      :broadcast-title="displayTitle"
+      :initial-camera-id="selectedCamera === '기본 카메라' ? '' : selectedCamera"
+      :initial-mic-id="selectedMic === '기본 마이크' ? '' : selectedMic"
+      @apply="handleDeviceSetupApply"
+    />
   </PageContainer>
 </template>
 

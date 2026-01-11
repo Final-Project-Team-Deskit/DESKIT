@@ -1,5 +1,5 @@
 ﻿<script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Client, type StompSubscription } from '@stomp/stompjs'
 import SockJS from 'sockjs-client/dist/sockjs'
@@ -284,9 +284,6 @@ const submitReport = async () => {
 const isSettingsOpen = ref(false)
 const settingsButtonRef = ref<HTMLElement | null>(null)
 const settingsPanelRef = ref<HTMLElement | null>(null)
-const playerPanelRef = ref<HTMLElement | null>(null)
-const playerHeight = ref<number | null>(null)
-let panelResizeObserver: ResizeObserver | null = null
 
 const toggleChat = () => {
   showChat.value = !showChat.value
@@ -307,21 +304,6 @@ const toggleFullscreen = async () => {
     return
   }
 }
-
-const syncChatHeight = () => {
-  if (!playerPanelRef.value) {
-    return
-  }
-  playerHeight.value = playerPanelRef.value.getBoundingClientRect().height
-}
-
-watch(showChat, async (value) => {
-  if (!value) {
-    return
-  }
-  await nextTick()
-  syncChatHeight()
-})
 
 const toggleSettings = () => {
   isSettingsOpen.value = !isSettingsOpen.value
@@ -780,15 +762,6 @@ const handleCancelWatchHistory = () => {
 }
 
 onMounted(() => {
-  panelResizeObserver = new ResizeObserver(() => {
-    syncChatHeight()
-  })
-  if (playerPanelRef.value) {
-    panelResizeObserver.observe(playerPanelRef.value)
-  }
-  nextTick(() => {
-    syncChatHeight()
-  })
   requestWatchHistoryConsent()
 })
 
@@ -904,10 +877,6 @@ onBeforeUnmount(() => {
   document.removeEventListener('click', handleDocumentClick)
   document.removeEventListener('keydown', handleDocumentKeydown)
   document.removeEventListener('fullscreenchange', handleFullscreenChange)
-  if (panelResizeObserver && playerPanelRef.value) {
-    panelResizeObserver.unobserve(playerPanelRef.value)
-  }
-  panelResizeObserver?.disconnect()
   window.removeEventListener('deskit-user-updated', handleAuthUpdate)
   window.removeEventListener('pagehide', handlePageHide)
   void sendLeaveSignal()
@@ -950,7 +919,7 @@ onBeforeUnmount(() => {
           gridTemplateColumns: showChat ? 'minmax(0, 1.6fr) minmax(0, 0.95fr)' : 'minmax(0, 1fr)',
         }"
       >
-        <section ref="playerPanelRef" class="panel panel--player">
+        <section class="panel panel--player live-detail-main__primary">
           <div class="player-meta">
             <div class="status-row">
               <span class="status-badge" :class="statusBadgeClass">
@@ -1094,11 +1063,7 @@ onBeforeUnmount(() => {
           </div>
         </section>
 
-        <aside
-          v-if="showChat"
-          class="chat-panel ds-surface"
-          :style="{ height: playerHeight ? `${playerHeight}px` : undefined }"
-        >
+        <aside v-if="showChat" class="chat-panel ds-surface">
           <header class="chat-head">
             <div class="chat-head__title">
               <h4>실시간 채팅</h4>
@@ -1186,6 +1151,10 @@ onBeforeUnmount(() => {
   grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr);
   gap: 18px;
   align-items: start;
+}
+
+.live-detail-main__primary {
+  height: 100%;
 }
 
 .panel {
@@ -1497,6 +1466,7 @@ onBeforeUnmount(() => {
   max-width: 100%;
   display: flex;
   flex-direction: column;
+  align-self: stretch;
   border-radius: 16px;
   padding: 12px;
   gap: 10px;

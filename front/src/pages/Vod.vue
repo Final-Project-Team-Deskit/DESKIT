@@ -56,10 +56,6 @@ const handleImageError = (event: Event) => {
   target.src = FALLBACK_IMAGE
 }
 
-const playerPanelRef = ref<HTMLElement | null>(null)
-const chatPanelRef = ref<HTMLElement | null>(null)
-const playerHeight = ref<number | null>(null)
-let panelResizeObserver: ResizeObserver | null = null
 
 const showChat = ref(true)
 const isFullscreen = ref(false)
@@ -97,12 +93,6 @@ const toggleFullscreen = async () => {
   }
 }
 
-const syncChatHeight = () => {
-  if (!playerPanelRef.value) {
-    return
-  }
-  playerHeight.value = playerPanelRef.value.getBoundingClientRect().height
-}
 
 const products = ref<BroadcastProductItem[]>([])
 
@@ -231,18 +221,6 @@ onMounted(() => {
   scrollChatToBottom()
 })
 
-onMounted(() => {
-  panelResizeObserver = new ResizeObserver(() => {
-    syncChatHeight()
-  })
-  if (playerPanelRef.value) {
-    panelResizeObserver.observe(playerPanelRef.value)
-  }
-  nextTick(() => {
-    syncChatHeight()
-  })
-})
-
 const handleDocumentClick = (event: MouseEvent) => {
   if (!isSettingsOpen.value) {
     return
@@ -271,10 +249,6 @@ const handleFullscreenChange = () => {
 }
 
 onBeforeUnmount(() => {
-  if (panelResizeObserver && playerPanelRef.value) {
-    panelResizeObserver.unobserve(playerPanelRef.value)
-  }
-  panelResizeObserver?.disconnect()
   document.removeEventListener('click', handleDocumentClick)
   document.removeEventListener('keydown', handleDocumentKeydown)
   document.removeEventListener('fullscreenchange', handleFullscreenChange)
@@ -309,7 +283,7 @@ watch(showChat, (visible) => {
           gridTemplateColumns: showChat ? 'minmax(0, 1.6fr) minmax(0, 0.95fr)' : 'minmax(0, 1fr)',
         }"
       >
-        <section ref="playerPanelRef" class="panel panel--player">
+        <section class="panel panel--player live-detail-main__primary">
           <div class="player-meta">
             <div class="status-row">
               <span class="status-badge" :class="statusBadgeClass">{{ statusLabel }}</span>
@@ -430,12 +404,7 @@ watch(showChat, (visible) => {
           </div>
         </section>
 
-        <aside
-          v-if="showChat"
-          ref="chatPanelRef"
-          class="chat-panel ds-surface"
-        :style="{ height: playerHeight ? `${playerHeight}px` : undefined }"
-        >
+        <aside v-if="showChat" class="chat-panel ds-surface">
           <header class="chat-head">
             <h4>채팅 기록</h4>
             <button type="button" class="chat-close" aria-label="채팅 닫기" @click="toggleChat">×</button>
@@ -508,6 +477,10 @@ watch(showChat, (visible) => {
   grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr);
   gap: 18px;
   align-items: start;
+}
+
+.live-detail-main__primary {
+  height: 100%;
 }
 
 .panel {
@@ -867,6 +840,7 @@ watch(showChat, (visible) => {
   max-width: 100%;
   display: flex;
   flex-direction: column;
+  align-self: stretch;
   border-radius: 16px;
   padding: 12px;
   gap: 10px;

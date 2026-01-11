@@ -92,9 +92,6 @@ const timeLabel = computed(() => {
   if (status.value === 'READY') {
     return countdownLabel.value
   }
-  if (status.value === 'UPCOMING') {
-    return scheduledLabel.value
-  }
   if (status.value === 'STOPPED') {
     return '송출 중지'
   }
@@ -143,12 +140,11 @@ const handleWatchNow = () => {
       <div class="eyebrow-row">
         <p v-if="status === 'LIVE'" class="eyebrow">현재 방송 중</p>
         <span v-if="status === 'LIVE'" class="eyebrow-time">{{ elapsed }}</span>
-        <span v-else-if="status === 'UPCOMING'" class="eyebrow-time">{{ scheduledLabel }}</span>
       </div>
       <h3>{{ props.item.title }}</h3>
       <p class="desc">{{ props.item.description }}</p>
       <div class="info-row">
-        <span class="info-chip">{{ timeLabel }}</span>
+        <span v-if="timeLabel" class="info-chip">{{ timeLabel }}</span>
         <span v-if="viewerLabel" class="info-chip">{{ viewerLabel }}</span>
       </div>
       <div class="meta-row">
