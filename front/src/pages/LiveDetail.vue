@@ -105,9 +105,7 @@ const endedCountdownLabel = computed(() => {
 })
 const playerMessage = computed(() => {
   if (lifecycleStatus.value === 'STOPPED') {
-    return liveItem.value?.stoppedReason
-      ? `방송이 운영 정책 위반으로 송출 중지되었습니다. (${liveItem.value.stoppedReason})`
-      : '방송이 운영 정책 위반으로 송출 중지되었습니다.'
+    return '방송 운영 정책위반으로 방송이 송출 중지되었습니다.'
   }
   if (lifecycleStatus.value === 'ENDED') {
     return '방송이 종료되었습니다.'
@@ -284,6 +282,41 @@ const submitReport = async () => {
 const isSettingsOpen = ref(false)
 const settingsButtonRef = ref<HTMLElement | null>(null)
 const settingsPanelRef = ref<HTMLElement | null>(null)
+const selectedQuality = ref<'auto' | '1080p' | '720p' | '480p'>('auto')
+const qualityObserver = ref<MutationObserver | null>(null)
+
+const qualityOptions = [
+  { value: 'auto', label: '자동' },
+  { value: '1080p', label: '1080p', width: 1920, height: 1080 },
+  { value: '720p', label: '720p', width: 1280, height: 720 },
+  { value: '480p', label: '480p', width: 854, height: 480 },
+] as const
+
+const applyVideoQuality = async (value: typeof selectedQuality.value) => {
+  try {
+    const container = stageRef.value
+    if (!container) return
+    container.dataset.quality = value
+    const video = container.querySelector('video') as HTMLVideoElement | null
+    if (!video) return
+    const stream = video.srcObject
+    if (!(stream instanceof MediaStream)) return
+    const [track] = stream.getVideoTracks()
+    if (!track) return
+    if (value === 'auto') {
+      await track.applyConstraints({})
+      return
+    }
+    const option = qualityOptions.find((item) => item.value === value)
+    if (!option?.width || !option?.height) return
+    await track.applyConstraints({
+      width: { ideal: option.width },
+      height: { ideal: option.height },
+    })
+  } catch {
+    return
+  }
+}
 
 const toggleChat = () => {
   showChat.value = !showChat.value
@@ -379,9 +412,8 @@ const parseSseData = (event: MessageEvent) => {
   }
 }
 
-const buildStopConfirmMessage = (data: unknown) => {
-  const reason = typeof data === 'string' && data.trim() ? data.trim() : '관리자에 의해 방송이 중지되었습니다.'
-  return `${reason}\n방송에서 나가겠습니까?`
+const buildStopConfirmMessage = () => {
+  return '방송 운영 정책위반으로 방송이 송출 중지되었습니다.\n방송에서 나가시겠습니까?'
 }
 
 const scheduleRefresh = () => {
@@ -430,7 +462,7 @@ const handleSseEvent = (event: MessageEvent) => {
         }
       }
       scheduleRefresh()
-      if (window.confirm(buildStopConfirmMessage(data))) {
+      if (window.confirm(buildStopConfirmMessage())) {
         router.push({ name: 'live' }).catch(() => {})
       }
       break
@@ -799,6 +831,15 @@ onMounted(() => {
 })
 
 onMounted(() => {
+  if (!stageRef.value) return
+  qualityObserver.value?.disconnect()
+  qualityObserver.value = new MutationObserver(() => {
+    void applyVideoQuality(selectedQuality.value)
+  })
+  qualityObserver.value.observe(stageRef.value, { childList: true, subtree: true })
+})
+
+onMounted(() => {
   window.addEventListener('pagehide', handlePageHide)
 })
 
@@ -873,12 +914,22 @@ watch(
   },
 )
 
+watch(
+  selectedQuality,
+  (value) => {
+    void applyVideoQuality(value)
+  },
+  { immediate: true },
+)
+
 onBeforeUnmount(() => {
   document.removeEventListener('click', handleDocumentClick)
   document.removeEventListener('keydown', handleDocumentKeydown)
   document.removeEventListener('fullscreenchange', handleFullscreenChange)
   window.removeEventListener('deskit-user-updated', handleAuthUpdate)
   window.removeEventListener('pagehide', handlePageHide)
+  qualityObserver.value?.disconnect()
+  qualityObserver.value = null
   void sendLeaveSignal()
   disconnectChat()
   sseSource.value?.close()
@@ -1045,11 +1096,10 @@ onBeforeUnmount(() => {
                   </label>
                   <label class="settings-row">
                     <span class="settings-label">화질</span>
-                    <select class="settings-select" aria-label="화질">
-                      <option>자동</option>
-                      <option>1080p</option>
-                      <option>720p</option>
-                      <option>480p</option>
+                    <select v-model="selectedQuality" class="settings-select" aria-label="화질">
+                      <option v-for="option in qualityOptions" :key="option.value" :value="option.value">
+                        {{ option.label }}
+                      </option>
                     </select>
                   </label>
                 </div>
@@ -1335,6 +1385,17 @@ onBeforeUnmount(() => {
   min-height: clamp(160px, auto, 560px);
   max-width: min(100%, calc((100vh - 180px) * (16 / 9)));
   overflow: hidden;
+}
+
+.player-frame[data-quality='720p'] video,
+.player-frame[data-quality='720p'] img {
+  filter: blur(0.3px);
+}
+
+.player-frame[data-quality='480p'] video,
+.player-frame[data-quality='480p'] img {
+  filter: blur(0.6px);
+  image-rendering: pixelated;
 }
 
 .player-frame--fullscreen,
