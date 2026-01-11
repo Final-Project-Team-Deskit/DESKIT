@@ -125,9 +125,7 @@ onMounted(() => {
   loadPopulars()
   loadLiveItems()
   liveRefreshTimer = window.setInterval(() => {
-    if (document.visibilityState === 'visible') {
-      void updateLiveViewerCounts()
-    }
+    void updateLiveViewerCounts()
   }, 5000)
 })
 
