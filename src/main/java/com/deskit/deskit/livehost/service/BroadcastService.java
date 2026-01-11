@@ -507,7 +507,9 @@ public class BroadcastService {
 
             try {
                 Map<String, Object> params = Map.of("role", "HOST", "sellerId", sellerId);
-                return openViduService.createToken(broadcastId, params);
+                String token = openViduService.createToken(broadcastId, params);
+                openViduService.startRecording(broadcastId);
+                return token;
             } catch (Exception e) {
                 throw new BusinessException(ErrorCode.OPENVIDU_ERROR);
             }
@@ -572,6 +574,11 @@ public class BroadcastService {
 
             validateTransition(broadcast.getStatus(), BroadcastStatus.ENDED);
             broadcast.endBroadcast();
+            try {
+                openViduService.stopRecording(broadcastId);
+            } catch (Exception e) {
+                log.warn("Failed to stop OpenVidu recording: broadcastId={}, message={}", broadcastId, e.getMessage());
+            }
             openViduService.closeSession(broadcastId);
             sseService.notifyBroadcastUpdate(broadcastId, "BROADCAST_ENDED", "ended");
         } finally {
