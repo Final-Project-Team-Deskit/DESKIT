@@ -1,5 +1,6 @@
 import type { ProductTags } from './products-data'
 import { productsData } from './products-data'
+import { isSoldOut, isVisibleToUser } from '../utils/productStatusPolicy'
 import { setupsData } from './setups-data'
 
 export type SetupItem = {
@@ -27,7 +28,7 @@ export const popularSetups: SetupItem[] = setupsData.slice(0, 6).map((setup) => 
 }))
 
 export const popularProducts: ProductItem[] = productsData
-  .filter((product) => product.status === 'ON_SALE' || product.status === 'LIMITED_SALE')
+  .filter((product) => isVisibleToUser(product.status))
   .sort((a, b) => (b.popularity ?? 0) - (a.popularity ?? 0))
   .slice(0, 12)
   .map((product) => ({
@@ -37,5 +38,5 @@ export const popularProducts: ProductItem[] = productsData
     price: product.price,
     originalPrice: product.cost_price > product.price ? product.cost_price : undefined,
     tags: product.tags ?? { space: [], tone: [], situation: [], mood: [] },
-    isSoldOut: product.status === 'SOLD_OUT',
+    isSoldOut: isSoldOut(product.status),
   }))
