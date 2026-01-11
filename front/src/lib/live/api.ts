@@ -108,6 +108,7 @@ export type BroadcastResult = {
   sanctionCount: number
   vodUrl?: string
   vodStatus?: string
+  vodAdminLock?: boolean
   encoding?: boolean
   productStats?: Array<{
     productId: number

@@ -36,7 +36,7 @@ type SellerVodDetail = {
     likes: number
     totalRevenue: number
   }
-  vod: { url?: string; visibility: string }
+  vod: { url?: string; visibility: string; adminLock?: boolean }
   productResults: Array<{ id: string; name: string; price: number; soldQty: number; revenue: number }>
 }
 
@@ -44,6 +44,7 @@ const detail = ref<SellerVodDetail | null>(null)
 const isLoading = ref(false)
 const isVodPlayable = computed(() => !!detail.value?.vod?.url)
 const isVodPublic = computed(() => detail.value?.vod.visibility === '공개')
+const isVodVisibilityLocked = computed(() => detail.value?.vod.adminLock === true)
 const isPlaying = ref(false)
 const isFullscreen = ref(false)
 const showDeleteConfirm = ref(false)
@@ -60,6 +61,10 @@ const goToList = () => {
 const toggleVisibility = async () => {
   if (!detail.value) return
   const nextStatus = detail.value.vod.visibility === '공개' ? 'PRIVATE' : 'PUBLIC'
+  if (isVodVisibilityLocked.value && nextStatus === 'PUBLIC') {
+    window.alert('관리자에 의해 비공개 처리된 VOD는 공개로 전환할 수 없습니다.')
+    return
+  }
   try {
     await updateSellerVodVisibility(Number(detail.value.id), nextStatus)
     const nextLabel = nextStatus === 'PUBLIC' ? '공개' : '비공개'
@@ -187,6 +192,7 @@ const buildDetail = (broadcast: BroadcastDetailResponse, report: BroadcastResult
   vod: {
     url: report.vodUrl ?? undefined,
     visibility: formatVisibility(report.vodStatus),
+    adminLock: report.vodAdminLock ?? false,
   },
   productResults: (report.productStats ?? []).map((item) => ({
     id: String(item.productId),
@@ -290,7 +296,7 @@ watch(vodId, () => {
             </svg>
             <span class="visibility-label">비공개</span>
             <label class="vod-switch">
-              <input type="checkbox" :checked="isVodPublic" @change="toggleVisibility" />
+              <input type="checkbox" :checked="isVodPublic" :disabled="isVodVisibilityLocked" @change="toggleVisibility" />
               <span class="switch-track"><span class="switch-thumb"></span></span>
             </label>
             <span class="visibility-label">공개</span>
@@ -299,6 +305,7 @@ watch(vodId, () => {
               <circle cx="12" cy="12" r="3.5" />
             </svg>
           </div>
+          <p v-if="isVodVisibilityLocked" class="vod-lock-note">관리자에 의해 비공개 처리된 VOD는 공개로 전환할 수 없습니다.</p>
           <div class="vod-icon-actions">
             <button type="button" class="icon-pill" @click="handleDownload" title="다운로드">
               <svg aria-hidden="true" class="icon" viewBox="0 0 24 24" focusable="false">
@@ -612,6 +619,13 @@ watch(vodId, () => {
   background: linear-gradient(135deg, rgba(15, 23, 42, 0.08), rgba(15, 23, 42, 0.02));
 }
 
+.vod-lock-note {
+  margin: 4px 0 0;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
 .vod-switch input {
   position: absolute;
   opacity: 0;
@@ -647,6 +661,10 @@ watch(vodId, () => {
 
 .vod-switch input:checked + .switch-track .switch-thumb {
   transform: translateX(22px);
+}
+
+.vod-switch input:disabled + .switch-track {
+  opacity: 0.5;
 }
 
 .visibility-label {
