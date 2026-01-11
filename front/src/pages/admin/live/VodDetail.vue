@@ -682,7 +682,7 @@ watch(vodId, () => {
 }
 
 .icon-pill.danger {
-  color: var(--danger-color);
+  color: var(--danger-color, #dc2626);
   border-color: rgba(220, 38, 38, 0.4);
 }
 
