@@ -70,6 +70,8 @@ const router = useRouter()
 
 const showProducts = ref(true)
 const showChat = ref(true)
+const stopEntryPrompted = ref(false)
+const isStopRestricted = ref(false)
 const showSettings = ref(false)
 const viewerCount = ref(0)
 const likeCount = ref(0)
@@ -155,6 +157,7 @@ const viewerId = ref<string | null>(resolveViewerId(getAuthUser()))
 const joinedBroadcastId = ref<number | null>(null)
 const leaveRequested = ref(false)
 const mediaConfigReady = ref(false)
+const hasSavedMediaConfig = ref(false)
 let mediaSaveTimer: number | null = null
 
 const streamId = computed(() => {
@@ -211,7 +214,7 @@ const sortedProducts = computed(() => {
 
 const chatItems = computed(() => chatMessages.value)
 
-const hasSidePanels = computed(() => showProducts.value || showChat.value)
+const hasSidePanels = computed(() => !isStopRestricted.value && (showProducts.value || showChat.value))
 const gridStyles = computed(() => ({
   '--grid-template-columns': monitorColumns.value,
   '--stream-pane-height': streamPaneHeight.value,
@@ -222,6 +225,7 @@ const stackedOrders = computed(() =>
 )
 
 const monitorColumns = computed(() => {
+  if (isStopRestricted.value) return 'minmax(0, 1fr)'
   if (showProducts.value && showChat.value) return '320px minmax(0, 1fr) 320px'
   if (showProducts.value) return '320px minmax(0, 1fr)'
   if (showChat.value) return 'minmax(0, 1fr) 320px'
@@ -236,6 +240,7 @@ const streamPaneHeight = computed(() => {
     const max = 675
     return `${Math.min(Math.max(dynamic, min), max)}px`
   }
+  if (isStopRestricted.value) return 'clamp(620px, 72vh, 820px)'
   if (showProducts.value && showChat.value) return 'clamp(460px, 62vh, 680px)'
   if (showProducts.value || showChat.value) return 'clamp(520px, 68vh, 760px)'
   return 'clamp(560px, 74vh, 880px)'
@@ -255,6 +260,7 @@ const lifecycleStatus = computed(() =>
 )
 const isInteractive = computed(() => lifecycleStatus.value === 'ON_AIR')
 const isReadOnly = computed(() => lifecycleStatus.value !== 'ON_AIR')
+const isStopped = computed(() => lifecycleStatus.value === 'STOPPED')
 const waitingScreenUrl = computed(() => stream.value?.waitingScreen ?? '')
 const readyCountdownLabel = computed(() => {
   if (lifecycleStatus.value !== 'READY' || !scheduleStartAtMs.value) return ''
@@ -267,7 +273,7 @@ const readyCountdownLabel = computed(() => {
 })
 const streamPlaceholderMessage = computed(() => {
   if (lifecycleStatus.value === 'STOPPED') {
-    return '방송이 운영 정책 위반으로 송출 중지되었습니다.'
+    return '방송이 운영정책 위반으로 송출 중지되었습니다.'
   }
   if (lifecycleStatus.value === 'ENDED') {
     return '방송이 종료되었습니다.'
@@ -737,12 +743,14 @@ const hydrateStream = async () => {
       micEnabled.value = mediaConfig.microphoneOn
       videoEnabled.value = mediaConfig.cameraOn
       volume.value = mediaConfig.volume
+      hasSavedMediaConfig.value = true
     } else {
       selectedMic.value = '기본 마이크'
       selectedCamera.value = '기본 카메라'
       micEnabled.value = true
       videoEnabled.value = true
       volume.value = 50
+      hasSavedMediaConfig.value = false
     }
     mediaConfigReady.value = true
 
@@ -766,6 +774,7 @@ const hydrateStream = async () => {
     scheduleEndAtMs.value = null
     isLoadingStream.value = false
     mediaConfigReady.value = false
+    hasSavedMediaConfig.value = false
     clearStartTimer()
     clearEndRequestTimer()
     startRequested.value = false
@@ -849,9 +858,26 @@ const parseSseData = (event: MessageEvent) => {
   }
 }
 
-const buildStopConfirmMessage = (data: unknown) => {
-  const reason = typeof data === 'string' && data.trim() ? data.trim() : '관리자에 의해 방송이 중지되었습니다.'
-  return `${reason}\n방송에서 나가겠습니까?`
+const buildStopConfirmMessage = () => {
+  return '방송 운영 정책 위반으로 방송이 중지되었습니다.\n방송에서 나가겠습니까?'
+}
+
+const handleStopDecision = (message: string) => {
+  const ok = window.confirm(message)
+  if (ok) {
+    handleGoToList()
+    return
+  }
+  isStopRestricted.value = true
+  showChat.value = false
+  showProducts.value = false
+  showSettings.value = false
+}
+
+const promptStoppedEntry = () => {
+  if (stopEntryPrompted.value) return
+  stopEntryPrompted.value = true
+  handleStopDecision('해당 방송은 운영정책 위반으로 송출 중지되었습니다. 방송을 나가겠습니까?')
 }
 
 const scheduleRefresh = (broadcastId: number) => {
@@ -908,9 +934,8 @@ const handleSseEvent = (event: MessageEvent) => {
     case 'BROADCAST_STOPPED':
       streamStatus.value = 'STOPPED'
       scheduleRefresh(id)
-      if (window.confirm(buildStopConfirmMessage(data))) {
-        handleGoToList()
-      }
+      stopEntryPrompted.value = true
+      handleStopDecision(buildStopConfirmMessage())
       break
     default:
       break
@@ -1177,6 +1202,12 @@ watch(showSettings, async (open) => {
 watch(lifecycleStatus, () => {
   const idValue = streamId.value ? Number(streamId.value) : NaN
   if (Number.isNaN(idValue)) return
+  if (lifecycleStatus.value === 'STOPPED') {
+    promptStoppedEntry()
+  } else {
+    isStopRestricted.value = false
+    stopEntryPrompted.value = false
+  }
   void requestJoinToken(idValue)
   if (lifecycleStatus.value === 'ON_AIR') {
     void ensurePublisherConnected(idValue)
@@ -1218,11 +1249,11 @@ watch(volume, () => {
   applyPublisherVolume()
 })
 
-watch(stream, (value) => {
-  if (value && !hasOpenedDeviceModal.value) {
-    showDeviceModal.value = true
-    hasOpenedDeviceModal.value = true
-  }
+watch([stream, lifecycleStatus, hasSavedMediaConfig], ([value, status, hasConfig]) => {
+  if (!value || hasOpenedDeviceModal.value || hasConfig) return
+  if (status !== 'READY') return
+  showDeviceModal.value = true
+  hasOpenedDeviceModal.value = true
 })
 
 type UpdateBroadcastPayload = Parameters<typeof updateBroadcast>[1]
@@ -1361,9 +1392,9 @@ const toggleFullscreen = async () => {
         <p class="ds-section-sub">{{ displayDatetime }}</p>
       </div>
       <div class="stream-actions">
-        <button type="button" class="stream-btn" :disabled="!stream" @click="showBasicInfo = true">기본정보 수정</button>
-        <button type="button" class="stream-btn" :disabled="!stream || !qCards.length" @click="showQCards = true">큐카드 보기</button>
-        <button type="button" class="stream-btn stream-btn--danger" :disabled="!stream" @click="requestEndBroadcast">
+        <button type="button" class="stream-btn" :disabled="!stream || isStopped" @click="showBasicInfo = true">기본정보 수정</button>
+        <button type="button" class="stream-btn" :disabled="!stream || !qCards.length || isStopped" @click="showQCards = true">큐카드 보기</button>
+        <button type="button" class="stream-btn stream-btn--danger" :disabled="!stream || isStopped" @click="requestEndBroadcast">
           방송 종료
         </button>
       </div>
@@ -1380,7 +1411,7 @@ const toggleFullscreen = async () => {
       :style="gridStyles"
     >
       <aside
-        v-if="showProducts"
+        v-if="showProducts && !isStopRestricted"
         class="stream-panel stream-panel--products ds-surface"
         :class="{ 'stream-panel--readonly': isReadOnly }"
         :style="stackedOrders ? { order: stackedOrders.products } : undefined"
@@ -1452,7 +1483,7 @@ const toggleFullscreen = async () => {
               <div class="stream-overlay__row">👥 {{ viewerCount.toLocaleString('ko-KR') }}명</div>
               <div class="stream-overlay__row">❤ {{ likeCount.toLocaleString('ko-KR') }}</div>
             </div>
-            <div class="stream-fab">
+            <div v-if="!isStopRestricted" class="stream-fab">
               <button
                 type="button"
                 class="fab-btn"
@@ -1528,7 +1559,7 @@ const toggleFullscreen = async () => {
             </div>
           </div>
         </div>
-        <div v-if="showSettings" class="stream-settings ds-surface" role="dialog" aria-label="방송 설정">
+        <div v-if="showSettings && !isStopRestricted" class="stream-settings ds-surface" role="dialog" aria-label="방송 설정">
           <div class="stream-settings__grid">
             <div class="stream-settings__group">
               <div class="stream-settings__toggles">
@@ -1620,7 +1651,7 @@ const toggleFullscreen = async () => {
       </div>
 
       <aside
-        v-if="showChat"
+        v-if="showChat && !isStopRestricted"
         class="stream-panel stream-chat stream-panel--chat ds-surface"
         :class="{ 'stream-panel--readonly': isReadOnly }"
         :style="stackedOrders ? { order: stackedOrders.chat } : undefined"

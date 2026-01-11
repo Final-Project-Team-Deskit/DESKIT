@@ -47,8 +47,14 @@ const status = computed(() => {
   return 'ENDED'
 })
 const buttonLabel = computed(() => {
-  if (status.value === 'LIVE' || status.value === 'READY' || status.value === 'ENDED' || status.value === 'STOPPED') {
+  if (status.value === 'LIVE' || status.value === 'READY') {
     return '입장하기'
+  }
+  if (status.value === 'STOPPED') {
+    return '방송 입장'
+  }
+  if (status.value === 'ENDED') {
+    return '방송 입장'
   }
   if (status.value === 'VOD') {
     return 'VOD 다시보기'

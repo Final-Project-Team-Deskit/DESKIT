@@ -7,6 +7,8 @@ export type LiveItem = {
   endAt: string
   status?: string
   viewerCount?: number
+  likeCount?: number
+  reportCount?: number
   vodUrl?: string
   streamUrl?: string
   sellerName?: string
