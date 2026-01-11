@@ -18,6 +18,7 @@ import {
   startSellerBroadcast,
   endSellerBroadcast,
   pinSellerBroadcastProduct,
+  unpinSellerBroadcastProduct,
   saveMediaConfig,
   updateBroadcast,
   type MediaConfig,
@@ -918,6 +919,10 @@ const handleSseEvent = (event: MessageEvent) => {
       pinnedProductId.value = typeof data === 'number' ? String(data) : pinnedProductId.value
       scheduleRefresh(id)
       break
+    case 'PRODUCT_UNPINNED':
+      pinnedProductId.value = null
+      scheduleRefresh(id)
+      break
     case 'PRODUCT_SOLD_OUT':
       scheduleRefresh(id)
       break
@@ -979,6 +984,7 @@ const connectSse = (broadcastId: number) => {
     'BROADCAST_UPDATED',
     'BROADCAST_STARTED',
     'PRODUCT_PINNED',
+    'PRODUCT_UNPINNED',
     'PRODUCT_SOLD_OUT',
     'SANCTION_UPDATED',
     'BROADCAST_ENDING_SOON',
@@ -1123,11 +1129,17 @@ const handleConfirmCancel = () => {
 
 const setPinnedProduct = async (productId: string | null) => {
   if (!isInteractive.value) return
+  const previousPinned = pinnedProductId.value
   pinnedProductId.value = productId
-  if (!productId) return
   const broadcastValue = streamId.value ? Number(streamId.value) : NaN
+  if (Number.isNaN(broadcastValue)) return
+  if (!productId) {
+    if (!previousPinned) return
+    await unpinSellerBroadcastProduct(broadcastValue).catch(() => {})
+    return
+  }
   const productValue = Number(productId)
-  if (Number.isNaN(broadcastValue) || Number.isNaN(productValue)) return
+  if (Number.isNaN(productValue)) return
   await pinSellerBroadcastProduct(broadcastValue, productValue).catch(() => {})
 }
 

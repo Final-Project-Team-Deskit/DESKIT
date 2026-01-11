@@ -78,6 +78,7 @@ public class AdminService {
 
             validateTransition(broadcast.getStatus(), BroadcastStatus.CANCELED);
             broadcast.cancelBroadcast(reason);
+            sseService.notifyBroadcastUpdate(broadcastId, "BROADCAST_CANCELED", reason);
         } finally {
             redisService.releaseLock(lockKey);
         }
