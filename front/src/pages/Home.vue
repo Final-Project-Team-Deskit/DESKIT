@@ -61,7 +61,7 @@ const loadPopulars = async () => {
   popularSetupsLoading.value = false
 }
 
-const mapToLiveItems = (items: Array<{ broadcastId: number; title: string; notice?: string; thumbnailUrl?: string; startAt?: string; endAt?: string; liveViewerCount?: number; viewerCount?: number; sellerName?: string }>) =>
+const mapToLiveItems = (items: Array<{ broadcastId: number; title: string; notice?: string; thumbnailUrl?: string; startAt?: string; endAt?: string; liveViewerCount?: number; viewerCount?: number; sellerName?: string; status?: string }>) =>
   items
     .filter((item) => item.startAt)
     .map((item) => ({
@@ -71,6 +71,7 @@ const mapToLiveItems = (items: Array<{ broadcastId: number; title: string; notic
       thumbnailUrl: item.thumbnailUrl ?? '',
       startAt: item.startAt ?? '',
       endAt: item.endAt ?? item.startAt ?? '',
+      status: item.status,
       viewerCount: item.liveViewerCount ?? item.viewerCount ?? 0,
       sellerName: item.sellerName ?? '',
     }))
