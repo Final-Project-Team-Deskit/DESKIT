@@ -17,8 +17,10 @@ import com.deskit.deskit.livehost.dto.request.OpenViduRecordingWebhook;
 import com.deskit.deskit.livehost.dto.request.QcardRequest;
 import com.deskit.deskit.livehost.dto.response.BroadcastAllResponse;
 import com.deskit.deskit.livehost.dto.response.BroadcastListResponse;
+import com.deskit.deskit.livehost.dto.response.BroadcastLikeResponse;
 import com.deskit.deskit.livehost.dto.response.BroadcastProductResponse;
 import com.deskit.deskit.livehost.dto.response.BroadcastResponse;
+import com.deskit.deskit.livehost.dto.response.BroadcastReportResponse;
 import com.deskit.deskit.livehost.dto.response.BroadcastResultResponse;
 import com.deskit.deskit.livehost.dto.response.BroadcastStatsResponse;
 import com.deskit.deskit.livehost.dto.response.MediaConfigResponse;
@@ -643,8 +645,16 @@ public class BroadcastService {
         }
     }
 
-    public void likeBroadcast(Long broadcastId, Long memberId) {
-        redisService.toggleLike(broadcastId, memberId);
+    public BroadcastLikeResponse likeBroadcast(Long broadcastId, Long memberId) {
+        if (!broadcastRepository.existsById(broadcastId)) {
+            throw new BusinessException(ErrorCode.BROADCAST_NOT_FOUND);
+        }
+        boolean liked = redisService.toggleLike(broadcastId, memberId);
+        int likeCount = redisService.getLikeCount(broadcastId);
+        return BroadcastLikeResponse.builder()
+                .liked(liked)
+                .likeCount(likeCount)
+                .build();
     }
 
     @Transactional
@@ -817,11 +827,16 @@ public class BroadcastService {
         return !isViewerSanctioned(broadcastId, memberId, SanctionType.MUTE, SanctionType.OUT);
     }
 
-    public void reportBroadcast(Long broadcastId, Long memberId) {
+    public BroadcastReportResponse reportBroadcast(Long broadcastId, Long memberId) {
         if (!broadcastRepository.existsById(broadcastId)) {
             throw new BusinessException(ErrorCode.BROADCAST_NOT_FOUND);
         }
-        redisService.reportBroadcast(broadcastId, memberId);
+        boolean reported = redisService.reportBroadcast(broadcastId, memberId);
+        int reportCount = redisService.getReportCount(broadcastId);
+        return BroadcastReportResponse.builder()
+                .reported(reported)
+                .reportCount(reportCount)
+                .build();
     }
 
     @Transactional(readOnly = true)

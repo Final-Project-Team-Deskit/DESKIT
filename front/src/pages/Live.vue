@@ -456,10 +456,10 @@ const connectSse = () => {
 const startStatsPolling = () => {
   if (statsTimer.value) window.clearInterval(statsTimer.value)
   statsTimer.value = window.setInterval(() => {
-    if (!sseConnected.value) {
+    if (document.visibilityState === 'visible') {
       void loadBroadcasts()
     }
-  }, 30000)
+  }, 5000)
 }
 
 watchEffect(() => {

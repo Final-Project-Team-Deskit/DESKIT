@@ -677,7 +677,7 @@ const startStatsPolling = (broadcastId: number) => {
         void refreshProducts(broadcastId)
       }
     }
-  }, 30000)
+  }, 5000)
 }
 
 watch(
