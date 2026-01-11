@@ -1,27 +1,31 @@
 import type { AuthUser } from '../auth'
 
 const VIEWER_ID_KEY = 'deskit_live_viewer_id_v1'
-let memoryViewerId: string | null = null
+const memoryViewerIds = new Map<string, string>()
 
 const buildViewerId = () =>
   window.crypto?.randomUUID
     ? window.crypto.randomUUID()
     : `${Date.now()}-${Math.random().toString(16).slice(2)}`
 
-const getStoredViewerId = (): string | null => {
+const getStoredViewerId = (keySuffix?: string): string | null => {
+  const storageKey = keySuffix ? `${VIEWER_ID_KEY}:${keySuffix}` : VIEWER_ID_KEY
   try {
-    const existing = localStorage.getItem(VIEWER_ID_KEY)
+    const existing = localStorage.getItem(storageKey)
     if (existing) {
       return existing
     }
     const next = buildViewerId()
-    localStorage.setItem(VIEWER_ID_KEY, next)
+    localStorage.setItem(storageKey, next)
     return next
   } catch {
-    if (!memoryViewerId) {
-      memoryViewerId = buildViewerId()
+    const cached = memoryViewerIds.get(storageKey)
+    if (cached) {
+      return cached
     }
-    return memoryViewerId
+    const next = buildViewerId()
+    memoryViewerIds.set(storageKey, next)
+    return next
   }
 }
 
@@ -44,12 +48,14 @@ export const resolveViewerId = (user: AuthUser | null): string | null => {
     localStorage.getItem('access_token') ||
     sessionStorage.getItem('access_token')
   if (!access) {
-    return getStoredViewerId()
+    const categoryKey = user?.memberCategory?.trim().toLowerCase()
+    return getStoredViewerId(categoryKey || undefined)
   }
   const tokenParts = access.split('.')
   const tokenPart = tokenParts[1]
   if (!tokenPart) {
-    return getStoredViewerId()
+    const categoryKey = user?.memberCategory?.trim().toLowerCase()
+    return getStoredViewerId(categoryKey || undefined)
   }
   try {
     const normalized = tokenPart.replace(/-/g, '+').replace(/_/g, '/')
@@ -65,11 +71,13 @@ export const resolveViewerId = (user: AuthUser | null): string | null => {
       payload?.seller_id ??
       payload?.sub
     if (tokenId === null || tokenId === undefined) {
-      return getStoredViewerId()
+      const categoryKey = user?.memberCategory?.trim().toLowerCase()
+      return getStoredViewerId(categoryKey || undefined)
     }
     return String(tokenId)
   } catch {
-    const storedId = getStoredViewerId()
+    const categoryKey = user?.memberCategory?.trim().toLowerCase()
+    const storedId = getStoredViewerId(categoryKey || undefined)
     if (storedId) {
       return storedId
     }
