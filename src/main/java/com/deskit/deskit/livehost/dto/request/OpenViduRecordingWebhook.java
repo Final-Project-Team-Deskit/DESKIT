@@ -1,11 +1,13 @@
 package com.deskit.deskit.livehost.dto.request;
 
+import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.ToString;
 
 @Getter
 @NoArgsConstructor
+@AllArgsConstructor
 @ToString
 public class OpenViduRecordingWebhook {
     // 이벤트 타입 (recordingStatusChanged)
@@ -33,4 +35,3 @@ public class OpenViduRecordingWebhook {
     private String url;
     // (참고) OpenVidu 버전에 따라 resolution, hasAudio 등이 올 수 있음
 }
-

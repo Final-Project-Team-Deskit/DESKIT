@@ -49,6 +49,9 @@ import com.deskit.deskit.product.entity.Product.Status;
 import com.deskit.deskit.product.repository.ProductRepository;
 import com.deskit.deskit.tag.entity.TagCategory;
 import com.deskit.deskit.tag.repository.TagCategoryRepository;
+import io.openvidu.java.client.OpenViduHttpException;
+import io.openvidu.java.client.OpenViduJavaClientException;
+import io.openvidu.java.client.Recording;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.jooq.DSLContext;
@@ -76,11 +79,13 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.security.cert.X509Certificate;
+import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.Base64;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -92,6 +97,10 @@ import static org.jooq.impl.DSL.table;
 @Service
 @RequiredArgsConstructor
 public class BroadcastService {
+
+    private static final int RECORDING_RETRY_MAX_ATTEMPTS = 5;
+    private static final Duration RECORDING_RETRY_TTL = Duration.ofHours(6);
+    private static final Duration RECORDING_RETRY_BASE_DELAY = Duration.ofSeconds(30);
 
     private final BroadcastRepository broadcastRepository;
     private final BroadcastProductRepository broadcastProductRepository;
@@ -726,6 +735,12 @@ public class BroadcastService {
         Broadcast broadcast = broadcastRepository.findById(broadcastId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.BROADCAST_NOT_FOUND));
 
+        if (vodRepository.findByBroadcast(broadcast).isPresent()) {
+            log.info("VOD already processed: broadcastId={}", broadcastId);
+            redisService.clearRecordingRetry(broadcastId);
+            return;
+        }
+
         String recordingId = payload.getId();
         String s3Key = "seller_" + broadcast.getSeller().getSellerId() + "/vods/" + recordingId + ".mp4";
         String s3Url = payload.getUrl() != null ? payload.getUrl() : "";
@@ -796,6 +811,7 @@ public class BroadcastService {
             validateTransition(broadcast.getStatus(), BroadcastStatus.VOD);
             broadcast.changeStatus(BroadcastStatus.VOD);
         }
+        redisService.clearRecordingRetry(broadcastId);
     }
 
     private void downloadVodToAdminLocal(String vodUrl, Long broadcastId, String recordingId) {
@@ -1281,6 +1297,7 @@ public class BroadcastService {
                         validateTransition(broadcast.getStatus(), BroadcastStatus.ENDED);
                         broadcast.endBroadcast();
                         openViduService.closeSession(schedule.broadcastId());
+                        triggerRecordingFallback(schedule.broadcastId(), "scheduled_end");
                     }
                     if (broadcast != null && (broadcast.getStatus() == BroadcastStatus.ENDED || broadcast.getStatus() == BroadcastStatus.STOPPED)) {
                         validateTransition(broadcast.getStatus(), BroadcastStatus.VOD);
@@ -1302,6 +1319,80 @@ public class BroadcastService {
                 }
             }
         }
+    }
+
+    @Scheduled(fixedDelay = 30000)
+    @Transactional
+    public void processRecordingFallbackQueue() {
+        for (Long broadcastId : redisService.popDueRecordingRetries(20)) {
+            triggerRecordingFallback(broadcastId, "retry_queue");
+        }
+    }
+
+    private void triggerRecordingFallback(Long broadcastId, String reason) {
+        Broadcast broadcast = broadcastRepository.findById(broadcastId).orElse(null);
+        if (broadcast == null) {
+            redisService.clearRecordingRetry(broadcastId);
+            return;
+        }
+        if (vodRepository.findByBroadcast(broadcast).isPresent()) {
+            redisService.clearRecordingRetry(broadcastId);
+            return;
+        }
+
+        String sessionId = "broadcast-" + broadcastId;
+        try {
+            Optional<Recording> recording = openViduService.findRecordingBySessionId(sessionId);
+            if (recording.isEmpty()) {
+                scheduleRecordingRetry(broadcastId, reason, "not_found");
+                return;
+            }
+
+            String status = String.valueOf(recording.get().getStatus()).toLowerCase();
+            if ("ready".equals(status)) {
+                OpenViduRecordingWebhook payload = new OpenViduRecordingWebhook(
+                        "recordingStatusChanged",
+                        recording.get().getId(),
+                        recording.get().getSessionId(),
+                        recording.get().getName(),
+                        recording.get().getSize(),
+                        recording.get().getDuration(),
+                        status,
+                        recording.get().getUrl()
+                );
+                processVod(payload);
+                redisService.clearRecordingRetry(broadcastId);
+                return;
+            }
+
+            if ("failed".equals(status)) {
+                log.warn("OpenVidu recording failed: broadcastId={}, status={}", broadcastId, status);
+                redisService.clearRecordingRetry(broadcastId);
+                return;
+            }
+
+            scheduleRecordingRetry(broadcastId, reason, status);
+        } catch (OpenViduJavaClientException | OpenViduHttpException ex) {
+            log.warn("OpenVidu recording status check failed: broadcastId={}, reason={}, message={}",
+                    broadcastId, reason, ex.getMessage());
+            scheduleRecordingRetry(broadcastId, reason, "error");
+        } catch (Exception ex) {
+            log.error("Recording fallback error: broadcastId={}, reason={}", broadcastId, reason, ex);
+            scheduleRecordingRetry(broadcastId, reason, "exception");
+        }
+    }
+
+    private void scheduleRecordingRetry(Long broadcastId, String reason, String status) {
+        int attempt = redisService.incrementRecordingRetryAttempt(broadcastId, RECORDING_RETRY_TTL);
+        if (attempt > RECORDING_RETRY_MAX_ATTEMPTS) {
+            log.warn("Recording fallback retries exceeded: broadcastId={}, reason={}, status={}", broadcastId, reason, status);
+            redisService.clearRecordingRetry(broadcastId);
+            return;
+        }
+        Duration delay = RECORDING_RETRY_BASE_DELAY.multipliedBy(attempt);
+        redisService.scheduleRecordingRetry(broadcastId, delay);
+        log.info("Recording fallback scheduled: broadcastId={}, reason={}, status={}, attempt={}, delay={}s",
+                broadcastId, reason, status, attempt, delay.toSeconds());
     }
 
     private void saveBroadcastProducts(Long sellerId, Broadcast broadcast, List<BroadcastProductRequest> products) {
