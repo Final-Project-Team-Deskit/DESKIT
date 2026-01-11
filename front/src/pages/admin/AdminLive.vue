@@ -459,7 +459,9 @@ const connectSse = () => {
 const startStatsPolling = () => {
   if (statsTimer.value) window.clearInterval(statsTimer.value)
   statsTimer.value = window.setInterval(() => {
-    void updateLiveViewerCounts()
+    if (document.visibilityState === 'visible') {
+      void updateLiveViewerCounts()
+    }
   }, 5000)
 }
 

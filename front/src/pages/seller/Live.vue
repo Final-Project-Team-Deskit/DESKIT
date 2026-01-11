@@ -486,6 +486,9 @@ const updateLiveViewerCounts = async () => {
 const startStatsPolling = () => {
   if (statsTimer.value) window.clearInterval(statsTimer.value)
   statsTimer.value = window.setInterval(() => {
+    if (document.visibilityState !== 'visible') {
+      return
+    }
     void updateLiveViewerCounts()
     const current = currentLive.value
     if (current) {
