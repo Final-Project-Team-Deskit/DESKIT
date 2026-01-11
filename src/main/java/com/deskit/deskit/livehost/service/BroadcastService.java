@@ -525,6 +525,9 @@ public class BroadcastService {
 
         String uuid = (viewerId != null) ? viewerId : UUID.randomUUID().toString();
         redisService.enterLiveRoom(broadcastId, uuid);
+        if (broadcast.getStatus() == BroadcastStatus.ON_AIR) {
+            redisService.updatePeakViewers(broadcastId);
+        }
 
         try {
             Map<String, Object> params = Map.of("role", "SUBSCRIBER");
@@ -670,7 +673,11 @@ public class BroadcastService {
         String bId = accessor.getFirstNativeHeader("broadcastId");
         String vId = accessor.getFirstNativeHeader("X-Viewer-Id");
         if (bId != null && vId != null) {
-            redisService.enterLiveRoom(Long.parseLong(bId), vId);
+            Long broadcastId = Long.parseLong(bId);
+            redisService.enterLiveRoom(broadcastId, vId);
+            broadcastRepository.findById(broadcastId)
+                    .filter(broadcast -> broadcast.getStatus() == BroadcastStatus.ON_AIR)
+                    .ifPresent(broadcast -> redisService.updatePeakViewers(broadcastId));
             Map<String, Object> attrs = accessor.getSessionAttributes();
             if (attrs != null) {
                 attrs.put("broadcastId", bId);

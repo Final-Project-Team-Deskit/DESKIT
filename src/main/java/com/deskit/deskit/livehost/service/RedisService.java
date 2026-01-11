@@ -115,7 +115,6 @@ public class RedisService {
 
         if (count != null && count == 1) {
             redisTemplate.opsForSet().add(activeKey, uuid);
-            updatePeakViewers(broadcastId);
         }
 
         redisTemplate.opsForSet().add(totalKey, uuid);
@@ -338,7 +337,7 @@ public class RedisService {
         redisTemplate.expire(key, Duration.ofDays(1));
     }
 
-    private void updatePeakViewers(Long broadcastId) {
+    public void updatePeakViewers(Long broadcastId) {
         int current = getRealtimeViewerCount(broadcastId);
         String maxKey = getMaxViewersKey(broadcastId);
 
