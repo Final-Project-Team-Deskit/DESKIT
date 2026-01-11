@@ -815,6 +815,14 @@ const resetAllLoops = () => {
   resetLoop('vod')
 }
 
+const updateLoopEnabled = () => {
+  const enable = activeTab.value === 'all'
+  loopEnabled.value = {
+    scheduled: enable,
+    vod: enable,
+  }
+}
+
 const handleResize = () => {
   updateSlideWidth('scheduled')
   updateSlideWidth('vod')
@@ -864,6 +872,15 @@ watch(
   () => {
     syncTabFromRoute()
   },
+)
+
+watch(
+  () => activeTab.value,
+  () => {
+    updateLoopEnabled()
+    resetAllLoops()
+  },
+  { immediate: true },
 )
 
 watch(

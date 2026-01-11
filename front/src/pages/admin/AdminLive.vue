@@ -849,6 +849,15 @@ const resetAllLoops = () => {
   resetLoop('vod')
 }
 
+const updateLoopEnabled = () => {
+  const enable = activeTab.value === 'all'
+  loopEnabled.value = {
+    live: enable,
+    scheduled: enable,
+    vod: enable,
+  }
+}
+
 const handleResize = () => {
   updateSlideWidth('live')
   updateSlideWidth('scheduled')
@@ -861,6 +870,15 @@ const handleResize = () => {
 watch(
   () => route.query.tab,
   () => refreshTabFromQuery(),
+)
+
+watch(
+  () => activeTab.value,
+  () => {
+    updateLoopEnabled()
+    resetAllLoops()
+  },
+  { immediate: true },
 )
 
 watch([liveCategory, liveSort], () => {
