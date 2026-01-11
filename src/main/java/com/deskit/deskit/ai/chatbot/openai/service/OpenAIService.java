@@ -45,9 +45,7 @@ public class OpenAIService {
     private static final String OPENAI_ERROR_MESSAGE =
             "The assistant is temporarily unavailable. Please try again in a moment.";
 
-    public ChatResponse generate(String text) {
-
-        Long memberId = 1L;
+    public ChatResponse generate(Long memberId, String text) {
         ChatInfo chatInfo = conversationService.getOrCreateActiveConversation(memberId);
 
         List<Message> messages = new ArrayList<>();
@@ -61,6 +59,8 @@ public class OpenAIService {
                         질문 길이가 너무 짧으면(6글자 이하) 아래처럼 안내해 주세요.
                         - 조금 더 구체적으로 상황을 설명해 주세요.
                         - 질문이 이해되지 않으면 다시 한 번 설명해 주세요.
+                        
+                        
                         
                         """
         ));

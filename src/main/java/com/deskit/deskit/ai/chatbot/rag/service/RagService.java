@@ -49,9 +49,7 @@ public class RagService {
 
     private static final String ESCALATION_TRIGGER = "관리자 연결";
 
-    public ChatResponse chat(String question, int topK) {
-        Long memberId = 1L;
-
+    public ChatResponse chat(Long memberId, String question, int topK) {
         ChatInfo chatInfo = conversationService.getOrCreateActiveConversation(memberId);
 
         boolean escalated = false;

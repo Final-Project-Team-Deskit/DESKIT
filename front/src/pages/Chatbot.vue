@@ -3,6 +3,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import PageContainer from '../components/PageContainer.vue'
 import PageHeader from '../components/PageHeader.vue'
 import { getAuthUser, hydrateSessionUser } from '../lib/auth'
+import { resolveViewerId } from '../lib/live/viewer'
 import { SimpleStompClient } from '../lib/stomp-client'
 
 type ChatRole = 'user' | 'bot' | 'system'
@@ -48,11 +49,10 @@ const isClosed = computed(() => statusLabel.value === 'CLOSED')
 let stompClient: SimpleStompClient | null = null
 let statusPoller: number | null = null
 
-const memberId = ref('1')
+const memberId = ref<string | null>(null)
 const resolveMemberId = () => {
   const user = getAuthUser()
-  const rawId = user?.id ?? user?.userId ?? user?.user_id ?? user?.sellerId ?? user?.seller_id
-  memberId.value = rawId ? String(rawId) : '1'
+  memberId.value = resolveViewerId(user) ?? resolveViewerId(null)
 }
 const fallbackChatId = computed(() => {
   const numeric = Number.parseInt(memberId.value, 10)
@@ -79,7 +79,7 @@ const appendMessage = (role: ChatRole, content: string, sources?: string[]) => {
 const loadChatHistory = async () => {
   if (!chatId.value) return
   try {
-    const response = await fetch(`${apiBase}/chat/history/${chatId.value}`, {
+    const response = await fetchWithCredentials(`${apiBase}/chat/history/${chatId.value}`, {
       method: 'POST',
     })
     if (!response.ok) return
@@ -98,7 +98,7 @@ const loadChatHistory = async () => {
 const loadDirectChatHistory = async () => {
   if (!chatId.value) return
   try {
-    const response = await fetch(`${apiBase}/direct-chats/${chatId.value}/messages`)
+    const response = await fetchWithCredentials(`${apiBase}/direct-chats/${chatId.value}/messages`)
     if (!response.ok) return
     const history = (await response.json()) as DirectChatMessage[]
     messages.value = history.map((item) => ({
@@ -116,6 +116,9 @@ const wsEndpoint = computed(() => {
   const base = apiBase.replace(/^http/, 'ws')
   return `${base}/ws-live/websocket`
 })
+
+const fetchWithCredentials = (url: string, options: RequestInit = {}) =>
+  fetch(url, { credentials: 'include', ...options })
 
 const stopStatusPolling = () => {
   if (statusPoller !== null) {
@@ -194,8 +197,9 @@ const connectDirectChat = async () => {
 }
 
 const syncConversationStatus = async () => {
+  if (!memberId.value) return
   try {
-    const response = await fetch(`${apiBase}/direct-chats/latest/${memberId.value}`)
+    const response = await fetchWithCredentials(`${apiBase}/direct-chats/latest/${memberId.value}`)
     if (response.ok) {
       const data = (await response.json()) as { chatId?: number; status?: string }
       chatId.value = typeof data.chatId === 'number' ? data.chatId : chatId.value
@@ -207,7 +211,7 @@ const syncConversationStatus = async () => {
   }
 
   try {
-    const response = await fetch(`${apiBase}/chat/status/${memberId.value}`)
+    const response = await fetchWithCredentials(`${apiBase}/chat/status/${memberId.value}`)
     if (!response.ok) return
     const data = (await response.json()) as { status?: string }
     applyStatus(data.status ?? 'BOT_ACTIVE')
@@ -218,9 +222,10 @@ const syncConversationStatus = async () => {
 
 const startNewInquiry = async () => {
   if (isSending.value) return
+  if (!memberId.value) return
   isSending.value = true
   try {
-    const response = await fetch(`${apiBase}/direct-chats/start/${memberId.value}`, {
+    const response = await fetchWithCredentials(`${apiBase}/direct-chats/start/${memberId.value}`, {
       method: 'POST',
     })
     if (!response.ok) {
@@ -243,8 +248,9 @@ const startNewInquiry = async () => {
 }
 
 const checkConversationStatus = async () => {
+  if (!memberId.value) return
   try {
-    const response = await fetch(`${apiBase}/chat/status/${memberId.value}`)
+    const response = await fetchWithCredentials(`${apiBase}/chat/status/${memberId.value}`)
     if (!response.ok) return
     const data = (await response.json()) as { status?: string }
     statusLabel.value = data.status ?? 'BOT_ACTIVE'
@@ -285,7 +291,7 @@ const sendMessage = async () => {
   inputText.value = ''
   isSending.value = true
   try {
-    const response = await fetch(`${apiBase}/chat`, {
+    const response = await fetchWithCredentials(`${apiBase}/chat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ text }),
