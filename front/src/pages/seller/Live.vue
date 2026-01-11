@@ -466,18 +466,21 @@ const updateLiveViewerCounts = async () => {
     }
   })
   if (!statsMap.size) return
-  liveItems.value = liveItems.value.map((item) => {
-    const stats = statsMap.get(item.id)
-    if (!stats) return item
-    const viewers = stats.viewerCount ?? item.viewers ?? 0
-    return {
-      ...item,
-      viewers,
-      viewerBadge: `${viewers}명 시청 중`,
-      likes: stats.likeCount ?? item.likes ?? 0,
-      reports: stats.reportCount ?? item.reports ?? 0,
-    }
-  })
+  const applyStats = (items: LiveItem[]) =>
+    items.map((item) => {
+      const stats = statsMap.get(item.id)
+      if (!stats) return item
+      const viewers = stats.viewerCount ?? item.viewers ?? 0
+      return {
+        ...item,
+        viewers,
+        viewerBadge: `${viewers}명 시청 중`,
+        likes: stats.likeCount ?? item.likes ?? 0,
+        reports: stats.reportCount ?? item.reports ?? 0,
+      }
+    })
+  liveItems.value = applyStats(liveItems.value)
+  scheduledItems.value = applyStats(scheduledItems.value)
 }
 
 const startStatsPolling = () => {
