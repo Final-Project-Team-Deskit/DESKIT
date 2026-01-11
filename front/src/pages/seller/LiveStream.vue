@@ -143,6 +143,10 @@ const sseRetryTimer = ref<number | null>(null)
 const statsTimer = ref<number | null>(null)
 const refreshTimer = ref<number | null>(null)
 const startTimer = ref<number | null>(null)
+const startRetryTimer = ref<number | null>(null)
+const startRetryCount = ref(0)
+const MAX_START_RETRIES = 3
+const START_RETRY_DELAY_MS = 1500
 const publisherToken = ref<string | null>(null)
 const publisherTokenInFlight = ref(false)
 const openviduInstance = ref<OpenVidu | null>(null)
@@ -405,6 +409,14 @@ const applyPublisherVolume = () => {
   video.volume = Math.min(1, Math.max(0, volume.value / 100))
 }
 
+const waitForPublisherContainer = async () => {
+  if (publisherContainerRef.value) return publisherContainerRef.value
+  await nextTick()
+  if (publisherContainerRef.value) return publisherContainerRef.value
+  await new Promise((resolve) => window.setTimeout(resolve, 50))
+  return publisherContainerRef.value
+}
+
 const restartPublisher = async () => {
   if (!openviduSession.value || !openviduInstance.value || !publisherContainerRef.value) return
   try {
@@ -425,22 +437,32 @@ const restartPublisher = async () => {
 
 const connectPublisher = async (broadcastId: number, token: string) => {
   if (openviduConnected.value) return
-  if (!publisherContainerRef.value) return
+  const container = await waitForPublisherContainer()
+  if (!container) {
+    scheduleStartRetry(broadcastId, '방송 화면 준비 중입니다. 잠시 후 다시 시도합니다.')
+    return
+  }
   try {
     disconnectOpenVidu()
     openviduInstance.value = new OpenVidu()
     openviduSession.value = openviduInstance.value.initSession()
     await openviduSession.value.connect(token)
     openviduPublisher.value = openviduInstance.value.initPublisher(
-      publisherContainerRef.value,
+      container,
       buildPublisherOptions(),
     )
     await openviduSession.value.publish(openviduPublisher.value)
     openviduConnected.value = true
     applyPublisherVolume()
     await requestStartRecording(broadcastId)
+    startRetryCount.value = 0
+    if (startRetryTimer.value) window.clearTimeout(startRetryTimer.value)
+    startRetryTimer.value = null
   } catch {
     disconnectOpenVidu()
+    if (['READY', 'ON_AIR'].includes(lifecycleStatus.value)) {
+      scheduleStartRetry(broadcastId, '방송 송출 연결에 실패했습니다. 다시 연결을 시도합니다.')
+    }
   }
 }
 
@@ -578,6 +600,9 @@ const resetRealtimeState = () => {
   statsTimer.value = null
   if (refreshTimer.value) window.clearTimeout(refreshTimer.value)
   refreshTimer.value = null
+  if (startRetryTimer.value) window.clearTimeout(startRetryTimer.value)
+  startRetryTimer.value = null
+  startRetryCount.value = 0
   clearStartTimer()
   clearEndRequestTimer()
   clearPublisherRestartTimer()
@@ -591,13 +616,33 @@ const requestStartBroadcast = async (broadcastId: number) => {
   if (startRequested.value) return
   startRequested.value = true
   try {
+    await ensureLocalMediaAccess()
     const token = await startSellerBroadcast(broadcastId)
     publisherToken.value = token
     await connectPublisher(broadcastId, token)
+    startRetryCount.value = 0
+    if (startRetryTimer.value) window.clearTimeout(startRetryTimer.value)
+    startRetryTimer.value = null
     scheduleRefresh(broadcastId)
   } catch {
+    scheduleStartRetry(broadcastId, '방송 시작에 실패했습니다. 잠시 후 다시 시도합니다.')
     startRequested.value = false
   }
+}
+
+const scheduleStartRetry = (broadcastId: number, message?: string) => {
+  if (!['READY', 'ON_AIR'].includes(lifecycleStatus.value)) return
+  if (startRetryCount.value >= MAX_START_RETRIES) {
+    if (message) {
+      alert(message)
+    }
+    return
+  }
+  startRetryCount.value += 1
+  if (startRetryTimer.value) window.clearTimeout(startRetryTimer.value)
+  startRetryTimer.value = window.setTimeout(() => {
+    void requestStartBroadcast(broadcastId)
+  }, START_RETRY_DELAY_MS)
 }
 
 const requestStartRecording = async (broadcastId: number) => {
