@@ -367,6 +367,15 @@ export const joinBroadcast = async (broadcastId: number, viewerId?: string | nul
   return ensureSuccess(data)
 }
 
+export const leaveBroadcast = async (broadcastId: number, viewerId?: string | null): Promise<void> => {
+  const headers = viewerId ? { 'X-Viewer-Id': viewerId } : undefined
+  const { data } = await http.post<ApiResult<void>>(`/api/broadcasts/${broadcastId}/leave`, null, {
+    headers,
+    params: viewerId ? { viewerId } : undefined,
+  })
+  ensureSuccess(data)
+}
+
 export const toggleBroadcastLike = async (broadcastId: number): Promise<BroadcastLikeResponse> => {
   const { data } = await http.post<ApiResult<BroadcastLikeResponse>>(`/api/member/broadcasts/${broadcastId}/like`)
   return ensureSuccess(data)

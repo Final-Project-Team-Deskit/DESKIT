@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import BasicInfoEditModal from '../../components/BasicInfoEditModal.vue'
 import ChatSanctionModal from '../../components/ChatSanctionModal.vue'
 import ConfirmModal from '../../components/ConfirmModal.vue'
+import DeviceSetupModal from '../../components/DeviceSetupModal.vue'
 import PageContainer from '../../components/PageContainer.vue'
 import QCardModal from '../../components/QCardModal.vue'
 import {
@@ -77,7 +78,11 @@ const videoEnabled = ref(true)
 const volume = ref(43)
 const selectedMic = ref('기본 마이크')
 const selectedCamera = ref('기본 카메라')
-const micInputLevel = ref<number>(70)
+const micInputLevel = ref<number>(0)
+const micStream = ref<MediaStream | null>(null)
+const micAudioContext = ref<AudioContext | null>(null)
+const micAnalyser = ref<AnalyserNode | null>(null)
+const micMeterFrame = ref<number | null>(null)
 const chatText = ref('')
 const chatListRef = ref<HTMLElement | null>(null)
 let gridObserver: ResizeObserver | null = null
@@ -87,6 +92,8 @@ const availableCameras = ref<Array<{ id: string; label: string }>>([])
 const showQCards = ref(false)
 const showBasicInfo = ref(false)
 const showSanctionModal = ref(false)
+const showDeviceModal = ref(false)
+const hasOpenedDeviceModal = ref(false)
 const isLoadingStream = ref(true)
 const qCardIndex = ref(0)
 const handleFullscreenChange = () => {
@@ -297,6 +304,69 @@ const clearEndRequestTimer = () => {
   if (endRequestTimer.value) {
     window.clearTimeout(endRequestTimer.value)
     endRequestTimer.value = null
+  }
+}
+
+const stopMicMeter = () => {
+  if (micMeterFrame.value !== null) {
+    cancelAnimationFrame(micMeterFrame.value)
+    micMeterFrame.value = null
+  }
+  if (micAudioContext.value) {
+    micAudioContext.value.close()
+    micAudioContext.value = null
+  }
+  micAnalyser.value = null
+  if (micStream.value) {
+    micStream.value.getTracks().forEach((track) => track.stop())
+    micStream.value = null
+  }
+}
+
+const startMicMeter = async () => {
+  if (!navigator.mediaDevices?.getUserMedia) {
+    micInputLevel.value = 0
+    return
+  }
+  if (!micEnabled.value) {
+    micInputLevel.value = 0
+    stopMicMeter()
+    return
+  }
+  stopMicMeter()
+  try {
+    const constraints: MediaStreamConstraints = {
+      audio: selectedMic.value !== '기본 마이크' ? { deviceId: { exact: selectedMic.value } } : true,
+    }
+    const stream = await navigator.mediaDevices.getUserMedia(constraints)
+    micStream.value = stream
+    const [track] = stream.getAudioTracks()
+    if (!track) {
+      micInputLevel.value = 0
+      return
+    }
+    const context = new AudioContext()
+    const analyserNode = context.createAnalyser()
+    analyserNode.fftSize = 512
+    const source = context.createMediaStreamSource(stream)
+    source.connect(analyserNode)
+    micAudioContext.value = context
+    micAnalyser.value = analyserNode
+    const buffer = new Uint8Array(analyserNode.fftSize)
+    const update = () => {
+      analyserNode.getByteTimeDomainData(buffer)
+      let sum = 0
+      for (const sample of buffer) {
+        const normalized = (sample - 128) / 128
+        sum += normalized * normalized
+      }
+      const rms = Math.sqrt(sum / buffer.length)
+      micInputLevel.value = Math.min(100, Math.round(rms * 140))
+      micMeterFrame.value = requestAnimationFrame(update)
+    }
+    update()
+  } catch {
+    micInputLevel.value = 0
   }
 }
 
@@ -692,6 +762,7 @@ watch(
   () => streamId.value,
   (value) => {
     resetRealtimeState()
+    hasOpenedDeviceModal.value = false
     if (!value) {
       return
     }
@@ -742,6 +813,7 @@ onBeforeUnmount(() => {
     navigator.mediaDevices.removeEventListener('devicechange', loadMediaDevices)
   }
   gridObserver?.disconnect()
+  stopMicMeter()
   resetRealtimeState()
 })
 
@@ -845,6 +917,22 @@ watch(showSettings, async (open) => {
   if (open) {
     await ensureLocalMediaAccess()
     await loadMediaDevices()
+    await startMicMeter()
+    return
+  }
+  stopMicMeter()
+})
+
+watch([selectedMic, micEnabled], () => {
+  if (showSettings.value) {
+    void startMicMeter()
+  }
+})
+
+watch(stream, (value) => {
+  if (value && !hasOpenedDeviceModal.value) {
+    showDeviceModal.value = true
+    hasOpenedDeviceModal.value = true
   }
 })
 
@@ -1215,6 +1303,7 @@ const toggleFullscreen = async () => {
       <BasicInfoEditModal v-if="broadcastInfo" v-model="showBasicInfo" :broadcast="broadcastInfo" @save="handleBasicInfoSave" />
       <ChatSanctionModal v-model="showSanctionModal" :username="sanctionTarget" @save="applySanction" />
     </Teleport>
+    <DeviceSetupModal v-model="showDeviceModal" :broadcast-title="displayTitle" />
   </PageContainer>
 </template>
 
@@ -1514,8 +1603,9 @@ const toggleFullscreen = async () => {
   display: flex;
   align-items: center;
   justify-content: center;
-  overflow: auto;
+  overflow: hidden;
   min-height: 320px;
+  max-width: 100%;
 }
 
 .stream-player--fullscreen {
@@ -1548,8 +1638,9 @@ const toggleFullscreen = async () => {
 .stream-placeholder__image {
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  object-fit: contain;
   border-radius: 12px;
+  background: #000;
 }
 
 .stream-empty {

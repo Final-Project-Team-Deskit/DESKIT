@@ -15,6 +15,7 @@ import {
   fetchBroadcastStats,
   fetchPublicBroadcastDetail,
   joinBroadcast,
+  leaveBroadcast,
   reportBroadcast,
   toggleBroadcastLike,
   type BroadcastProductItem,
@@ -34,6 +35,9 @@ const statsTimer = ref<number | null>(null)
 const refreshTimer = ref<number | null>(null)
 const joinInFlight = ref(false)
 const streamToken = ref<string | null>(null)
+const viewerId = ref<string | null>(resolveViewerId(getAuthUser()))
+const joinedBroadcastId = ref<number | null>(null)
+const leaveRequested = ref(false)
 
 const FALLBACK_IMAGE = 'data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs='
 
@@ -503,14 +507,28 @@ const requestJoinToken = async () => {
   if (joinInFlight.value) return
   joinInFlight.value = true
   try {
-    const user = getAuthUser()
-    const viewerId = resolveViewerId(user)
-    streamToken.value = await joinBroadcast(broadcastId.value, viewerId)
+    streamToken.value = await joinBroadcast(broadcastId.value, viewerId.value)
+    joinedBroadcastId.value = broadcastId.value
   } catch {
     return
   } finally {
     joinInFlight.value = false
   }
+}
+
+const sendLeaveSignal = async (useBeacon = false) => {
+  if (!joinedBroadcastId.value || !viewerId.value || leaveRequested.value) return
+  leaveRequested.value = true
+  const url = `${apiBase}/api/broadcasts/${joinedBroadcastId.value}/leave?viewerId=${encodeURIComponent(viewerId.value)}`
+  if (useBeacon && navigator.sendBeacon) {
+    navigator.sendBeacon(url)
+    return
+  }
+  await leaveBroadcast(joinedBroadcastId.value, viewerId.value).catch(() => {})
+}
+
+const handlePageHide = () => {
+  void sendLeaveSignal(true)
 }
 
 const appendMessage = (message: ChatMessage) => {
@@ -794,8 +812,13 @@ onMounted(() => {
   document.addEventListener('fullscreenchange', handleFullscreenChange)
 })
 
+onMounted(() => {
+  window.addEventListener('pagehide', handlePageHide)
+})
+
 const handleAuthUpdate = () => {
   refreshAuth()
+  viewerId.value = resolveViewerId(getAuthUser())
 }
 
 onMounted(() => {
@@ -809,6 +832,11 @@ watch(
     if (value === previous) {
       return
     }
+    if (previous && joinedBroadcastId.value) {
+      void sendLeaveSignal()
+    }
+    leaveRequested.value = false
+    joinedBroadcastId.value = null
     isLiked.value = false
     likeCount.value = 0
     hasReported.value = false
@@ -868,6 +896,8 @@ onBeforeUnmount(() => {
   }
   panelResizeObserver?.disconnect()
   window.removeEventListener('deskit-user-updated', handleAuthUpdate)
+  window.removeEventListener('pagehide', handlePageHide)
+  void sendLeaveSignal()
   disconnectChat()
   sseSource.value?.close()
   sseSource.value = null
