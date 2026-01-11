@@ -2,7 +2,8 @@
 import { computed } from 'vue'
 import { useRouter } from 'vue-router'
 import type { LiveItem } from '../lib/live/types'
-import { getLiveStatus, parseLiveDate } from '../lib/live/utils'
+import { computeLifecycleStatus, getScheduledEndMs, normalizeBroadcastStatus } from '../lib/broadcastStatus'
+import { parseLiveDate } from '../lib/live/utils'
 import { useNow } from '../lib/live/useNow'
 
 const props = defineProps<{
@@ -25,9 +26,28 @@ const elapsed = computed(() => {
   }
   return `${pad(minutes)}:${pad(seconds)}`
 })
-const status = computed(() => getLiveStatus(props.item, now.value))
+const lifecycleStatus = computed(() => {
+  const startAtMs = parseLiveDate(props.item.startAt).getTime()
+  const normalizedStart = Number.isNaN(startAtMs) ? undefined : startAtMs
+  const endAtMs = parseLiveDate(props.item.endAt).getTime()
+  const normalizedEnd = Number.isNaN(endAtMs) ? getScheduledEndMs(normalizedStart) : endAtMs
+  return computeLifecycleStatus({
+    status: normalizeBroadcastStatus(props.item.status),
+    startAtMs: normalizedStart,
+    endAtMs: normalizedEnd,
+    now: now.value.getTime(),
+  })
+})
+const status = computed(() => {
+  if (lifecycleStatus.value === 'ON_AIR') return 'LIVE'
+  if (lifecycleStatus.value === 'READY') return 'READY'
+  if (lifecycleStatus.value === 'RESERVED') return 'UPCOMING'
+  if (lifecycleStatus.value === 'STOPPED') return 'STOPPED'
+  if (lifecycleStatus.value === 'VOD') return 'ENDED'
+  return 'ENDED'
+})
 const buttonLabel = computed(() => {
-  if (status.value === 'LIVE') {
+  if (status.value === 'LIVE' || status.value === 'READY') {
     return '입장하기'
   }
   if (status.value === 'ENDED') {
@@ -48,10 +68,53 @@ const scheduledLabel = computed(() => {
   return `${month}.${date} (${day}) ${hours}:${minutes} 예정`
 })
 
+const countdownLabel = computed(() => {
+  const start = parseLiveDate(props.item.startAt)
+  if (Number.isNaN(start.getTime())) return ''
+  const diffMs = start.getTime() - now.value.getTime()
+  if (status.value === 'READY') {
+    if (diffMs <= 0) return '방송 시작 대기 중'
+    const totalSeconds = Math.ceil(diffMs / 1000)
+    const minutes = Math.floor(totalSeconds / 60)
+    const seconds = totalSeconds % 60
+    return `${minutes}분 ${String(seconds).padStart(2, '0')}초 뒤 방송 시작`
+  }
+  if (status.value === 'ENDED') {
+    return '방송 종료'
+  }
+  return ''
+})
+
+const timeLabel = computed(() => {
+  if (status.value === 'LIVE') {
+    return `방송 시간 ${elapsed.value}`
+  }
+  if (status.value === 'READY') {
+    return countdownLabel.value
+  }
+  if (status.value === 'UPCOMING') {
+    return scheduledLabel.value
+  }
+  if (status.value === 'STOPPED') {
+    return '송출 중지'
+  }
+  return '방송 종료'
+})
+
+const viewerLabel = computed(() => {
+  if (props.item.viewerCount == null) return ''
+  if (status.value === 'LIVE' || status.value === 'READY') {
+    return `시청자 ${props.item.viewerCount.toLocaleString()}명`
+  }
+  return ''
+})
+
+const isCtaDisabled = computed(() => status.value === 'UPCOMING' || status.value === 'STOPPED')
+
 const router = useRouter()
 
 const handleWatchNow = () => {
-  if (status.value === 'LIVE') {
+  if (status.value === 'LIVE' || status.value === 'READY') {
     router.push({ name: 'live-detail', params: { id: props.item.id } })
     return
   }
@@ -67,6 +130,7 @@ const handleWatchNow = () => {
       <img :src="props.item.thumbnailUrl" :alt="props.item.title" />
       <div class="top-badges">
         <span v-if="status === 'LIVE'" class="badge badge-live">LIVE</span>
+        <span v-else-if="status === 'READY'" class="badge badge-ready">READY</span>
         <span
           v-if="status === 'LIVE' && props.item.viewerCount != null"
           class="badge badge-viewers"
@@ -83,12 +147,16 @@ const handleWatchNow = () => {
       </div>
       <h3>{{ props.item.title }}</h3>
       <p class="desc">{{ props.item.description }}</p>
+      <div class="info-row">
+        <span class="info-chip">{{ timeLabel }}</span>
+        <span v-if="viewerLabel" class="info-chip">{{ viewerLabel }}</span>
+      </div>
       <div class="meta-row">
         <button
           type="button"
           class="cta"
-          :disabled="status === 'UPCOMING'"
-          :aria-disabled="status === 'UPCOMING'"
+          :disabled="isCtaDisabled"
+          :aria-disabled="isCtaDisabled"
           @click="handleWatchNow"
         >
           {{ buttonLabel }}
@@ -109,6 +177,7 @@ const handleWatchNow = () => {
   display: grid;
   grid-template-columns: minmax(300px, 360px) 1fr;
   column-gap: 2px;
+  align-items: stretch;
 }
 
 .card:hover {
@@ -125,6 +194,8 @@ const handleWatchNow = () => {
 .media {
   position: relative;
   background: var(--surface-weak);
+  aspect-ratio: 16 / 9;
+  width: 100%;
 }
 
 .media img {
@@ -151,6 +222,10 @@ const handleWatchNow = () => {
 
 .badge-live {
   background: var(--live-color);
+}
+
+.badge-ready {
+  background: rgba(56, 189, 248, 0.9);
 }
 
 .top-badges {
@@ -224,6 +299,25 @@ h3 {
   margin: 0;
   color: var(--text-muted);
   line-height: 1.5;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.info-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.info-chip {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--text-muted);
+  background: var(--surface-weak);
+  padding: 4px 10px;
+  border-radius: 999px;
 }
 
 .meta-row {
