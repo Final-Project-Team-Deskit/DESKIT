@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
 import BasicInfoEditModal from '../../components/BasicInfoEditModal.vue'
 import ChatSanctionModal from '../../components/ChatSanctionModal.vue'
 import ConfirmModal from '../../components/ConfirmModal.vue'
@@ -12,6 +12,8 @@ import {
   fetchMediaConfig,
   fetchRecentLiveChats,
   fetchSellerBroadcastDetail,
+  joinBroadcast,
+  leaveBroadcast,
   startSellerBroadcast,
   endSellerBroadcast,
   pinSellerBroadcastProduct,
@@ -112,6 +114,7 @@ const confirmState = reactive({
   cancelText: '취소',
 })
 const confirmAction = ref<() => void>(() => {})
+const confirmCancelAction = ref<() => void>(() => {})
 
 const pinnedProductId = ref<string | null>(null)
 const sanctionTarget = ref<string | null>(null)
@@ -130,10 +133,14 @@ const sseRetryTimer = ref<number | null>(null)
 const statsTimer = ref<number | null>(null)
 const refreshTimer = ref<number | null>(null)
 const startTimer = ref<number | null>(null)
+const joinInFlight = ref(false)
 const startRequested = ref(false)
 const endRequested = ref(false)
 const endRequestTimer = ref<number | null>(null)
 const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080'
+const viewerId = ref<string | null>(resolveViewerId(getAuthUser()))
+const joinedBroadcastId = ref<number | null>(null)
+const leaveRequested = ref(false)
 
 const streamId = computed(() => {
   const id = route.params.id
@@ -395,6 +402,42 @@ const requestStartBroadcast = async (broadcastId: number) => {
   } catch {
     startRequested.value = false
   }
+}
+
+const requestJoinToken = async (broadcastId: number) => {
+  if (!['READY', 'ON_AIR'].includes(lifecycleStatus.value)) return
+  if (joinInFlight.value) return
+  if (joinedBroadcastId.value === broadcastId) return
+  joinInFlight.value = true
+  try {
+    await joinBroadcast(broadcastId, viewerId.value)
+    joinedBroadcastId.value = broadcastId
+  } catch {
+    return
+  } finally {
+    joinInFlight.value = false
+  }
+}
+
+const sendLeaveSignal = async (useBeacon = false) => {
+  if (!joinedBroadcastId.value || !viewerId.value || leaveRequested.value) return
+  leaveRequested.value = true
+  const url = `${apiBase}/api/broadcasts/${joinedBroadcastId.value}/leave?viewerId=${encodeURIComponent(viewerId.value)}`
+  if (useBeacon && navigator.sendBeacon) {
+    navigator.sendBeacon(url)
+    return
+  }
+  await leaveBroadcast(joinedBroadcastId.value, viewerId.value).catch(() => {})
+}
+
+const handlePageHide = () => {
+  void sendLeaveSignal(true)
+}
+
+const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+  if (!isInteractive.value) return
+  event.preventDefault()
+  event.returnValue = ''
 }
 
 const scheduleAutoStart = (broadcastId: number, scheduledAtMs: number | null, status: BroadcastStatus) => {
@@ -763,6 +806,11 @@ watch(
   (value) => {
     resetRealtimeState()
     hasOpenedDeviceModal.value = false
+    if (joinedBroadcastId.value) {
+      void sendLeaveSignal()
+    }
+    leaveRequested.value = false
+    joinedBroadcastId.value = null
     if (!value) {
       return
     }
@@ -772,6 +820,7 @@ watch(
     }
     connectSse(idValue)
     startStatsPolling(idValue)
+    void requestJoinToken(idValue)
   },
   { immediate: true },
 )
@@ -788,6 +837,9 @@ onMounted(() => {
   window.addEventListener('keydown', handleKeydown)
   document.addEventListener('fullscreenchange', handleFullscreenChange)
   window.addEventListener('resize', handleResize)
+  window.addEventListener('pagehide', handlePageHide)
+  window.addEventListener('beforeunload', handleBeforeUnload)
+  viewerId.value = resolveViewerId(getAuthUser())
   monitorRef.value = streamGridRef.value
   updateGridWidth()
   void loadMediaDevices()
@@ -809,6 +861,9 @@ onBeforeUnmount(() => {
   window.removeEventListener('keydown', handleKeydown)
   document.removeEventListener('fullscreenchange', handleFullscreenChange)
   window.removeEventListener('resize', handleResize)
+  window.removeEventListener('pagehide', handlePageHide)
+  window.removeEventListener('beforeunload', handleBeforeUnload)
+  void sendLeaveSignal()
   if (navigator.mediaDevices?.removeEventListener) {
     navigator.mediaDevices.removeEventListener('devicechange', loadMediaDevices)
   }
@@ -817,18 +872,24 @@ onBeforeUnmount(() => {
   resetRealtimeState()
 })
 
-const openConfirm = (options: Partial<typeof confirmState>, onConfirm: () => void) => {
+const openConfirm = (options: Partial<typeof confirmState>, onConfirm: () => void, onCancel: () => void = () => {}) => {
   confirmState.title = options.title ?? ''
   confirmState.description = options.description ?? ''
   confirmState.confirmText = options.confirmText ?? '확인'
   confirmState.cancelText = options.cancelText ?? '취소'
   confirmAction.value = onConfirm
+  confirmCancelAction.value = onCancel
   confirmState.open = true
 }
 
 const handleConfirmAction = () => {
   confirmAction.value?.()
   confirmAction.value = () => {}
+}
+
+const handleConfirmCancel = () => {
+  confirmCancelAction.value?.()
+  confirmCancelAction.value = () => {}
 }
 
 const setPinnedProduct = async (productId: string | null) => {
@@ -923,6 +984,17 @@ watch(showSettings, async (open) => {
   stopMicMeter()
 })
 
+watch(lifecycleStatus, () => {
+  const idValue = streamId.value ? Number(streamId.value) : NaN
+  if (Number.isNaN(idValue)) return
+  void requestJoinToken(idValue)
+})
+
+onBeforeRouteLeave(async () => {
+  if (!isInteractive.value) return true
+  return await confirmLeaveBroadcast()
+})
+
 watch([selectedMic, micEnabled], () => {
   if (showSettings.value) {
     void startMicMeter()
@@ -977,6 +1049,23 @@ const requestEndBroadcast = () => {
     handleEndBroadcast,
   )
 }
+
+const confirmLeaveBroadcast = () =>
+  new Promise<boolean>((resolve) => {
+    openConfirm(
+      {
+        title: '방송 종료',
+        description: '방송 페이지를 나가면 방송이 종료됩니다. 계속 진행하시겠습니까?',
+        confirmText: '종료 후 이동',
+        cancelText: '취소',
+      },
+      () => {
+        handleEndBroadcast()
+        resolve(true)
+      },
+      () => resolve(false),
+    )
+  })
 
 const toggleFullscreen = async () => {
   const el = monitorRef.value
@@ -1290,7 +1379,7 @@ const toggleFullscreen = async () => {
         <p v-if="isReadOnly" class="chat-helper">방송 중에만 채팅을 이용할 수 있습니다.</p>
       </aside>
     </section>
-    <Teleport :to="modalHostTarget">
+  <Teleport :to="modalHostTarget">
       <ConfirmModal
         v-model="confirmState.open"
         :title="confirmState.title"
@@ -1298,6 +1387,7 @@ const toggleFullscreen = async () => {
         :confirm-text="confirmState.confirmText"
         :cancel-text="confirmState.cancelText"
         @confirm="handleConfirmAction"
+        @cancel="handleConfirmCancel"
       />
       <QCardModal v-model="showQCards" :q-cards="qCards" :initial-index="qCardIndex" @update:initialIndex="qCardIndex = $event" />
       <BasicInfoEditModal v-if="broadcastInfo" v-model="showBasicInfo" :broadcast="broadcastInfo" @save="handleBasicInfoSave" />

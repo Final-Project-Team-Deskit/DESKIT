@@ -7,6 +7,7 @@ import {
   fetchBroadcastStats,
   fetchRecentLiveChats,
   joinBroadcast,
+  leaveBroadcast,
   stopAdminBroadcast,
 } from '../../../lib/live/api'
 import { parseLiveDate } from '../../../lib/live/utils'
@@ -75,6 +76,9 @@ const statsTimer = ref<number | null>(null)
 const refreshTimer = ref<number | null>(null)
 const joinInFlight = ref(false)
 const streamToken = ref<string | null>(null)
+const viewerId = ref<string | null>(resolveViewerId(getAuthUser()))
+const joinedBroadcastId = ref<number | null>(null)
+const leaveRequested = ref(false)
 const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080'
 const FALLBACK_IMAGE = 'data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs='
 
@@ -332,14 +336,28 @@ const requestJoinToken = async () => {
   if (joinInFlight.value) return
   joinInFlight.value = true
   try {
-    const user = getAuthUser()
-    const viewerId = resolveViewerId(user)
-    streamToken.value = await joinBroadcast(Number(detail.value.id), viewerId)
+    streamToken.value = await joinBroadcast(Number(detail.value.id), viewerId.value)
+    joinedBroadcastId.value = Number(detail.value.id)
   } catch {
     return
   } finally {
     joinInFlight.value = false
   }
+}
+
+const sendLeaveSignal = async (useBeacon = false) => {
+  if (!joinedBroadcastId.value || !viewerId.value || leaveRequested.value) return
+  leaveRequested.value = true
+  const url = `${apiBase}/api/broadcasts/${joinedBroadcastId.value}/leave?viewerId=${encodeURIComponent(viewerId.value)}`
+  if (useBeacon && navigator.sendBeacon) {
+    navigator.sendBeacon(url)
+    return
+  }
+  await leaveBroadcast(joinedBroadcastId.value, viewerId.value).catch(() => {})
+}
+
+const handlePageHide = () => {
+  void sendLeaveSignal(true)
 }
 
 const parseSseData = (event: MessageEvent) => {
@@ -605,6 +623,8 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   document.removeEventListener('fullscreenchange', syncFullscreen)
+  window.removeEventListener('pagehide', handlePageHide)
+  void sendLeaveSignal()
   sseSource.value?.close()
   sseSource.value = null
   sseConnected.value = false
@@ -616,9 +636,19 @@ onBeforeUnmount(() => {
   refreshTimer.value = null
 })
 
+onMounted(() => {
+  viewerId.value = resolveViewerId(getAuthUser())
+  window.addEventListener('pagehide', handlePageHide)
+})
+
 watch(
   liveId,
   (value) => {
+    if (joinedBroadcastId.value) {
+      void sendLeaveSignal()
+    }
+    leaveRequested.value = false
+    joinedBroadcastId.value = null
     loadDetail()
     const idValue = Number(value)
     if (!Number.isNaN(idValue)) {
