@@ -166,12 +166,14 @@ const mapLiveProduct = (item: {
 }
 
 const sortedLiveProducts = computed(() => {
-  return [...liveProducts.value].sort((a, b) => {
+  const list = [...liveProducts.value]
+  const orderMap = new Map(list.map((product, index) => [product.id, index]))
+  return list.sort((a, b) => {
     const aSoldOut = a.status === '품절'
     const bSoldOut = b.status === '품절'
     if (aSoldOut !== bSoldOut) return aSoldOut ? 1 : -1
     if (a.isPinned !== b.isPinned) return a.isPinned ? -1 : 1
-    return 0
+    return (orderMap.get(a.id) ?? 0) - (orderMap.get(b.id) ?? 0)
   })
 })
 
@@ -489,6 +491,7 @@ const handleSseEvent = (event: MessageEvent) => {
       scheduleRefresh(idValue)
       break
     case 'PRODUCT_PINNED':
+    case 'PRODUCT_UNPINNED':
     case 'PRODUCT_SOLD_OUT':
       scheduleRefresh(idValue)
       break
@@ -540,6 +543,7 @@ const connectSse = (broadcastId: number) => {
     'BROADCAST_UPDATED',
     'BROADCAST_STARTED',
     'PRODUCT_PINNED',
+    'PRODUCT_UNPINNED',
     'PRODUCT_SOLD_OUT',
     'SANCTION_UPDATED',
     'BROADCAST_ENDING_SOON',

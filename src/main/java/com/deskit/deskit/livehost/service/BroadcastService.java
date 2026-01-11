@@ -251,9 +251,21 @@ public class BroadcastService {
             validateTransition(broadcast.getStatus(), BroadcastStatus.DELETED);
             broadcast.deleteBroadcast();
             log.info("방송 취소 처리 완료: id={}, status={}", broadcastId, broadcast.getStatus());
+            sseService.notifyBroadcastUpdate(broadcastId, "BROADCAST_CANCELED", "deleted");
         } finally {
             redisService.releaseLock(lockKey);
         }
+    }
+
+    @Transactional
+    public void unpinProduct(Long sellerId, Long broadcastId) {
+        Broadcast broadcast = broadcastRepository.findById(broadcastId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.BROADCAST_NOT_FOUND));
+        if (!broadcast.getSeller().getSellerId().equals(sellerId)) {
+            throw new BusinessException(ErrorCode.FORBIDDEN_ACCESS);
+        }
+        broadcastProductRepository.resetPinByBroadcastId(broadcastId);
+        sseService.notifyBroadcastUpdate(broadcastId, "PRODUCT_UNPINNED", "unpin");
     }
 
     @Transactional(readOnly = true)

@@ -455,6 +455,11 @@ export const pinSellerBroadcastProduct = async (broadcastId: number, productId: 
   return ensureSuccess(data)
 }
 
+export const unpinSellerBroadcastProduct = async (broadcastId: number) => {
+  const { data } = await http.delete<ApiResult<void>>(`/api/seller/broadcasts/${broadcastId}/pin`)
+  return ensureSuccess(data)
+}
+
 export const fetchSellerStatistics = async (period: string): Promise<StatisticsResponse> => {
   const { data } = await http.get<ApiResult<StatisticsResponse>>('/api/seller/broadcasts/statistics', { params: { period } })
   return ensureSuccess(data)

@@ -253,12 +253,13 @@ const loadProducts = async () => {
 const products = ref<BroadcastProductItem[]>([])
 const sortedProducts = computed(() => {
   const list = products.value.slice()
+  const orderMap = new Map(list.map((product, index) => [product.id, index]))
   return list.sort((a, b) => {
     if (a.isSoldOut && !b.isSoldOut) return 1
     if (!a.isSoldOut && b.isSoldOut) return -1
     if (a.isPinned && !b.isPinned) return -1
     if (!a.isPinned && b.isPinned) return 1
-    return a.name.localeCompare(b.name)
+    return (orderMap.get(a.id) ?? 0) - (orderMap.get(b.id) ?? 0)
   })
 })
 
@@ -594,6 +595,7 @@ const handleSseEvent = (event: MessageEvent) => {
       scheduleRefresh()
       break
     case 'PRODUCT_PINNED':
+    case 'PRODUCT_UNPINNED':
     case 'PRODUCT_SOLD_OUT':
       scheduleRefresh()
       break
@@ -675,6 +677,7 @@ const connectSse = (id: number) => {
     'BROADCAST_UPDATED',
     'BROADCAST_STARTED',
     'PRODUCT_PINNED',
+    'PRODUCT_UNPINNED',
     'PRODUCT_SOLD_OUT',
     'SANCTION_ALERT',
     'BROADCAST_ENDING_SOON',

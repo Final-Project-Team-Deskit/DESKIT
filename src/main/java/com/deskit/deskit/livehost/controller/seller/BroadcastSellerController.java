@@ -164,6 +164,15 @@ public class BroadcastSellerController {
         return ResponseEntity.ok(ApiResult.success(null));
     }
 
+    @DeleteMapping("/{broadcastId}/pin")
+    public ResponseEntity<ApiResult<Void>> unpinProduct(
+            @PathVariable Long broadcastId
+    ) {
+        Seller seller = liveAuthUtils.getCurrentSeller();
+        broadcastService.unpinProduct(seller.getSellerId(), broadcastId);
+        return ResponseEntity.ok(ApiResult.success(null));
+    }
+
     @PostMapping("/{broadcastId}/sanctions")
     public ResponseEntity<ApiResult<Void>> sanctionUser(
             @PathVariable Long broadcastId,
