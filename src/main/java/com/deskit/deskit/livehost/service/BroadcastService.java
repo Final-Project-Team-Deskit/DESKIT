@@ -689,9 +689,22 @@ public class BroadcastService {
     }
 
     public BroadcastLikeResponse likeBroadcast(Long broadcastId, Long memberId) {
-        if (!broadcastRepository.existsById(broadcastId)) {
-            throw new BusinessException(ErrorCode.BROADCAST_NOT_FOUND);
+        Broadcast broadcast = broadcastRepository.findById(broadcastId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.BROADCAST_NOT_FOUND));
+
+        if (broadcast.getStatus() == BroadcastStatus.VOD) {
+            boolean liked = redisService.toggleVodLike(broadcastId, memberId);
+            int baseLikes = broadcastResultRepository.findById(broadcastId)
+                    .map(BroadcastResult::getTotalLikes)
+                    .orElse(0);
+            int pendingDelta = redisService.getVodLikeDelta(broadcastId);
+            int likeCount = Math.max(0, baseLikes + pendingDelta);
+            return BroadcastLikeResponse.builder()
+                    .liked(liked)
+                    .likeCount(likeCount)
+                    .build();
         }
+
         boolean liked = redisService.toggleLike(broadcastId, memberId);
         int likeCount = redisService.getLikeCount(broadcastId);
         return BroadcastLikeResponse.builder()
@@ -744,17 +757,31 @@ public class BroadcastService {
         SalesSummary salesSummary = fetchBroadcastSalesSummary(broadcast);
         int totalChats = countBroadcastChats(broadcastId);
 
-        BroadcastResult result = BroadcastResult.builder()
-                .broadcast(broadcast)
-                .totalViews(uv)
-                .totalLikes(likes)
-                .totalReports(reports)
-                .avgWatchTime(avg != null ? avg.intValue() : 0)
-                .maxViews(mv)
-                .pickViewsAt(peak)
-                .totalChats(totalChats)
-                .totalSales(salesSummary.totalSales())
-                .build();
+        BroadcastResult result = broadcastResultRepository.findById(broadcastId).orElse(null);
+        if (result == null) {
+            result = BroadcastResult.builder()
+                    .broadcast(broadcast)
+                    .totalViews(uv)
+                    .totalLikes(likes)
+                    .totalReports(reports)
+                    .avgWatchTime(avg != null ? avg.intValue() : 0)
+                    .maxViews(mv)
+                    .pickViewsAt(peak)
+                    .totalChats(totalChats)
+                    .totalSales(salesSummary.totalSales())
+                    .build();
+        } else {
+            result.updateFinalStats(
+                    uv,
+                    likes,
+                    reports,
+                    avg != null ? avg.intValue() : 0,
+                    mv,
+                    peak,
+                    totalChats,
+                    salesSummary.totalSales()
+            );
+        }
         broadcastResultRepository.save(result);
 
         redisService.deleteBroadcastKeys(broadcastId);
@@ -890,15 +917,41 @@ public class BroadcastService {
     }
 
     public BroadcastReportResponse reportBroadcast(Long broadcastId, Long memberId) {
-        if (!broadcastRepository.existsById(broadcastId)) {
-            throw new BusinessException(ErrorCode.BROADCAST_NOT_FOUND);
+        Broadcast broadcast = broadcastRepository.findById(broadcastId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.BROADCAST_NOT_FOUND));
+
+        if (broadcast.getStatus() == BroadcastStatus.VOD) {
+            boolean reported = redisService.reportVod(broadcastId, memberId);
+            int baseReports = broadcastResultRepository.findById(broadcastId)
+                    .map(BroadcastResult::getTotalReports)
+                    .orElse(0);
+            int pendingDelta = redisService.getVodReportDelta(broadcastId);
+            int reportCount = Math.max(0, baseReports + pendingDelta);
+            return BroadcastReportResponse.builder()
+                    .reported(reported)
+                    .reportCount(reportCount)
+                    .build();
         }
+
         boolean reported = redisService.reportBroadcast(broadcastId, memberId);
         int reportCount = redisService.getReportCount(broadcastId);
         return BroadcastReportResponse.builder()
                 .reported(reported)
                 .reportCount(reportCount)
                 .build();
+    }
+
+    @Transactional
+    public void recordVodView(Long broadcastId, String viewerId) {
+        Broadcast broadcast = broadcastRepository.findById(broadcastId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.BROADCAST_NOT_FOUND));
+        if (broadcast.getStatus() != BroadcastStatus.VOD) {
+            return;
+        }
+        String resolvedViewerId = (viewerId == null || viewerId.isBlank())
+                ? UUID.randomUUID().toString()
+                : viewerId;
+        redisService.recordVodView(broadcastId, resolvedViewerId);
     }
 
     @Transactional(readOnly = true)

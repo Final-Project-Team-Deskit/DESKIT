@@ -43,7 +43,7 @@ const status = computed(() => {
   if (lifecycleStatus.value === 'READY') return 'READY'
   if (lifecycleStatus.value === 'RESERVED') return 'UPCOMING'
   if (lifecycleStatus.value === 'STOPPED') return 'STOPPED'
-  if (lifecycleStatus.value === 'VOD') return 'ENDED'
+  if (lifecycleStatus.value === 'VOD') return 'VOD'
   return 'ENDED'
 })
 const buttonLabel = computed(() => {
@@ -51,6 +51,9 @@ const buttonLabel = computed(() => {
     return '입장하기'
   }
   if (status.value === 'ENDED') {
+    return '방송 입장'
+  }
+  if (status.value === 'VOD') {
     return 'VOD 다시보기'
   }
   return '예정'
@@ -79,9 +82,6 @@ const countdownLabel = computed(() => {
     const seconds = totalSeconds % 60
     return `${minutes}분 ${String(seconds).padStart(2, '0')}초 뒤 방송 시작`
   }
-  if (status.value === 'ENDED') {
-    return '방송 종료'
-  }
   return ''
 })
 
@@ -92,8 +92,14 @@ const timeLabel = computed(() => {
   if (status.value === 'READY') {
     return countdownLabel.value
   }
+  if (status.value === 'UPCOMING') {
+    return scheduledLabel.value
+  }
   if (status.value === 'STOPPED') {
     return '송출 중지'
+  }
+  if (status.value === 'VOD') {
+    return 'VOD'
   }
   return '방송 종료'
 })
@@ -101,6 +107,12 @@ const timeLabel = computed(() => {
 const viewerLabel = computed(() => {
   if (props.item.viewerCount == null) return ''
   if (status.value === 'LIVE' || status.value === 'READY') {
+    return `시청자 ${props.item.viewerCount.toLocaleString()}명`
+  }
+  if (status.value === 'VOD') {
+    return `누적 시청자 ${props.item.viewerCount.toLocaleString()}명`
+  }
+  if (status.value === 'ENDED') {
     return `시청자 ${props.item.viewerCount.toLocaleString()}명`
   }
   return ''
@@ -116,6 +128,10 @@ const handleWatchNow = () => {
     return
   }
   if (status.value === 'ENDED') {
+    router.push({ name: 'live-detail', params: { id: props.item.id } })
+    return
+  }
+  if (status.value === 'VOD') {
     router.push({ name: 'vod', params: { id: props.item.id } })
   }
 }
@@ -128,6 +144,7 @@ const handleWatchNow = () => {
       <div class="top-badges">
         <span v-if="status === 'LIVE'" class="badge badge-live">LIVE</span>
         <span v-else-if="status === 'READY'" class="badge badge-ready">READY</span>
+        <span v-else-if="status === 'UPCOMING'" class="badge badge-upcoming">예약</span>
         <span
           v-if="status === 'LIVE' && props.item.viewerCount != null"
           class="badge badge-viewers"
@@ -222,6 +239,10 @@ const handleWatchNow = () => {
 
 .badge-ready {
   background: rgba(56, 189, 248, 0.9);
+}
+
+.badge-upcoming {
+  background: rgba(139, 122, 94, 0.9);
 }
 
 .top-badges {

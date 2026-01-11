@@ -70,4 +70,8 @@ public class Vod {
         this.vodUrl = null;
         this.vodSize = 0L;
     }
+
+    public void applyReportDelta(int delta) {
+        this.vodReportCount = Math.max(0, this.vodReportCount + delta);
+    }
 }

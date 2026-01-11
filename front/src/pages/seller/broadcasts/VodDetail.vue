@@ -30,7 +30,9 @@ type SellerVodDetail = {
   stopReason?: string
   thumb: string
   metrics: {
+    totalViews: number
     maxViewers: number
+    maxViewerTime?: string
     reports: number
     sanctions: number
     likes: number
@@ -183,7 +185,9 @@ const buildDetail = (broadcast: BroadcastDetailResponse, report: BroadcastResult
   stopReason: report.stoppedReason ?? broadcast.stoppedReason ?? undefined,
   thumb: broadcast.thumbnailUrl ?? '',
   metrics: {
+    totalViews: report.totalViews ?? 0,
     maxViewers: report.maxViewers ?? 0,
+    maxViewerTime: formatDateTime(report.maxViewerTime),
     reports: report.reportCount ?? 0,
     sanctions: report.sanctionCount ?? 0,
     likes: report.totalLikes ?? 0,
@@ -262,8 +266,13 @@ watch(vodId, () => {
 
     <section class="kpi-grid">
       <article class="kpi-card ds-surface">
-        <p class="kpi-label">최대 시청자 수</p>
+        <p class="kpi-label">누적 조회수</p>
+        <p class="kpi-value">{{ detail.metrics.totalViews.toLocaleString('ko-KR') }}회</p>
+      </article>
+      <article class="kpi-card ds-surface">
+        <p class="kpi-label">방송 중 최대 시청자 수</p>
         <p class="kpi-value">{{ detail.metrics.maxViewers.toLocaleString('ko-KR') }}</p>
+        <p v-if="detail.metrics.maxViewerTime" class="kpi-sub">{{ detail.metrics.maxViewerTime }} 기준</p>
       </article>
       <article class="kpi-card ds-surface">
         <p class="kpi-label">신고 건수</p>
@@ -560,7 +569,7 @@ watch(vodId, () => {
 
 .kpi-grid {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(6, minmax(0, 1fr));
   gap: 16px;
   margin-bottom: 16px;
 }
@@ -585,6 +594,13 @@ watch(vodId, () => {
   color: var(--text-strong);
   font-weight: 900;
   font-size: 1.2rem;
+}
+
+.kpi-sub {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  font-weight: 600;
 }
 
 .card-head {

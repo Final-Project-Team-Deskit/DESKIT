@@ -291,6 +291,7 @@ const lifecycleStatus = computed(() => {
 
 const statusLabel = computed(() => getBroadcastStatusLabel(lifecycleStatus.value))
 const isInteractive = computed(() => lifecycleStatus.value === 'ON_AIR')
+const canForceStop = computed(() => ['READY', 'ON_AIR', 'ENDED'].includes(lifecycleStatus.value))
 const isReadOnly = computed(() => lifecycleStatus.value !== 'ON_AIR')
 const waitingScreenUrl = computed(() => detail.value?.waitScreenUrl ?? '')
 const readyCountdownLabel = computed(() => {
@@ -554,7 +555,7 @@ const startStatsPolling = (broadcastId: number) => {
 }
 
 const openStopConfirm = () => {
-  if (!detail.value || detail.value.status === 'STOPPED' || !isInteractive.value) return
+  if (!detail.value || detail.value.status === 'STOPPED' || !canForceStop.value) return
   showStopModal.value = true
   error.value = ''
 }
@@ -774,7 +775,12 @@ watch(streamToken, () => {
       <button type="button" class="back-link" @click="goBack">← 뒤로 가기</button>
       <div class="header-actions">
         <button type="button" class="btn" @click="goToList">목록으로</button>
-        <button type="button" class="btn danger" :disabled="detail.status === 'STOPPED'" @click="openStopConfirm">
+        <button
+          type="button"
+          class="btn danger"
+          :disabled="detail.status === 'STOPPED' || !canForceStop"
+          @click="openStopConfirm"
+        >
           {{ detail.status === 'STOPPED' ? '송출 중지됨' : '방송 송출 중지' }}
         </button>
       </div>
