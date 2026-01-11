@@ -101,6 +101,9 @@ public class BroadcastService {
     private static final int RECORDING_RETRY_MAX_ATTEMPTS = 5;
     private static final Duration RECORDING_RETRY_TTL = Duration.ofHours(6);
     private static final Duration RECORDING_RETRY_BASE_DELAY = Duration.ofSeconds(30);
+    private static final int RECORDING_START_RETRY_MAX_ATTEMPTS = 10;
+    private static final Duration RECORDING_START_RETRY_TTL = Duration.ofMinutes(30);
+    private static final Duration RECORDING_START_RETRY_BASE_DELAY = Duration.ofSeconds(5);
 
     private final BroadcastRepository broadcastRepository;
     private final BroadcastProductRepository broadcastProductRepository;
@@ -520,7 +523,18 @@ public class BroadcastService {
             try {
                 Map<String, Object> params = Map.of("role", "HOST", "sellerId", sellerId);
                 String token = openViduService.createToken(broadcastId, params);
-                openViduService.startRecording(broadcastId);
+                try {
+                    openViduService.startRecording(broadcastId);
+                } catch (OpenViduHttpException e) {
+                    int status = e.getStatus();
+                    if (status == 406) {
+                        scheduleRecordingStartRetry(broadcastId, "start_broadcast", status);
+                    } else if (status == 409) {
+                        log.info("OpenVidu recording already started: broadcastId={}", broadcastId);
+                    } else {
+                        throw e;
+                    }
+                }
                 return token;
             } catch (OpenViduJavaClientException | OpenViduHttpException e) {
                 log.error("OpenVidu error during broadcast start: broadcastId={}, message={}", broadcastId, e.getMessage());
@@ -1427,6 +1441,14 @@ public class BroadcastService {
         }
     }
 
+    @Scheduled(fixedDelay = 5000)
+    @Transactional
+    public void processRecordingStartRetryQueue() {
+        for (Long broadcastId : redisService.popDueRecordingStartRetries(20)) {
+            attemptStartRecordingRetry(broadcastId, "retry_queue");
+        }
+    }
+
     @Scheduled(fixedDelay = 300000)
     @Transactional
     public void recoverMissingVodOrResult() {
@@ -1514,6 +1536,48 @@ public class BroadcastService {
         Duration delay = RECORDING_RETRY_BASE_DELAY.multipliedBy(attempt);
         redisService.scheduleRecordingRetry(broadcastId, delay);
         log.info("Recording fallback scheduled: broadcastId={}, reason={}, status={}, attempt={}, delay={}s",
+                broadcastId, reason, status, attempt, delay.toSeconds());
+    }
+
+    private void attemptStartRecordingRetry(Long broadcastId, String reason) {
+        Broadcast broadcast = broadcastRepository.findById(broadcastId).orElse(null);
+        if (broadcast == null || broadcast.getStatus() != BroadcastStatus.ON_AIR) {
+            redisService.clearRecordingStartRetry(broadcastId);
+            return;
+        }
+        try {
+            openViduService.startRecording(broadcastId);
+            redisService.clearRecordingStartRetry(broadcastId);
+            log.info("OpenVidu recording start succeeded after retry: broadcastId={}, reason={}", broadcastId, reason);
+        } catch (OpenViduHttpException e) {
+            int status = e.getStatus();
+            if (status == 406) {
+                scheduleRecordingStartRetry(broadcastId, reason, status);
+                return;
+            }
+            if (status == 409) {
+                redisService.clearRecordingStartRetry(broadcastId);
+                log.info("OpenVidu recording already started during retry: broadcastId={}, reason={}", broadcastId, reason);
+                return;
+            }
+            redisService.clearRecordingStartRetry(broadcastId);
+            log.error("OpenVidu recording start retry failed: broadcastId={}, reason={}, status={}",
+                    broadcastId, reason, status);
+        } catch (OpenViduJavaClientException e) {
+            scheduleRecordingStartRetry(broadcastId, reason, 0);
+        }
+    }
+
+    private void scheduleRecordingStartRetry(Long broadcastId, String reason, int status) {
+        int attempt = redisService.incrementRecordingStartRetryAttempt(broadcastId, RECORDING_START_RETRY_TTL);
+        if (attempt > RECORDING_START_RETRY_MAX_ATTEMPTS) {
+            log.warn("Recording start retries exceeded: broadcastId={}, reason={}, status={}", broadcastId, reason, status);
+            redisService.clearRecordingStartRetry(broadcastId);
+            return;
+        }
+        Duration delay = RECORDING_START_RETRY_BASE_DELAY.multipliedBy(attempt);
+        redisService.scheduleRecordingStartRetry(broadcastId, delay);
+        log.info("Recording start retry scheduled: broadcastId={}, reason={}, status={}, attempt={}, delay={}s",
                 broadcastId, reason, status, attempt, delay.toSeconds());
     }
 
