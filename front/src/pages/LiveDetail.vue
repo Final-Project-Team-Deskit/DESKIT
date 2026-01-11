@@ -1,5 +1,5 @@
 ﻿<script setup lang="ts">
-import { OpenVidu, type Session, type Subscriber } from 'openvidu-browser'
+import { OpenVidu, type Session } from 'openvidu-browser'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Client, type StompSubscription } from '@stomp/stompjs'
@@ -43,7 +43,9 @@ const leaveRequested = ref(false)
 const viewerContainerRef = ref<HTMLDivElement | null>(null)
 const openviduInstance = ref<OpenVidu | null>(null)
 const openviduSession = ref<Session | null>(null)
-const openviduSubscriber = ref<Subscriber | null>(null)
+type OpenViduSubscriber = Parameters<Session['unsubscribe']>[0]
+
+const openviduSubscriber = ref<OpenViduSubscriber | null>(null)
 const openviduConnected = ref(false)
 
 const FALLBACK_IMAGE = 'data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs='
@@ -332,12 +334,19 @@ const settingsPanelRef = ref<HTMLElement | null>(null)
 const selectedQuality = ref<'auto' | '1080p' | '720p' | '480p'>('auto')
 const qualityObserver = ref<MutationObserver | null>(null)
 
-const qualityOptions = [
+type QualityOption = {
+  value: 'auto' | '1080p' | '720p' | '480p'
+  label: string
+  width?: number
+  height?: number
+}
+
+const qualityOptions: QualityOption[] = [
   { value: 'auto', label: '자동' },
   { value: '1080p', label: '1080p', width: 1920, height: 1080 },
   { value: '720p', label: '720p', width: 1280, height: 720 },
   { value: '480p', label: '480p', width: 854, height: 480 },
-] as const
+]
 
 const applyVideoQuality = async (value: typeof selectedQuality.value) => {
   try {
@@ -406,9 +415,9 @@ const connectSubscriber = async (token: string) => {
         openviduSubscriber.value = null
         clearViewerContainer()
       }
-      openviduSubscriber.value = openviduSession.value.subscribe(event.stream, viewerContainerRef.value, {
-        insertMode: 'append',
-      })
+    openviduSubscriber.value = openviduSession.value.subscribe(event.stream, viewerContainerRef.value, {
+      insertMode: 'append',
+    }) as OpenViduSubscriber
     })
     openviduSession.value.on('streamDestroyed', () => {
       openviduSubscriber.value = null
@@ -1412,6 +1421,7 @@ onBeforeUnmount(() => {
   flex-direction: column;
   gap: 18px;
   overflow-x: hidden;
+  --danger-color: #dc2626;
 }
 
 .live-detail-main {
