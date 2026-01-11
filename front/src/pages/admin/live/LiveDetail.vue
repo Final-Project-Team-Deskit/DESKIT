@@ -351,6 +351,11 @@ const parseSseData = (event: MessageEvent) => {
   }
 }
 
+const buildStopConfirmMessage = (data: unknown) => {
+  const reason = typeof data === 'string' && data.trim() ? data.trim() : '관리자에 의해 방송이 중지되었습니다.'
+  return `${reason}\n방송에서 나가겠습니까?`
+}
+
 const scheduleRefresh = (broadcastId: number) => {
   if (refreshTimer.value) window.clearTimeout(refreshTimer.value)
   refreshTimer.value = window.setTimeout(() => {
@@ -395,7 +400,7 @@ const handleSseEvent = (event: MessageEvent) => {
         detail.value.status = 'STOPPED'
       }
       scheduleRefresh(idValue)
-      if (window.confirm(typeof data === 'string' ? data : '관리자에 의해 방송이 중지되었습니다.')) {
+      if (window.confirm(buildStopConfirmMessage(data))) {
         goToList()
       }
       break
@@ -492,6 +497,7 @@ const handleStopSave = () => {
         detail.value.status = 'STOPPED'
         detail.value.stoppedReason = reason
       }
+      goToList()
     })
     .catch(() => {})
     .finally(() => {

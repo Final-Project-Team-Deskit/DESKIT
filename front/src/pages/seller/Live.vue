@@ -327,15 +327,18 @@ const resolveRouteId = (item: LiveItem) => {
 }
 
 const mapBroadcastItem = (item: any, kind: 'live' | 'scheduled' | 'vod'): LiveItem => {
-  const startAtMs = item.startAt ? parseLiveDate(item.startAt).getTime() : undefined
+  const startAtValue = item.startAt ?? item.scheduledAt
+  const startAtMs = startAtValue ? parseLiveDate(startAtValue).getTime() : undefined
   const endAtMs = item.endAt ? parseLiveDate(item.endAt).getTime() : getScheduledEndMs(startAtMs)
   const status = normalizeBroadcastStatus(item.status)
   const rawPublic = item.isPublic ?? item.public
   const visibility = typeof rawPublic === 'boolean' ? (rawPublic ? 'public' : 'private') : 'public'
-  const dateLabel = formatDateTime(item.startAt)
+  const dateLabel = formatDateTime(startAtValue)
   const datetime = kind === 'vod' ? (dateLabel ? `업로드: ${dateLabel}` : '') : dateLabel
-  const liveViewerCount = typeof item.liveViewerCount === 'number' ? item.liveViewerCount : undefined
-  const viewerBadge = liveViewerCount ? `${liveViewerCount}명 시청 중` : undefined
+  const viewers = typeof item.liveViewerCount === 'number'
+    ? item.liveViewerCount
+    : (typeof item.viewerCount === 'number' ? item.viewerCount : 0)
+  const viewerBadge = typeof viewers === 'number' ? `${viewers}명 시청 중` : undefined
 
   return {
     id: String(item.broadcastId),
@@ -349,7 +352,7 @@ const mapBroadcastItem = (item: any, kind: 'live' | 'scheduled' | 'vod'): LiveIt
     lifecycleStatus: status,
     startAtMs: Number.isNaN(startAtMs) ? undefined : startAtMs,
     endAtMs: Number.isNaN(endAtMs ?? NaN) ? undefined : endAtMs,
-    viewers: liveViewerCount ?? item.viewerCount ?? 0,
+    viewers,
     likes: item.totalLikes ?? 0,
     revenue: parseAmount(item.totalSales),
     visibility,

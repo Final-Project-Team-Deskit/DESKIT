@@ -385,6 +385,11 @@ const parseSseData = (event: MessageEvent) => {
   }
 }
 
+const buildStopConfirmMessage = (data: unknown) => {
+  const reason = typeof data === 'string' && data.trim() ? data.trim() : '관리자에 의해 방송이 중지되었습니다.'
+  return `${reason}\n방송에서 나가겠습니까?`
+}
+
 const scheduleRefresh = () => {
   if (refreshTimer.value) window.clearTimeout(refreshTimer.value)
   refreshTimer.value = window.setTimeout(() => {
@@ -431,7 +436,7 @@ const handleSseEvent = (event: MessageEvent) => {
         }
       }
       scheduleRefresh()
-      if (window.confirm(typeof data === 'string' ? data : '관리자에 의해 방송이 중지되었습니다.')) {
+      if (window.confirm(buildStopConfirmMessage(data))) {
         router.push({ name: 'live' }).catch(() => {})
       }
       break

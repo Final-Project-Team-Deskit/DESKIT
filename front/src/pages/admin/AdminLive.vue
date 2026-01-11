@@ -24,6 +24,7 @@ type LiveItem = {
   subtitle?: string
   thumb: string
   datetime?: string
+  scheduledAt?: string
   statusBadge?: string
   viewerBadge?: string
   ctaLabel?: string
@@ -246,12 +247,13 @@ const mapVodVisibility = () => {
 }
 
 const mapLiveItem = (item: any, kind: 'live' | 'scheduled' | 'vod'): LiveItem => {
-  const startAtMs = item.startAt ? toDateMs(item.startAt) : undefined
+  const startAtValue = item.startAt ?? item.scheduledAt
+  const startAtMs = startAtValue ? toDateMs(startAtValue) : undefined
   const endAtMs = item.endAt ? toDateMs(item.endAt) : getScheduledEndMs(startAtMs)
   const status = normalizeBroadcastStatus(item.status)
   const rawPublic = item.isPublic ?? item.public
   const visibility = typeof rawPublic === 'boolean' ? (rawPublic ? 'public' : 'private') : 'public'
-  const dateLabel = formatDateTime(item.startAt)
+  const dateLabel = formatDateTime(startAtValue)
   const datetime = kind === 'vod' ? (dateLabel ? `업로드: ${dateLabel}` : '') : dateLabel
   const liveViewerCount = typeof item.liveViewerCount === 'number' ? item.liveViewerCount : undefined
   const viewerBadge = liveViewerCount ? `${liveViewerCount}명 시청 중` : undefined
@@ -266,6 +268,7 @@ const mapLiveItem = (item: any, kind: 'live' | 'scheduled' | 'vod'): LiveItem =>
     sellerName: item.sellerName ?? '',
     status,
     startedAt: item.startAt,
+    scheduledAt: item.scheduledAt ?? item.startAt,
     viewers: toNumber(liveViewerCount ?? item.viewerCount),
     likes: toNumber(item.totalLikes),
     reports: toNumber(item.reportCount),
@@ -308,7 +311,7 @@ const mapVodItem = (item: any): AdminVodItem => {
 }
 
 const withLifecycleStatus = <T extends LiveItem>(item: T): T & { startAtMs?: number; endAtMs?: number; lifecycleStatus?: BroadcastStatus } => {
-  const startAtMs = item.startAtMs ?? item.startedAtMs ?? toDateMs(item.startedAt ?? item.datetime)
+  const startAtMs = item.startAtMs ?? item.startedAtMs ?? toDateMs(item.scheduledAt ?? item.startedAt ?? item.datetime)
   const endAtMs = getScheduledEndMs(startAtMs, item.endAtMs)
   const lifecycleStatus = computeLifecycleStatus({
     status: item.lifecycleStatus ?? item.status,
