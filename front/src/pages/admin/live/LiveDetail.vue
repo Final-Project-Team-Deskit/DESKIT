@@ -324,6 +324,11 @@ const endedCountdownLabel = computed(() => {
   const seconds = totalSeconds % 60
   return `종료까지 ${minutes}분 ${String(seconds).padStart(2, '0')}초`
 })
+const elapsedLabel = computed(() => {
+  if (!detail.value?.startedAt) return '00:00:00'
+  now.value
+  return formatElapsed(detail.value.startedAt)
+})
 const playerMessage = computed(() => {
   if (lifecycleStatus.value === 'STOPPED') {
     return '방송 운영 정책 위반으로 송출 중지되었습니다.'
@@ -858,7 +863,7 @@ watch(streamToken, () => {
               <div class="player-frame" :class="{ 'player-frame--fullscreen': isFullscreen }">
                 <div v-show="hasSubscriberStream" ref="viewerContainerRef" class="player-frame__viewer"></div>
                 <div class="player-overlay">
-                  <div class="overlay-item">⏱ {{ detail.elapsed }}</div>
+                  <div class="overlay-item">⏱ {{ elapsedLabel }}</div>
                   <div class="overlay-item">👥 {{ detail.viewers }}명</div>
                   <div class="overlay-item">❤ {{ detail.likes }}</div>
                   <div class="overlay-item">🚩 {{ detail.reports ?? 0 }}건</div>

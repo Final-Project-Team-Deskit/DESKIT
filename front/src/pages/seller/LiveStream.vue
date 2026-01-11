@@ -76,7 +76,6 @@ const isStopRestricted = ref(false)
 const showSettings = ref(false)
 const viewerCount = ref(0)
 const likeCount = ref(0)
-const elapsed = ref('00:00:00')
 const monitorRef = ref<HTMLElement | null>(null)
 const streamGridRef = ref<HTMLElement | null>(null)
 const streamCenterRef = ref<HTMLElement | null>(null)
@@ -160,6 +159,8 @@ const leaveRequested = ref(false)
 const mediaConfigReady = ref(false)
 const hasSavedMediaConfig = ref(false)
 let mediaSaveTimer: number | null = null
+const stopConfirmOpen = ref(false)
+const stopConfirmMessage = ref('')
 
 const streamId = computed(() => {
   const id = route.params.id
@@ -214,6 +215,12 @@ const sortedProducts = computed(() => {
 })
 
 const chatItems = computed(() => chatMessages.value)
+
+const elapsedLabel = computed(() => {
+  if (!latestDetail.value?.startedAt) return '00:00:00'
+  now.value
+  return formatElapsed(latestDetail.value.startedAt)
+})
 
 const hasSidePanels = computed(() => !isStopRestricted.value && (showProducts.value || showChat.value))
 const gridStyles = computed(() => ({
@@ -667,7 +674,6 @@ const hydrateStream = async () => {
     chatMessages.value = []
     viewerCount.value = 0
     likeCount.value = 0
-    elapsed.value = '00:00:00'
     streamStatus.value = 'RESERVED'
     scheduleStartAtMs.value = null
     scheduleEndAtMs.value = null
@@ -684,7 +690,6 @@ const hydrateStream = async () => {
     stream.value = null
     viewerCount.value = 0
     likeCount.value = 0
-    elapsed.value = '00:00:00'
     streamStatus.value = 'RESERVED'
     scheduleStartAtMs.value = null
     scheduleEndAtMs.value = null
@@ -743,7 +748,6 @@ const hydrateStream = async () => {
 
     viewerCount.value = stats?.viewerCount ?? detail.totalViews ?? 0
     likeCount.value = stats?.likeCount ?? detail.totalLikes ?? 0
-    elapsed.value = formatElapsed(detail.startedAt)
 
     if (mediaConfig) {
       selectedMic.value = resolveMediaSelection(mediaConfig.microphoneId, '기본 마이크')
@@ -776,7 +780,6 @@ const hydrateStream = async () => {
     chatMessages.value = []
     viewerCount.value = 0
     likeCount.value = 0
-    elapsed.value = '00:00:00'
     streamStatus.value = 'RESERVED'
     scheduleStartAtMs.value = null
     scheduleEndAtMs.value = null
@@ -870,16 +873,20 @@ const buildStopConfirmMessage = () => {
   return '방송 운영 정책 위반으로 방송이 중지되었습니다.\n방송에서 나가겠습니까?'
 }
 
-const handleStopDecision = (message: string) => {
-  const ok = window.confirm(message)
-  if (ok) {
-    handleGoToList()
-    return
-  }
+const handleStopConfirm = () => {
+  handleGoToList()
+}
+
+const handleStopCancel = () => {
   isStopRestricted.value = true
   showChat.value = false
   showProducts.value = false
   showSettings.value = false
+}
+
+const handleStopDecision = (message: string) => {
+  stopConfirmMessage.value = message
+  stopConfirmOpen.value = true
 }
 
 const promptStoppedEntry = () => {
@@ -1394,6 +1401,7 @@ const toggleFullscreen = async () => {
 
 <template>
   <PageContainer>
+    <div v-if="stopConfirmOpen" class="stop-blocker" aria-hidden="true"></div>
     <header class="stream-header">
       <div>
         <h2 class="section-title">{{ displayTitle }}</h2>
@@ -1487,7 +1495,7 @@ const toggleFullscreen = async () => {
               class="stream-player__publisher"
             ></div>
             <div class="stream-overlay stream-overlay--stack">
-              <div class="stream-overlay__row">⏱ 경과 {{ elapsed }}</div>
+              <div class="stream-overlay__row">⏱ 경과 {{ elapsedLabel }}</div>
               <div class="stream-overlay__row">👥 {{ viewerCount.toLocaleString('ko-KR') }}명</div>
               <div class="stream-overlay__row">❤ {{ likeCount.toLocaleString('ko-KR') }}</div>
             </div>
@@ -1701,6 +1709,15 @@ const toggleFullscreen = async () => {
     </section>
     <Teleport :to="modalHostTarget">
       <ConfirmModal
+        v-model="stopConfirmOpen"
+        title="방송 송출 중지"
+        :description="stopConfirmMessage"
+        confirm-text="나가기"
+        cancel-text="계속 보기"
+        @confirm="handleStopConfirm"
+        @cancel="handleStopCancel"
+      />
+      <ConfirmModal
         v-model="confirmState.open"
         :title="confirmState.title"
         :description="confirmState.description"
@@ -1724,6 +1741,13 @@ const toggleFullscreen = async () => {
 </template>
 
 <style scoped>
+.stop-blocker {
+  position: fixed;
+  inset: 0;
+  background: var(--surface);
+  z-index: 1300;
+}
+
 .stream-header {
   display: flex;
   align-items: flex-start;
