@@ -423,6 +423,11 @@ export const startSellerBroadcast = async (broadcastId: number): Promise<string>
   return ensureSuccess(data)
 }
 
+export const startSellerRecording = async (broadcastId: number): Promise<void> => {
+  const { data } = await http.post<ApiResult<void>>(`/api/seller/broadcasts/${broadcastId}/recording/start`)
+  ensureSuccess(data)
+}
+
 export const endSellerBroadcast = async (broadcastId: number): Promise<void> => {
   const { data } = await http.post<ApiResult<void>>(`/api/seller/broadcasts/${broadcastId}/end`)
   return ensureSuccess(data)
