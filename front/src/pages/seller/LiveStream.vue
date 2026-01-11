@@ -274,7 +274,7 @@ const readyCountdownLabel = computed(() => {
 })
 const streamPlaceholderMessage = computed(() => {
   if (lifecycleStatus.value === 'STOPPED') {
-    return '방송이 운영정책 위반으로 송출 중지되었습니다.'
+    return '방송 운영 정책 위반으로 송출 중지되었습니다.'
   }
   if (lifecycleStatus.value === 'ENDED') {
     return '방송이 종료되었습니다.'
@@ -1556,14 +1556,14 @@ const toggleFullscreen = async () => {
               :class="{ 'stream-placeholder--waiting': lifecycleStatus !== 'ON_AIR' }"
             >
               <img
-                v-if="waitingScreenUrl && lifecycleStatus !== 'ON_AIR'"
+                v-if="waitingScreenUrl && lifecycleStatus !== 'ON_AIR' && lifecycleStatus !== 'STOPPED'"
                 class="stream-placeholder__image"
                 :src="waitingScreenUrl"
                 alt="대기 화면"
               />
               <p class="stream-title">{{ streamPlaceholderMessage }}</p>
               <p v-if="lifecycleStatus === 'ON_AIR'" class="stream-sub">현재 송출 중인 화면이 표시됩니다.</p>
-              <p v-else-if="!waitingScreenUrl" class="stream-sub">대기 화면 이미지가 없습니다.</p>
+              <p v-else-if="!waitingScreenUrl && lifecycleStatus !== 'STOPPED'" class="stream-sub">대기 화면 이미지가 없습니다.</p>
             </div>
           </div>
         </div>

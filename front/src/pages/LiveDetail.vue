@@ -111,7 +111,7 @@ const endedCountdownLabel = computed(() => {
 })
 const playerMessage = computed(() => {
   if (lifecycleStatus.value === 'STOPPED') {
-    return '방송이 운영정책 위반으로 송출 중지되었습니다.'
+    return '방송 운영 정책 위반으로 송출 중지되었습니다.'
   }
   if (lifecycleStatus.value === 'ENDED') {
     return '방송이 종료되었습니다.'
@@ -1106,7 +1106,7 @@ onBeforeUnmount(() => {
             <div v-show="hasSubscriberStream" ref="viewerContainerRef" class="player-frame__viewer"></div>
             <div v-if="['READY', 'ENDED', 'STOPPED'].includes(lifecycleStatus)" class="player-frame__placeholder">
               <img
-                v-if="waitingScreenUrl"
+                v-if="waitingScreenUrl && lifecycleStatus !== 'STOPPED'"
                 class="player-frame__image"
                 :src="waitingScreenUrl"
                 alt="대기 화면"

@@ -326,7 +326,7 @@ const endedCountdownLabel = computed(() => {
 })
 const playerMessage = computed(() => {
   if (lifecycleStatus.value === 'STOPPED') {
-    return '방송이 운영정책 위반으로 송출 중지되었습니다.'
+    return '방송 운영 정책 위반으로 송출 중지되었습니다.'
   }
   if (lifecycleStatus.value === 'ENDED') {
     return '방송이 종료되었습니다.'
@@ -887,7 +887,7 @@ watch(streamToken, () => {
                 </div>
                 <div v-if="isReadOnly" class="player-placeholder">
                   <img
-                    v-if="waitingScreenUrl"
+                    v-if="waitingScreenUrl && lifecycleStatus !== 'STOPPED'"
                     class="player-placeholder__image"
                     :src="waitingScreenUrl"
                     alt="대기 화면"
