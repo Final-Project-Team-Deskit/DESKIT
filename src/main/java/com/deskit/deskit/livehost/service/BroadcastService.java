@@ -262,7 +262,11 @@ public class BroadcastService {
         var bpBroadcastId = field(name("bp", "broadcast_id"), Long.class);
 
         List<String> statuses = List.of(Status.ON_SALE.name(), Status.READY.name(), Status.LIMITED_SALE.name());
-        List<String> reservedStatuses = List.of(BroadcastStatus.RESERVED.name(), BroadcastStatus.READY.name());
+        List<String> reservedStatuses = List.of(
+                BroadcastStatus.RESERVED.name(),
+                BroadcastStatus.READY.name(),
+                BroadcastStatus.ON_AIR.name()
+        );
 
         var reservedQuantityField = org.jooq.impl.DSL.coalesce(org.jooq.impl.DSL.sum(bpQuantity), 0).as("reserved_qty");
         var reservedSubquery = dsl.select(bpProductId, reservedQuantityField)
