@@ -50,6 +50,9 @@ const buttonLabel = computed(() => {
   if (status.value === 'LIVE' || status.value === 'READY') {
     return '입장하기'
   }
+  if (status.value === 'STOPPED') {
+    return '방송 입장'
+  }
   if (status.value === 'ENDED') {
     return '방송 입장'
   }
@@ -118,7 +121,7 @@ const viewerLabel = computed(() => {
   return ''
 })
 
-const isCtaDisabled = computed(() => status.value === 'UPCOMING' || status.value === 'STOPPED')
+const isCtaDisabled = computed(() => status.value === 'UPCOMING')
 
 const router = useRouter()
 
@@ -127,7 +130,7 @@ const handleWatchNow = () => {
     router.push({ name: 'live-detail', params: { id: props.item.id } })
     return
   }
-  if (status.value === 'ENDED') {
+  if (status.value === 'ENDED' || status.value === 'STOPPED') {
     router.push({ name: 'live-detail', params: { id: props.item.id } })
     return
   }

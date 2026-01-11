@@ -47,6 +47,8 @@ const stopReason = ref('')
 const stopDetail = ref('')
 const error = ref('')
 const showChat = ref(true)
+const stopEntryPrompted = ref(false)
+const isStopRestricted = ref(false)
 const chatText = ref('')
 const chatMessages = ref<{ id: string; user: string; text: string; time: string }[]>([])
 const chatListRef = ref<HTMLDivElement | null>(null)
@@ -324,9 +326,7 @@ const endedCountdownLabel = computed(() => {
 })
 const playerMessage = computed(() => {
   if (lifecycleStatus.value === 'STOPPED') {
-    return detail.value?.stoppedReason
-      ? `방송이 운영 정책 위반으로 송출 중지되었습니다. (${detail.value.stoppedReason})`
-      : '방송이 운영 정책 위반으로 송출 중지되었습니다.'
+    return '방송이 운영정책 위반으로 송출 중지되었습니다.'
   }
   if (lifecycleStatus.value === 'ENDED') {
     return '방송이 종료되었습니다.'
@@ -439,9 +439,25 @@ const parseSseData = (event: MessageEvent) => {
   }
 }
 
-const buildStopConfirmMessage = (data: unknown) => {
-  const reason = typeof data === 'string' && data.trim() ? data.trim() : '관리자에 의해 방송이 중지되었습니다.'
-  return `${reason}\n방송에서 나가겠습니까?`
+const buildStopConfirmMessage = () => {
+  return '방송 운영 정책 위반으로 방송이 중지되었습니다.\n방송에서 나가겠습니까?'
+}
+
+const handleStopDecision = (message: string) => {
+  const ok = window.confirm(message)
+  if (ok) {
+    goToList()
+    return
+  }
+  isStopRestricted.value = true
+  showChat.value = false
+  activePane.value = 'monitor'
+}
+
+const promptStoppedEntry = () => {
+  if (stopEntryPrompted.value) return
+  stopEntryPrompted.value = true
+  handleStopDecision('해당 방송은 운영정책 위반으로 송출 중지되었습니다. 방송을 나가겠습니까?')
 }
 
 const scheduleRefresh = (broadcastId: number) => {
@@ -488,9 +504,8 @@ const handleSseEvent = (event: MessageEvent) => {
         detail.value.status = 'STOPPED'
       }
       scheduleRefresh(idValue)
-      if (window.confirm(buildStopConfirmMessage(data))) {
-        goToList()
-      }
+      stopEntryPrompted.value = true
+      handleStopDecision(buildStopConfirmMessage())
       break
     default:
       break
@@ -617,6 +632,7 @@ const toggleFullscreen = async () => {
 }
 
 const toggleChat = () => {
+  if (isStopRestricted.value) return
   showChat.value = !showChat.value
 }
 
@@ -753,6 +769,12 @@ watch(
 watch(
   lifecycleStatus,
   () => {
+    if (lifecycleStatus.value === 'STOPPED') {
+      promptStoppedEntry()
+    } else {
+      isStopRestricted.value = false
+      stopEntryPrompted.value = false
+    }
     void requestJoinToken()
     if (lifecycleStatus.value === 'ON_AIR') {
       void ensureSubscriberConnected()
@@ -817,6 +839,7 @@ watch(streamToken, () => {
             모니터링
           </button>
           <button
+              v-if="!isStopRestricted"
               type="button"
               class="tab"
               :class="{ 'tab--active': activePane === 'products' }"
@@ -830,7 +853,7 @@ watch(streamToken, () => {
         </div>
 
         <div v-show="activePane === 'monitor'" id="monitor-pane">
-          <div ref="stageRef" class="monitor-stage" :class="{ 'monitor-stage--chat': showChat }">
+          <div ref="stageRef" class="monitor-stage" :class="{ 'monitor-stage--chat': showChat && !isStopRestricted }">
             <div class="player-wrap">
               <div class="player-frame" :class="{ 'player-frame--fullscreen': isFullscreen }">
                 <div v-show="hasSubscriberStream" ref="viewerContainerRef" class="player-frame__viewer"></div>
@@ -840,7 +863,7 @@ watch(streamToken, () => {
                   <div class="overlay-item">❤ {{ detail.likes }}</div>
                   <div class="overlay-item">🚩 {{ detail.reports ?? 0 }}건</div>
                 </div>
-                <div class="overlay-actions">
+                <div v-if="!isStopRestricted" class="overlay-actions">
                   <button type="button" class="icon-circle" :class="{ active: showChat }" @click="toggleChat" :title="showChat ? '채팅 닫기' : '채팅 보기'">
                     <svg aria-hidden="true" class="icon" viewBox="0 0 24 24" focusable="false">
                       <path d="M3 20l1.62-3.24A2 2 0 0 1 6.42 16H20a1 1 0 0 0 1-1V5a1 1 0 0 0-1-1H4a1 1 0 0 0-1 1v15z" stroke="currentColor" stroke-width="1.7" />
@@ -876,7 +899,7 @@ watch(streamToken, () => {
               </div>
             </div>
 
-            <aside v-if="showChat" class="chat-panel ds-surface">
+            <aside v-if="showChat && !isStopRestricted" class="chat-panel ds-surface">
               <header class="chat-head">
                 <h4>실시간 채팅</h4>
                 <button type="button" class="chat-close" @click="closeChat">×</button>
@@ -906,7 +929,7 @@ watch(streamToken, () => {
           </div>
         </div>
 
-        <div v-show="activePane === 'products'" id="products-pane" class="products-pane ds-surface" :class="{ 'products-pane--readonly': isReadOnly }">
+        <div v-if="!isStopRestricted" v-show="activePane === 'products'" id="products-pane" class="products-pane ds-surface" :class="{ 'products-pane--readonly': isReadOnly }">
           <header class="products-head">
             <div>
               <h4>상품 정보</h4>
