@@ -1,4 +1,5 @@
 ﻿<script setup lang="ts">
+import { OpenVidu, type Session, type Subscriber } from 'openvidu-browser'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Client, type StompSubscription } from '@stomp/stompjs'
@@ -38,6 +39,11 @@ const streamToken = ref<string | null>(null)
 const viewerId = ref<string | null>(resolveViewerId(getAuthUser()))
 const joinedBroadcastId = ref<number | null>(null)
 const leaveRequested = ref(false)
+const viewerContainerRef = ref<HTMLDivElement | null>(null)
+const openviduInstance = ref<OpenVidu | null>(null)
+const openviduSession = ref<Session | null>(null)
+const openviduSubscriber = ref<Subscriber | null>(null)
+const openviduConnected = ref(false)
 
 const FALLBACK_IMAGE = 'data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs='
 
@@ -115,6 +121,7 @@ const playerMessage = computed(() => {
   }
   return ''
 })
+const hasSubscriberStream = computed(() => openviduConnected.value && !!openviduSubscriber.value)
 
 const handleImageError = (event: Event) => {
   const target = event.target as HTMLImageElement | null
@@ -316,6 +323,68 @@ const applyVideoQuality = async (value: typeof selectedQuality.value) => {
   } catch {
     return
   }
+}
+
+const clearViewerContainer = () => {
+  if (viewerContainerRef.value) {
+    viewerContainerRef.value.innerHTML = ''
+  }
+}
+
+const resetOpenViduState = () => {
+  openviduConnected.value = false
+  openviduSubscriber.value = null
+  openviduSession.value = null
+  openviduInstance.value = null
+  clearViewerContainer()
+}
+
+const disconnectOpenVidu = () => {
+  if (openviduSession.value) {
+    try {
+      if (openviduSubscriber.value) {
+        openviduSession.value.unsubscribe(openviduSubscriber.value)
+      }
+      openviduSession.value.disconnect()
+    } catch {
+      // noop
+    }
+  }
+  resetOpenViduState()
+}
+
+const connectSubscriber = async (token: string) => {
+  if (!viewerContainerRef.value) return
+  try {
+    disconnectOpenVidu()
+    openviduInstance.value = new OpenVidu()
+    openviduSession.value = openviduInstance.value.initSession()
+    openviduSession.value.on('streamCreated', (event) => {
+      if (!viewerContainerRef.value || !openviduSession.value) return
+      if (openviduSubscriber.value) {
+        openviduSession.value.unsubscribe(openviduSubscriber.value)
+        openviduSubscriber.value = null
+        clearViewerContainer()
+      }
+      openviduSubscriber.value = openviduSession.value.subscribe(event.stream, viewerContainerRef.value, {
+        insertMode: 'append',
+      })
+    })
+    openviduSession.value.on('streamDestroyed', () => {
+      openviduSubscriber.value = null
+      clearViewerContainer()
+    })
+    await openviduSession.value.connect(token)
+    openviduConnected.value = true
+  } catch {
+    disconnectOpenVidu()
+  }
+}
+
+const ensureSubscriberConnected = async () => {
+  if (!streamToken.value || lifecycleStatus.value !== 'ON_AIR') return
+  if (openviduConnected.value) return
+  await connectSubscriber(streamToken.value)
 }
 
 const toggleChat = () => {
@@ -868,11 +937,13 @@ watch(
     isLiked.value = false
     likeCount.value = 0
     hasReported.value = false
+    streamToken.value = null
     void loadDetail()
     void loadProducts()
     void loadStats()
     messages.value = []
     disconnectChat()
+    disconnectOpenVidu()
     sseSource.value?.close()
     sseSource.value = null
     sseConnected.value = false
@@ -912,8 +983,19 @@ watch(
   lifecycleStatus,
   () => {
     void requestJoinToken()
+    if (lifecycleStatus.value === 'ON_AIR') {
+      void ensureSubscriberConnected()
+      return
+    }
+    disconnectOpenVidu()
   },
 )
+
+watch(streamToken, () => {
+  if (lifecycleStatus.value === 'ON_AIR') {
+    void ensureSubscriberConnected()
+  }
+})
 
 watch(
   selectedQuality,
@@ -929,6 +1011,7 @@ onBeforeUnmount(() => {
   document.removeEventListener('fullscreenchange', handleFullscreenChange)
   window.removeEventListener('deskit-user-updated', handleAuthUpdate)
   window.removeEventListener('pagehide', handlePageHide)
+  disconnectOpenVidu()
   qualityObserver.value?.disconnect()
   qualityObserver.value = null
   void sendLeaveSignal()
@@ -996,6 +1079,7 @@ onBeforeUnmount(() => {
           </div>
 
           <div ref="stageRef" class="player-frame" :class="{ 'player-frame--fullscreen': isFullscreen }">
+            <div v-show="hasSubscriberStream" ref="viewerContainerRef" class="player-frame__viewer"></div>
             <div v-if="['READY', 'ENDED', 'STOPPED'].includes(lifecycleStatus)" class="player-frame__placeholder">
               <img
                 v-if="waitingScreenUrl"
@@ -1006,7 +1090,7 @@ onBeforeUnmount(() => {
               />
               <p v-if="playerMessage" class="player-frame__message">{{ playerMessage }}</p>
             </div>
-            <span v-else class="player-frame__label">LIVE 플레이어</span>
+            <span v-else-if="!hasSubscriberStream" class="player-frame__label">LIVE 플레이어</span>
             <div class="player-actions">
               <div class="icon-action">
                 <button
@@ -1386,6 +1470,20 @@ onBeforeUnmount(() => {
   min-height: clamp(160px, auto, 560px);
   max-width: min(100%, calc((100vh - 180px) * (16 / 9)));
   overflow: hidden;
+}
+
+.player-frame__viewer {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: #000;
+}
+
+.player-frame__viewer :deep(video) {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
 }
 
 .player-frame[data-quality='720p'] video,

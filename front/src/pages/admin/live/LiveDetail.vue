@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { OpenVidu, type Session, type Subscriber } from 'openvidu-browser'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
@@ -79,6 +80,11 @@ const streamToken = ref<string | null>(null)
 const viewerId = ref<string | null>(resolveViewerId(getAuthUser()))
 const joinedBroadcastId = ref<number | null>(null)
 const leaveRequested = ref(false)
+const viewerContainerRef = ref<HTMLDivElement | null>(null)
+const openviduInstance = ref<OpenVidu | null>(null)
+const openviduSession = ref<Session | null>(null)
+const openviduSubscriber = ref<Subscriber | null>(null)
+const openviduConnected = ref(false)
 const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080'
 const FALLBACK_IMAGE = 'data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs='
 
@@ -329,6 +335,69 @@ const playerMessage = computed(() => {
   }
   return ''
 })
+const hasSubscriberStream = computed(() => openviduConnected.value && !!openviduSubscriber.value)
+
+const clearViewerContainer = () => {
+  if (viewerContainerRef.value) {
+    viewerContainerRef.value.innerHTML = ''
+  }
+}
+
+const resetOpenViduState = () => {
+  openviduConnected.value = false
+  openviduSubscriber.value = null
+  openviduSession.value = null
+  openviduInstance.value = null
+  clearViewerContainer()
+}
+
+const disconnectOpenVidu = () => {
+  if (openviduSession.value) {
+    try {
+      if (openviduSubscriber.value) {
+        openviduSession.value.unsubscribe(openviduSubscriber.value)
+      }
+      openviduSession.value.disconnect()
+    } catch {
+      // noop
+    }
+  }
+  resetOpenViduState()
+}
+
+const connectSubscriber = async (token: string) => {
+  if (!viewerContainerRef.value) return
+  try {
+    disconnectOpenVidu()
+    openviduInstance.value = new OpenVidu()
+    openviduSession.value = openviduInstance.value.initSession()
+    openviduSession.value.on('streamCreated', (event) => {
+      if (!viewerContainerRef.value || !openviduSession.value) return
+      if (openviduSubscriber.value) {
+        openviduSession.value.unsubscribe(openviduSubscriber.value)
+        openviduSubscriber.value = null
+        clearViewerContainer()
+      }
+      openviduSubscriber.value = openviduSession.value.subscribe(event.stream, viewerContainerRef.value, {
+        insertMode: 'append',
+      })
+    })
+    openviduSession.value.on('streamDestroyed', () => {
+      openviduSubscriber.value = null
+      clearViewerContainer()
+    })
+    await openviduSession.value.connect(token)
+    openviduConnected.value = true
+  } catch {
+    disconnectOpenVidu()
+  }
+}
+
+const ensureSubscriberConnected = async () => {
+  if (!streamToken.value || lifecycleStatus.value !== 'ON_AIR') return
+  if (openviduConnected.value) return
+  await connectSubscriber(streamToken.value)
+}
 
 const requestJoinToken = async () => {
   if (!detail.value) return
@@ -641,6 +710,7 @@ onBeforeUnmount(() => {
   statsTimer.value = null
   if (refreshTimer.value) window.clearTimeout(refreshTimer.value)
   refreshTimer.value = null
+  disconnectOpenVidu()
 })
 
 onMounted(() => {
@@ -656,6 +726,8 @@ watch(
     }
     leaveRequested.value = false
     joinedBroadcastId.value = null
+    streamToken.value = null
+    disconnectOpenVidu()
     loadDetail()
     const idValue = Number(value)
     if (!Number.isNaN(idValue)) {
@@ -681,8 +753,19 @@ watch(
   lifecycleStatus,
   () => {
     void requestJoinToken()
+    if (lifecycleStatus.value === 'ON_AIR') {
+      void ensureSubscriberConnected()
+      return
+    }
+    disconnectOpenVidu()
   },
 )
+
+watch(streamToken, () => {
+  if (lifecycleStatus.value === 'ON_AIR') {
+    void ensureSubscriberConnected()
+  }
+})
 </script>
 
 <template>
@@ -744,6 +827,7 @@ watch(
           <div ref="stageRef" class="monitor-stage" :class="{ 'monitor-stage--chat': showChat }">
             <div class="player-wrap">
               <div class="player-frame" :class="{ 'player-frame--fullscreen': isFullscreen }">
+                <div v-show="hasSubscriberStream" ref="viewerContainerRef" class="player-frame__viewer"></div>
                 <div class="player-overlay">
                   <div class="overlay-item">⏱ {{ detail.elapsed }}</div>
                   <div class="overlay-item">👥 {{ detail.viewers }}명</div>
@@ -782,7 +866,7 @@ watch(
                   />
                   <p v-if="playerMessage" class="player-placeholder__message">{{ playerMessage }}</p>
                 </div>
-                <div v-else class="player-label">송출 화면</div>
+                <div v-else-if="!hasSubscriberStream" class="player-label">송출 화면</div>
               </div>
             </div>
 
@@ -1010,6 +1094,20 @@ watch(
   display: flex;
   align-items: center;
   justify-content: center;
+}
+
+.player-frame__viewer {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: #000;
+}
+
+.player-frame__viewer :deep(video) {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
 }
 
 .player-frame--fullscreen {
