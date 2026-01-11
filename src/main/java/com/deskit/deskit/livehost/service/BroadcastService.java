@@ -835,6 +835,7 @@ public class BroadcastService {
         int totalChats = countBroadcastChats(broadcastId);
 
         BroadcastResult result = broadcastResultRepository.findById(broadcastId).orElse(null);
+        LocalDateTime peakTime = resolveMaxViewsAt(broadcast, peak);
         if (result == null) {
             result = BroadcastResult.builder()
                     .broadcast(broadcast)
@@ -843,7 +844,7 @@ public class BroadcastService {
                     .totalReports(reports)
                     .avgWatchTime(avg != null ? avg.intValue() : 0)
                     .maxViews(mv)
-                    .pickViewsAt(peak)
+                    .pickViewsAt(peakTime)
                     .totalChats(totalChats)
                     .totalSales(salesSummary.totalSales())
                     .build();
@@ -854,7 +855,7 @@ public class BroadcastService {
                     reports,
                     avg != null ? avg.intValue() : 0,
                     mv,
-                    peak,
+                    peakTime,
                     totalChats,
                     salesSummary.totalSales()
             );
@@ -1336,6 +1337,7 @@ public class BroadcastService {
             }
         }
 
+        peakTime = resolveMaxViewsAt(broadcast, peakTime);
         if (result == null) {
             result = BroadcastResult.builder()
                     .broadcast(broadcast)
@@ -1361,6 +1363,19 @@ public class BroadcastService {
             );
         }
         broadcastResultRepository.save(result);
+    }
+
+    private LocalDateTime resolveMaxViewsAt(Broadcast broadcast, LocalDateTime peakTime) {
+        if (peakTime != null) {
+            return peakTime;
+        }
+        if (broadcast.getStartedAt() != null) {
+            return broadcast.getStartedAt();
+        }
+        if (broadcast.getCreatedAt() != null) {
+            return broadcast.getCreatedAt();
+        }
+        return LocalDateTime.now();
     }
 
     private record SalesSummary(BigDecimal totalSales, Map<Long, SalesMetric> productMetrics) {

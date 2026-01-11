@@ -12,6 +12,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 
 @Service
 @RequiredArgsConstructor
@@ -42,6 +43,7 @@ public class VodStatsService {
                     .totalReports(0)
                     .avgWatchTime(0)
                     .maxViews(0)
+                    .pickViewsAt(resolveMaxViewsAt(broadcast))
                     .totalChats(0)
                     .totalSales(BigDecimal.ZERO)
                     .build();
@@ -56,5 +58,15 @@ public class VodStatsService {
                 vod.applyReportDelta(delta.reportDelta());
             }
         }
+    }
+
+    private LocalDateTime resolveMaxViewsAt(Broadcast broadcast) {
+        if (broadcast.getStartedAt() != null) {
+            return broadcast.getStartedAt();
+        }
+        if (broadcast.getCreatedAt() != null) {
+            return broadcast.getCreatedAt();
+        }
+        return LocalDateTime.now();
     }
 }
