@@ -156,6 +156,7 @@ const endRequestTimer = ref<number | null>(null)
 const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080'
 const viewerId = ref<string | null>(resolveViewerId(getAuthUser()))
 const joinedBroadcastId = ref<number | null>(null)
+const joinedViewerId = ref<string | null>(null)
 const leaveRequested = ref(false)
 const mediaConfigReady = ref(false)
 const hasSavedMediaConfig = ref(false)
@@ -599,10 +600,15 @@ const requestJoinToken = async (broadcastId: number) => {
   if (!['READY', 'ON_AIR'].includes(lifecycleStatus.value)) return
   if (joinInFlight.value) return
   if (joinedBroadcastId.value === broadcastId) return
+  if (!viewerId.value) {
+    viewerId.value = resolveViewerId(getAuthUser())
+  }
+  if (!viewerId.value) return
   joinInFlight.value = true
   try {
     await joinBroadcast(broadcastId, viewerId.value)
     joinedBroadcastId.value = broadcastId
+    joinedViewerId.value = viewerId.value
   } catch {
     return
   } finally {
@@ -611,14 +617,15 @@ const requestJoinToken = async (broadcastId: number) => {
 }
 
 const sendLeaveSignal = async (useBeacon = false) => {
-  if (!joinedBroadcastId.value || !viewerId.value || leaveRequested.value) return
+  const leavingViewerId = joinedViewerId.value ?? viewerId.value
+  if (!joinedBroadcastId.value || !leavingViewerId || leaveRequested.value) return
   leaveRequested.value = true
-  const url = `${apiBase}/api/broadcasts/${joinedBroadcastId.value}/leave?viewerId=${encodeURIComponent(viewerId.value)}`
+  const url = `${apiBase}/api/broadcasts/${joinedBroadcastId.value}/leave?viewerId=${encodeURIComponent(leavingViewerId)}`
   if (useBeacon && navigator.sendBeacon) {
     navigator.sendBeacon(url)
     return
   }
-  await leaveBroadcast(joinedBroadcastId.value, viewerId.value).catch(() => {})
+  await leaveBroadcast(joinedBroadcastId.value, leavingViewerId).catch(() => {})
 }
 
 const handlePageHide = () => {
@@ -1042,6 +1049,7 @@ watch(
     }
     leaveRequested.value = false
     joinedBroadcastId.value = null
+    joinedViewerId.value = null
     if (!value) {
       return
     }

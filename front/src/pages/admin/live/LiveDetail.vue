@@ -82,6 +82,7 @@ const joinInFlight = ref(false)
 const streamToken = ref<string | null>(null)
 const viewerId = ref<string | null>(resolveViewerId(getAuthUser()))
 const joinedBroadcastId = ref<number | null>(null)
+const joinedViewerId = ref<string | null>(null)
 const leaveRequested = ref(false)
 const viewerContainerRef = ref<HTMLDivElement | null>(null)
 const openviduInstance = ref<OpenVidu | null>(null)
@@ -415,10 +416,16 @@ const requestJoinToken = async () => {
   if (!detail.value) return
   if (!['READY', 'ON_AIR'].includes(lifecycleStatus.value)) return
   if (joinInFlight.value) return
+  if (joinedBroadcastId.value === Number(detail.value.id)) return
+  if (!viewerId.value) {
+    viewerId.value = resolveViewerId(getAuthUser())
+  }
+  if (!viewerId.value) return
   joinInFlight.value = true
   try {
     streamToken.value = await joinBroadcast(Number(detail.value.id), viewerId.value)
     joinedBroadcastId.value = Number(detail.value.id)
+    joinedViewerId.value = viewerId.value
   } catch {
     return
   } finally {
@@ -427,14 +434,15 @@ const requestJoinToken = async () => {
 }
 
 const sendLeaveSignal = async (useBeacon = false) => {
-  if (!joinedBroadcastId.value || !viewerId.value || leaveRequested.value) return
+  const leavingViewerId = joinedViewerId.value ?? viewerId.value
+  if (!joinedBroadcastId.value || !leavingViewerId || leaveRequested.value) return
   leaveRequested.value = true
-  const url = `${apiBase}/api/broadcasts/${joinedBroadcastId.value}/leave?viewerId=${encodeURIComponent(viewerId.value)}`
+  const url = `${apiBase}/api/broadcasts/${joinedBroadcastId.value}/leave?viewerId=${encodeURIComponent(leavingViewerId)}`
   if (useBeacon && navigator.sendBeacon) {
     navigator.sendBeacon(url)
     return
   }
-  await leaveBroadcast(joinedBroadcastId.value, viewerId.value).catch(() => {})
+  await leaveBroadcast(joinedBroadcastId.value, leavingViewerId).catch(() => {})
 }
 
 const handlePageHide = () => {
@@ -755,6 +763,7 @@ watch(
     }
     leaveRequested.value = false
     joinedBroadcastId.value = null
+    joinedViewerId.value = null
     streamToken.value = null
     disconnectOpenVidu()
     loadDetail()

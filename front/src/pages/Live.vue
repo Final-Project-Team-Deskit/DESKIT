@@ -472,8 +472,20 @@ const connectSse = () => {
   sseSource.value = source
 }
 
+const isStatsTarget = (item: LiveItem) => {
+  const status = normalizeBroadcastStatus(item.status)
+  if (status === 'ON_AIR' || status === 'READY') return true
+  const startAtMs = parseLiveDate(item.startAt).getTime()
+  if (Number.isNaN(startAtMs)) return false
+  const endAtMs = parseLiveDate(item.endAt).getTime()
+  const normalizedEnd = Number.isNaN(endAtMs) ? getScheduledEndMs(startAtMs) : endAtMs
+  if (!normalizedEnd) return false
+  const now = Date.now()
+  return now >= startAtMs && now <= normalizedEnd
+}
+
 const updateLiveViewerCounts = async () => {
-  const targets = liveItems.value.filter((item) => getLifecycleStatus(item) === 'ON_AIR')
+  const targets = liveItems.value.filter((item) => isStatsTarget(item))
   if (!targets.length) return
   const updates = await Promise.allSettled(
     targets.map(async (item) => ({
