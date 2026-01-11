@@ -521,6 +521,16 @@ public class BroadcastService {
         }
     }
 
+    public void leaveBroadcast(Long broadcastId, String viewerId) {
+        if (viewerId == null || viewerId.isBlank()) {
+            return;
+        }
+        if (!broadcastRepository.existsById(broadcastId)) {
+            return;
+        }
+        redisService.exitLiveRoom(broadcastId, viewerId);
+    }
+
     @Transactional
     public void endBroadcast(Long sellerId, Long broadcastId) {
         String lockKey = "lock:broadcast_transition:" + broadcastId;

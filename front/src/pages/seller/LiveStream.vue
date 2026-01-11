@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
 import BasicInfoEditModal from '../../components/BasicInfoEditModal.vue'
 import ChatSanctionModal from '../../components/ChatSanctionModal.vue'
 import ConfirmModal from '../../components/ConfirmModal.vue'
+import DeviceSetupModal from '../../components/DeviceSetupModal.vue'
 import PageContainer from '../../components/PageContainer.vue'
 import QCardModal from '../../components/QCardModal.vue'
 import {
@@ -11,6 +12,8 @@ import {
   fetchMediaConfig,
   fetchRecentLiveChats,
   fetchSellerBroadcastDetail,
+  joinBroadcast,
+  leaveBroadcast,
   startSellerBroadcast,
   endSellerBroadcast,
   pinSellerBroadcastProduct,
@@ -77,7 +80,11 @@ const videoEnabled = ref(true)
 const volume = ref(43)
 const selectedMic = ref('기본 마이크')
 const selectedCamera = ref('기본 카메라')
-const micInputLevel = ref<number>(70)
+const micInputLevel = ref<number>(0)
+const micStream = ref<MediaStream | null>(null)
+const micAudioContext = ref<AudioContext | null>(null)
+const micAnalyser = ref<AnalyserNode | null>(null)
+const micMeterFrame = ref<number | null>(null)
 const chatText = ref('')
 const chatListRef = ref<HTMLElement | null>(null)
 let gridObserver: ResizeObserver | null = null
@@ -87,6 +94,8 @@ const availableCameras = ref<Array<{ id: string; label: string }>>([])
 const showQCards = ref(false)
 const showBasicInfo = ref(false)
 const showSanctionModal = ref(false)
+const showDeviceModal = ref(false)
+const hasOpenedDeviceModal = ref(false)
 const isLoadingStream = ref(true)
 const qCardIndex = ref(0)
 const handleFullscreenChange = () => {
@@ -105,6 +114,7 @@ const confirmState = reactive({
   cancelText: '취소',
 })
 const confirmAction = ref<() => void>(() => {})
+const confirmCancelAction = ref<() => void>(() => {})
 
 const pinnedProductId = ref<string | null>(null)
 const sanctionTarget = ref<string | null>(null)
@@ -123,10 +133,14 @@ const sseRetryTimer = ref<number | null>(null)
 const statsTimer = ref<number | null>(null)
 const refreshTimer = ref<number | null>(null)
 const startTimer = ref<number | null>(null)
+const joinInFlight = ref(false)
 const startRequested = ref(false)
 const endRequested = ref(false)
 const endRequestTimer = ref<number | null>(null)
 const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080'
+const viewerId = ref<string | null>(resolveViewerId(getAuthUser()))
+const joinedBroadcastId = ref<number | null>(null)
+const leaveRequested = ref(false)
 
 const streamId = computed(() => {
   const id = route.params.id
@@ -300,6 +314,69 @@ const clearEndRequestTimer = () => {
   }
 }
 
+const stopMicMeter = () => {
+  if (micMeterFrame.value !== null) {
+    cancelAnimationFrame(micMeterFrame.value)
+    micMeterFrame.value = null
+  }
+  if (micAudioContext.value) {
+    micAudioContext.value.close()
+    micAudioContext.value = null
+  }
+  micAnalyser.value = null
+  if (micStream.value) {
+    micStream.value.getTracks().forEach((track) => track.stop())
+    micStream.value = null
+  }
+}
+
+const startMicMeter = async () => {
+  if (!navigator.mediaDevices?.getUserMedia) {
+    micInputLevel.value = 0
+    return
+  }
+  if (!micEnabled.value) {
+    micInputLevel.value = 0
+    stopMicMeter()
+    return
+  }
+  stopMicMeter()
+  try {
+    const constraints: MediaStreamConstraints = {
+      audio: selectedMic.value !== '기본 마이크' ? { deviceId: { exact: selectedMic.value } } : true,
+    }
+    const stream = await navigator.mediaDevices.getUserMedia(constraints)
+    micStream.value = stream
+    const [track] = stream.getAudioTracks()
+    if (!track) {
+      micInputLevel.value = 0
+      return
+    }
+    const context = new AudioContext()
+    const analyserNode = context.createAnalyser()
+    analyserNode.fftSize = 512
+    const source = context.createMediaStreamSource(stream)
+    source.connect(analyserNode)
+    micAudioContext.value = context
+    micAnalyser.value = analyserNode
+    const buffer = new Uint8Array(analyserNode.fftSize)
+    const update = () => {
+      analyserNode.getByteTimeDomainData(buffer)
+      let sum = 0
+      for (const sample of buffer) {
+        const normalized = (sample - 128) / 128
+        sum += normalized * normalized
+      }
+      const rms = Math.sqrt(sum / buffer.length)
+      micInputLevel.value = Math.min(100, Math.round(rms * 140))
+      micMeterFrame.value = requestAnimationFrame(update)
+    }
+    update()
+  } catch {
+    micInputLevel.value = 0
+  }
+}
+
 const resetRealtimeState = () => {
   sseSource.value?.close()
   sseSource.value = null
@@ -325,6 +402,42 @@ const requestStartBroadcast = async (broadcastId: number) => {
   } catch {
     startRequested.value = false
   }
+}
+
+const requestJoinToken = async (broadcastId: number) => {
+  if (!['READY', 'ON_AIR'].includes(lifecycleStatus.value)) return
+  if (joinInFlight.value) return
+  if (joinedBroadcastId.value === broadcastId) return
+  joinInFlight.value = true
+  try {
+    await joinBroadcast(broadcastId, viewerId.value)
+    joinedBroadcastId.value = broadcastId
+  } catch {
+    return
+  } finally {
+    joinInFlight.value = false
+  }
+}
+
+const sendLeaveSignal = async (useBeacon = false) => {
+  if (!joinedBroadcastId.value || !viewerId.value || leaveRequested.value) return
+  leaveRequested.value = true
+  const url = `${apiBase}/api/broadcasts/${joinedBroadcastId.value}/leave?viewerId=${encodeURIComponent(viewerId.value)}`
+  if (useBeacon && navigator.sendBeacon) {
+    navigator.sendBeacon(url)
+    return
+  }
+  await leaveBroadcast(joinedBroadcastId.value, viewerId.value).catch(() => {})
+}
+
+const handlePageHide = () => {
+  void sendLeaveSignal(true)
+}
+
+const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+  if (!isInteractive.value) return
+  event.preventDefault()
+  event.returnValue = ''
 }
 
 const scheduleAutoStart = (broadcastId: number, scheduledAtMs: number | null, status: BroadcastStatus) => {
@@ -692,6 +805,12 @@ watch(
   () => streamId.value,
   (value) => {
     resetRealtimeState()
+    hasOpenedDeviceModal.value = false
+    if (joinedBroadcastId.value) {
+      void sendLeaveSignal()
+    }
+    leaveRequested.value = false
+    joinedBroadcastId.value = null
     if (!value) {
       return
     }
@@ -701,6 +820,7 @@ watch(
     }
     connectSse(idValue)
     startStatsPolling(idValue)
+    void requestJoinToken(idValue)
   },
   { immediate: true },
 )
@@ -717,6 +837,9 @@ onMounted(() => {
   window.addEventListener('keydown', handleKeydown)
   document.addEventListener('fullscreenchange', handleFullscreenChange)
   window.addEventListener('resize', handleResize)
+  window.addEventListener('pagehide', handlePageHide)
+  window.addEventListener('beforeunload', handleBeforeUnload)
+  viewerId.value = resolveViewerId(getAuthUser())
   monitorRef.value = streamGridRef.value
   updateGridWidth()
   void loadMediaDevices()
@@ -738,25 +861,35 @@ onBeforeUnmount(() => {
   window.removeEventListener('keydown', handleKeydown)
   document.removeEventListener('fullscreenchange', handleFullscreenChange)
   window.removeEventListener('resize', handleResize)
+  window.removeEventListener('pagehide', handlePageHide)
+  window.removeEventListener('beforeunload', handleBeforeUnload)
+  void sendLeaveSignal()
   if (navigator.mediaDevices?.removeEventListener) {
     navigator.mediaDevices.removeEventListener('devicechange', loadMediaDevices)
   }
   gridObserver?.disconnect()
+  stopMicMeter()
   resetRealtimeState()
 })
 
-const openConfirm = (options: Partial<typeof confirmState>, onConfirm: () => void) => {
+const openConfirm = (options: Partial<typeof confirmState>, onConfirm: () => void, onCancel: () => void = () => {}) => {
   confirmState.title = options.title ?? ''
   confirmState.description = options.description ?? ''
   confirmState.confirmText = options.confirmText ?? '확인'
   confirmState.cancelText = options.cancelText ?? '취소'
   confirmAction.value = onConfirm
+  confirmCancelAction.value = onCancel
   confirmState.open = true
 }
 
 const handleConfirmAction = () => {
   confirmAction.value?.()
   confirmAction.value = () => {}
+}
+
+const handleConfirmCancel = () => {
+  confirmCancelAction.value?.()
+  confirmCancelAction.value = () => {}
 }
 
 const setPinnedProduct = async (productId: string | null) => {
@@ -845,6 +978,33 @@ watch(showSettings, async (open) => {
   if (open) {
     await ensureLocalMediaAccess()
     await loadMediaDevices()
+    await startMicMeter()
+    return
+  }
+  stopMicMeter()
+})
+
+watch(lifecycleStatus, () => {
+  const idValue = streamId.value ? Number(streamId.value) : NaN
+  if (Number.isNaN(idValue)) return
+  void requestJoinToken(idValue)
+})
+
+onBeforeRouteLeave(async () => {
+  if (!isInteractive.value) return true
+  return await confirmLeaveBroadcast()
+})
+
+watch([selectedMic, micEnabled], () => {
+  if (showSettings.value) {
+    void startMicMeter()
+  }
+})
+
+watch(stream, (value) => {
+  if (value && !hasOpenedDeviceModal.value) {
+    showDeviceModal.value = true
+    hasOpenedDeviceModal.value = true
   }
 })
 
@@ -889,6 +1049,23 @@ const requestEndBroadcast = () => {
     handleEndBroadcast,
   )
 }
+
+const confirmLeaveBroadcast = () =>
+  new Promise<boolean>((resolve) => {
+    openConfirm(
+      {
+        title: '방송 종료',
+        description: '방송 페이지를 나가면 방송이 종료됩니다. 계속 진행하시겠습니까?',
+        confirmText: '종료 후 이동',
+        cancelText: '취소',
+      },
+      () => {
+        handleEndBroadcast()
+        resolve(true)
+      },
+      () => resolve(false),
+    )
+  })
 
 const toggleFullscreen = async () => {
   const el = monitorRef.value
@@ -1202,7 +1379,7 @@ const toggleFullscreen = async () => {
         <p v-if="isReadOnly" class="chat-helper">방송 중에만 채팅을 이용할 수 있습니다.</p>
       </aside>
     </section>
-    <Teleport :to="modalHostTarget">
+  <Teleport :to="modalHostTarget">
       <ConfirmModal
         v-model="confirmState.open"
         :title="confirmState.title"
@@ -1210,11 +1387,13 @@ const toggleFullscreen = async () => {
         :confirm-text="confirmState.confirmText"
         :cancel-text="confirmState.cancelText"
         @confirm="handleConfirmAction"
+        @cancel="handleConfirmCancel"
       />
       <QCardModal v-model="showQCards" :q-cards="qCards" :initial-index="qCardIndex" @update:initialIndex="qCardIndex = $event" />
       <BasicInfoEditModal v-if="broadcastInfo" v-model="showBasicInfo" :broadcast="broadcastInfo" @save="handleBasicInfoSave" />
       <ChatSanctionModal v-model="showSanctionModal" :username="sanctionTarget" @save="applySanction" />
     </Teleport>
+    <DeviceSetupModal v-model="showDeviceModal" :broadcast-title="displayTitle" />
   </PageContainer>
 </template>
 
@@ -1514,8 +1693,9 @@ const toggleFullscreen = async () => {
   display: flex;
   align-items: center;
   justify-content: center;
-  overflow: auto;
+  overflow: hidden;
   min-height: 320px;
+  max-width: 100%;
 }
 
 .stream-player--fullscreen {
@@ -1548,8 +1728,9 @@ const toggleFullscreen = async () => {
 .stream-placeholder__image {
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  object-fit: contain;
   border-radius: 12px;
+  background: #000;
 }
 
 .stream-empty {

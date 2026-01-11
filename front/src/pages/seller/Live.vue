@@ -1115,9 +1115,9 @@ onBeforeUnmount(() => {
               <p class="stat-sub">정상 송출 중</p>
             </article>
             <article class="live-stat-card ds-surface">
-              <p class="stat-label">시청자 수</p>
+              <p class="stat-label">동시 접속자 수</p>
               <p class="stat-value">{{ displayLiveStats.viewers }}</p>
-              <p class="stat-sub">누적 기준</p>
+              <p class="stat-sub">실시간 기준</p>
             </article>
             <article class="live-stat-card ds-surface">
               <p class="stat-label">좋아요 수</p>
