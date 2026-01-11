@@ -87,7 +87,22 @@ public class OpenViduService {
     }
 
     public void startRecording(Long broadcastId) throws OpenViduJavaClientException, OpenViduHttpException {
-        openVidu.startRecording(sessionMap.get(broadcastId));
+        String sessionId = sessionMap.get(broadcastId);
+        if (sessionId == null) {
+            sessionId = createSession(broadcastId);
+        }
+
+        Optional<Recording> existing = findRecordingBySessionId(sessionId);
+        if (existing.isPresent()) {
+            String status = String.valueOf(existing.get().getStatus()).toLowerCase();
+            if ("starting".equals(status) || "started".equals(status)) {
+                log.info("OpenVidu recording already active: broadcastId={}, sessionId={}, status={}",
+                        broadcastId, sessionId, status);
+                return;
+            }
+        }
+
+        openVidu.startRecording(sessionId);
     }
 
     public void stopRecording(Long broadcastId) throws OpenViduJavaClientException, OpenViduHttpException {
