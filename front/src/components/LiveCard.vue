@@ -121,12 +121,16 @@ const viewerLabel = computed(() => {
   return ''
 })
 
-const isCtaDisabled = computed(() => status.value === 'UPCOMING' || status.value === 'STOPPED')
+const isCtaDisabled = computed(() => status.value === 'UPCOMING')
 
 const router = useRouter()
 
 const handleWatchNow = () => {
   if (status.value === 'LIVE' || status.value === 'READY') {
+    router.push({ name: 'live-detail', params: { id: props.item.id } })
+    return
+  }
+  if (status.value === 'STOPPED') {
     router.push({ name: 'live-detail', params: { id: props.item.id } })
     return
   }
@@ -148,6 +152,7 @@ const handleWatchNow = () => {
         <span v-if="status === 'LIVE'" class="badge badge-live">LIVE</span>
         <span v-else-if="status === 'READY'" class="badge badge-ready">READY</span>
         <span v-else-if="status === 'UPCOMING'" class="badge badge-upcoming">예약</span>
+        <span v-else-if="status === 'STOPPED'" class="badge badge-stopped">송출 중지</span>
         <span
           v-if="status === 'LIVE' && props.item.viewerCount != null"
           class="badge badge-viewers"
@@ -165,6 +170,7 @@ const handleWatchNow = () => {
       <p class="desc">{{ props.item.description }}</p>
       <div class="info-row">
         <span v-if="timeLabel" class="info-chip">{{ timeLabel }}</span>
+        <span v-if="status === 'STOPPED'" class="info-chip">경과 {{ elapsed }}</span>
         <span v-if="viewerLabel" class="info-chip">{{ viewerLabel }}</span>
       </div>
       <div class="meta-row">
@@ -246,6 +252,10 @@ const handleWatchNow = () => {
 
 .badge-upcoming {
   background: rgba(139, 122, 94, 0.9);
+}
+
+.badge-stopped {
+  background: rgba(239, 68, 68, 0.9);
 }
 
 .top-badges {

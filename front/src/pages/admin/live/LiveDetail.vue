@@ -1192,10 +1192,11 @@ watch(streamToken, () => {
 }
 
 .player-placeholder__message {
-  color: #f8fafc;
-  font-weight: 800;
-  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+  color: #ffffff;
+  font-weight: 900;
+  text-shadow: 0 3px 12px rgba(0, 0, 0, 0.45);
   max-width: min(520px, 100%);
+  font-size: 1.35rem;
 }
 
 .player-overlay {

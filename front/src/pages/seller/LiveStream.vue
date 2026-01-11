@@ -2111,6 +2111,12 @@ const toggleFullscreen = async () => {
   font-size: 1.1rem;
 }
 
+.stream-placeholder--waiting .stream-title {
+  color: #ffffff;
+  font-size: 1.35rem;
+  text-shadow: 0 3px 12px rgba(0, 0, 0, 0.45);
+}
+
 .stream-sub {
   margin: 0;
   color: var(--text-muted);

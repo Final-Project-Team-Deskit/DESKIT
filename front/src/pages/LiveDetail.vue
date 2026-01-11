@@ -103,6 +103,21 @@ const readyCountdownLabel = computed(() => {
   const seconds = totalSeconds % 60
   return `${minutes}분 ${String(seconds).padStart(2, '0')}초 뒤 방송 시작`
 })
+const elapsedLabel = computed(() => {
+  if (!liveItem.value?.startAt) return ''
+  const started = parseLiveDate(liveItem.value.startAt)
+  if (Number.isNaN(started.getTime())) return ''
+  const diffMs = Math.max(0, now.value.getTime() - started.getTime())
+  const totalSeconds = Math.floor(diffMs / 1000)
+  const hours = Math.floor(totalSeconds / 3600)
+  const minutes = Math.floor((totalSeconds % 3600) / 60)
+  const seconds = totalSeconds % 60
+  const pad = (value: number) => String(value).padStart(2, '0')
+  if (hours > 0) {
+    return `${pad(hours)}:${pad(minutes)}`
+  }
+  return `${pad(minutes)}:${pad(seconds)}`
+})
 const endedCountdownLabel = computed(() => {
   if (lifecycleStatus.value !== 'ENDED' || !scheduledEndMs.value) return ''
   const diffMs = scheduledEndMs.value - now.value.getTime()
@@ -121,6 +136,15 @@ const playerMessage = computed(() => {
   }
   if (lifecycleStatus.value === 'READY') {
     return readyCountdownLabel.value || '방송 시작 대기 중'
+  }
+  return ''
+})
+const viewerExtraLabel = computed(() => {
+  if (lifecycleStatus.value === 'READY') {
+    return readyCountdownLabel.value || '방송 시작 대기 중'
+  }
+  if (['ON_AIR', 'STOPPED', 'ENDED'].includes(lifecycleStatus.value)) {
+    return elapsedLabel.value ? `경과 ${elapsedLabel.value}` : ''
   }
   return ''
 })
@@ -1103,6 +1127,7 @@ onBeforeUnmount(() => {
               </span>
               <span v-if="liveItem.viewerCount != null" class="status-viewers">
                 {{ liveItem.viewerCount.toLocaleString() }}명 시청 중
+                <span v-if="viewerExtraLabel"> · {{ viewerExtraLabel }}</span>
               </span>
               <span v-else-if="lifecycleStatus === 'RESERVED'" class="status-schedule">
                 {{ scheduledLabel }}
@@ -1585,10 +1610,11 @@ onBeforeUnmount(() => {
 }
 
 .player-frame__message {
-  font-weight: 700;
-  color: #f5f7ff;
-  text-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
+  font-weight: 900;
+  color: #ffffff;
+  text-shadow: 0 3px 12px rgba(0, 0, 0, 0.45);
   max-width: min(560px, 100%);
+  font-size: 1.35rem;
 }
 
 .player-actions {
