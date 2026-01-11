@@ -522,6 +522,9 @@ public class BroadcastService {
                 String token = openViduService.createToken(broadcastId, params);
                 openViduService.startRecording(broadcastId);
                 return token;
+            } catch (OpenViduJavaClientException | OpenViduHttpException e) {
+                log.error("OpenVidu error during broadcast start: broadcastId={}, message={}", broadcastId, e.getMessage());
+                throw new BusinessException(ErrorCode.OPENVIDU_ERROR);
             } catch (Exception e) {
                 throw new BusinessException(ErrorCode.OPENVIDU_ERROR);
             }
