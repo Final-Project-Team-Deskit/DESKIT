@@ -465,8 +465,20 @@ const startStatsPolling = () => {
   }, 5000)
 }
 
+const isStatsTarget = (item: LiveItem) => {
+  const status = normalizeBroadcastStatus(item.status)
+  if (status === 'ON_AIR' || status === 'READY') return true
+  const startAtMs = item.startAtMs
+  const endAtMs = item.endAtMs ?? getScheduledEndMs(startAtMs)
+  if (!startAtMs || !endAtMs) return false
+  const now = Date.now()
+  return now >= startAtMs && now <= endAtMs
+}
+
 const updateLiveViewerCounts = async () => {
-  const targets = liveItems.value.filter((item) => getLifecycleStatus(item) === 'ON_AIR')
+  const targets = [...liveItems.value, ...scheduledItems.value]
+    .filter((item) => isStatsTarget(item))
+    .filter((item, index, list) => list.findIndex((candidate) => candidate.id === item.id) === index)
   if (!targets.length) return
   const updates = await Promise.allSettled(
     targets.map(async (item) => ({

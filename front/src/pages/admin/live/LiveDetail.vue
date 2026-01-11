@@ -415,6 +415,7 @@ const requestJoinToken = async () => {
   if (!detail.value) return
   if (!['READY', 'ON_AIR'].includes(lifecycleStatus.value)) return
   if (joinInFlight.value) return
+  if (joinedBroadcastId.value === Number(detail.value.id)) return
   joinInFlight.value = true
   try {
     streamToken.value = await joinBroadcast(Number(detail.value.id), viewerId.value)
