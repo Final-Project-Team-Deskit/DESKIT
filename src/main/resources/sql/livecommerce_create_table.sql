@@ -381,6 +381,7 @@ CREATE TABLE live_chat (
     member_id      BIGINT UNSIGNED NOT NULL,
     msg_type       ENUM('TALK','ENTER','EXIT','PURCHASE','NOTICE') NOT NULL COMMENT '채팅 메시지 유형',
     content        VARCHAR(500)    NOT NULL,
+    raw_content    VARCHAR(500)    NOT NULL COMMENT '?›ë¬¸ ë‚´ìš©',
     send_nick      VARCHAR(50)     NOT NULL,
     is_world       BOOLEAN         NOT NULL DEFAULT FALSE,
     is_hidden      BOOLEAN         NOT NULL DEFAULT FALSE COMMENT '숨김 처리 여부',

@@ -4,7 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { Client, type StompSubscription } from '@stomp/stompjs'
 import SockJS from 'sockjs-client/dist/sockjs'
 import PageContainer from '../components/PageContainer.vue'
-import PageHeader from '../components/PageHeader.vue'
+import PageHeader from '../comStompSubscriptionponents/PageHeader.vue'
 import ConfirmModal from '../components/ConfirmModal.vue'
 import { allLiveItems } from '../lib/home-data'
 import { getLiveStatus, parseLiveDate } from '../lib/live/utils'
@@ -93,6 +93,7 @@ const showChat = ref(true)
 const isFullscreen = ref(false)
 const stageRef = ref<HTMLElement | null>(null)
 const isLiked = ref(false)
+const viewerCount = ref<number | null>(null)
 const toggleLike = () => {
   isLiked.value = !isLiked.value
 }
@@ -136,14 +137,13 @@ const toggleSettings = () => {
 }
 
 type LiveMessageType = 'TALK' | 'ENTER' | 'EXIT' | 'PURCHASE' | 'NOTICE'
-
-// [수정] DTO 구조를 백엔드와 맞춤
 type LiveChatMessageDTO = {
   broadcastId: number
   memberEmail: string
   type: LiveMessageType
   sender: string
   content: string
+  senderRole?: string
   vodPlayTime: number
   sentAt?: number
 }
@@ -154,31 +154,10 @@ type ChatMessage = {
   text: string
   at: Date
   kind?: 'system' | 'user'
+  senderRole?: string
 }
 
-const messages = ref<ChatMessage[]>([
-  {
-    id: 'sys-1',
-    user: 'system',
-    text: '라이브에 오신 것을 환영합니다.',
-    at: new Date(Date.now() - 1000 * 60 * 6),
-    kind: 'system',
-  },
-  {
-    id: 'msg-1',
-    user: 'desklover',
-    text: '오늘 소개하는 제품이 기대돼요!',
-    at: new Date(Date.now() - 1000 * 60 * 4),
-    kind: 'user',
-  },
-  {
-    id: 'msg-2',
-    user: 'setup_master',
-    text: '채팅 참여하실 분 손들기 🙌',
-    at: new Date(Date.now() - 1000 * 60 * 2),
-    kind: 'user',
-  },
-])
+const messages = ref<ChatMessage[]>([])
 
 const input = ref('')
 const isLoggedIn = ref(true)
@@ -187,6 +166,7 @@ const memberEmail = ref<string>("") // [확인] memberEmail ref
 const nickname = ref(`guest_${Math.floor(Math.random() * 1000)}`)
 const stompClient = ref<Client | null>(null)
 let stompSubscription: StompSubscription | null = null
+let viewerSubscription: StompSubscription | null = null
 const isChatConnected = ref(false)
 const ENTER_SENT_KEY_PREFIX = 'deskit_live_enter_sent_v1'
 
@@ -207,6 +187,38 @@ const formatChatTime = (value: Date) => {
   const hours = String(value.getHours()).padStart(2, '0')
   const minutes = String(value.getMinutes()).padStart(2, '0')
   return `${hours}:${minutes}`
+}
+
+const displayViewerCount = computed(() => {
+  if (viewerCount.value !== null) {
+    return viewerCount.value
+  }
+  return liveItem.value?.viewerCount
+})
+
+const formatChatUser = (message: ChatMessage) => {
+  if (message.kind === 'system') {
+    return message.user
+  }
+  if (message.senderRole) {
+    if (message.senderRole === 'ROLE_ADMIN') {
+      return `${message.user}(관리자)`
+    }
+    if (message.senderRole.startsWith('ROLE_SELLER')) {
+      return `${message.user}(판매자)`
+    }
+    if (message.senderRole === 'ROLE_MEMBER' && message.user === nickname.value) {
+      return `${message.user}(나)`
+    }
+    return message.user
+  }
+  if (message.user === nickname.value) {
+    return `${message.user}(나)`
+  }
+  if (liveItem.value?.sellerName && message.user === liveItem.value.sellerName) {
+    return `${message.user}(판매자)`
+  }
+  return message.user
 }
 
 const scrollToBottom = () => {
@@ -263,6 +275,7 @@ const handleIncomingMessage = (payload: LiveChatMessageDTO) => {
     text: payload.content ?? '',
     at: sentAt,
     kind,
+    senderRole: payload.senderRole,
   })
 }
 
@@ -287,6 +300,7 @@ const fetchRecentMessages = async () => {
         text: item.content ?? '',
         at: new Date(item.sentAt ?? Date.now()),
         kind: 'user' as const,
+        senderRole: item.senderRole,
       }))
     scrollToBottom()
   } catch (error) {
@@ -324,6 +338,20 @@ const connectChat = () => {
         console.error('[livechat] message parse failed', error)
       }
     })
+    viewerSubscription?.unsubscribe()
+    viewerSubscription = client.subscribe(`/sub/live/${broadcastId.value}/viewers`, (frame) => {
+      try {
+        const payload = JSON.parse(frame.body) as { broadcastId: number; viewers: number }
+        if (typeof payload.viewers === 'number') {
+          viewerCount.value = payload.viewers
+        }
+      } catch {
+        const count = Number.parseInt(frame.body, 10)
+        if (Number.isFinite(count)) {
+          viewerCount.value = count
+        }
+      }
+    })
     if (shouldSendEnterMessage()) {
       sendSocketMessage('ENTER', `${nickname.value} entered the room.`)
       markEnterMessageSent()
@@ -352,6 +380,8 @@ const disconnectChat = () => {
   }
   stompSubscription?.unsubscribe()
   stompSubscription = null
+  viewerSubscription?.unsubscribe()
+  viewerSubscription = null
   if (stompClient.value) {
     stompClient.value.deactivate()
     stompClient.value = null
@@ -510,6 +540,7 @@ watch(
       return
     }
     messages.value = []
+    viewerCount.value = null
     disconnectChat()
     if (value) {
       fetchRecentMessages()
@@ -564,8 +595,8 @@ onBeforeUnmount(() => {
               <span class="status-badge" :class="`status-badge--${status?.toLowerCase()}`">
                 {{ statusLabel }}
               </span>
-              <span v-if="status === 'LIVE' && liveItem.viewerCount" class="status-viewers">
-                {{ liveItem.viewerCount.toLocaleString() }}명 시청 중
+              <span v-if="status === 'LIVE' && displayViewerCount !== undefined" class="status-viewers">
+                {{ displayViewerCount.toLocaleString() }}명 시청 중
               </span>
               <span v-else-if="status === 'UPCOMING'" class="status-schedule">
                 {{ scheduledLabel }}
@@ -680,12 +711,12 @@ onBeforeUnmount(() => {
           <div ref="chatListRef" class="chat-messages">
             <div
               v-for="message in messages"
-              :key="message.id"
-              class="chat-message"
-              :class="{ 'chat-message--system': message.kind === 'system' }"
+                :key="message.id"
+                class="chat-message"
+                :class="{ 'chat-message--system': message.kind === 'system' }"
             >
               <div class="chat-meta">
-                <span class="chat-user">{{ message.user }}</span>
+                <span class="chat-user">{{ formatChatUser(message) }}</span>
                 <span class="chat-time">{{ formatChatTime(message.at) }}</span>
               </div>
               <p class="chat-text">{{ message.text }}</p>

@@ -1,11 +1,14 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { Client, type StompSubscription } from '@stomp/stompjs'
+import SockJS from 'sockjs-client/dist/sockjs'
 import BasicInfoEditModal from '../../components/BasicInfoEditModal.vue'
 import ChatSanctionModal from '../../components/ChatSanctionModal.vue'
 import ConfirmModal from '../../components/ConfirmModal.vue'
 import PageContainer from '../../components/PageContainer.vue'
 import QCardModal from '../../components/QCardModal.vue'
+import { getAuthUser } from '../../lib/auth'
 
 type StreamProduct = {
   id: string
@@ -20,6 +23,7 @@ type StreamChat = {
   name: string
   message: string
   time?: string
+  senderRole?: string
 }
 
 type StreamData = {
@@ -40,11 +44,13 @@ const defaultNotice = '판매 상품 외 다른 상품 문의는 받지 않습�
 
 const route = useRoute()
 const router = useRouter()
+const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080'
 
 const showProducts = ref(true)
 const showChat = ref(true)
 const showSettings = ref(false)
-const viewerCount = ref(1010)
+const viewerCount = ref<number | null>(null)
+const displayViewerCount = computed(() => viewerCount.value ?? 0)
 const likeCount = ref(1574)
 const elapsed = ref('02:01:44')
 const monitorRef = ref<HTMLElement | null>(null)
@@ -57,7 +63,7 @@ const volume = ref(43)
 const selectedMic = ref('기본 마이크')
 const selectedCamera = ref('기본 카메라')
 const micInputLevel = ref(70)
-const chatText = ref('')
+const input = ref('')
 const chatListRef = ref<HTMLElement | null>(null)
 let gridObserver: ResizeObserver | null = null
 
@@ -88,13 +94,22 @@ const sanctionTarget = ref<string | null>(null)
 const sanctionedUsers = ref<Record<string, { type: string; reason: string }>>({})
 const broadcastInfo = ref<(EditableBroadcastInfo & { qCards: string[] }) | null>(null)
 const stream = ref<StreamData | null>(null)
-const chatMessages = ref<StreamChat[]>([])
+const messages = ref<StreamChat[]>([])
 
 const defaultChatTimes = ['오후 2:10', '오후 2:12', '오후 2:14']
 
 const streamId = computed(() => {
   const id = route.params.id
   return typeof id === 'string' && id.trim() ? id : null
+})
+
+const broadcastId = computed(() => {
+  if (!streamId.value) {
+    return undefined
+  }
+  const raw = String(streamId.value)
+  const numeric = Number.parseInt(raw.replace(/[^0-9]/g, ''), 10)
+  return Number.isFinite(numeric) ? numeric : undefined
 })
 
 const streamMap: Record<string, StreamData> = {
@@ -111,10 +126,6 @@ const streamMap: Record<string, StreamData> = {
       { id: 'lp-4', title: '알루미늄 모니터암', option: '싱글 · 블랙', status: '판매중' },
     ],
     chat: [
-      { id: 'c-1', name: '연두', message: '라이브 시작했나요?' },
-      { id: 'c-2', name: '민지', message: '가격 할인 언제까지인가요?' },
-      { id: 'c-3', name: '도현', message: '블랙 색상 재입고 예정 있나요?' },
-      { id: 'c-4', name: '지수', message: '오늘 배송 가능할까요?' },
     ],
   },
   'live-2': {
@@ -152,7 +163,7 @@ const sortedProducts = computed(() => {
   return items
 })
 
-const chatItems = computed(() => chatMessages.value)
+const chatItems = computed(() => messages.value)
 
 const hasSidePanels = computed(() => showProducts.value || showChat.value)
 const gridStyles = computed(() => ({
@@ -219,7 +230,7 @@ const hydrateStream = () => {
   if (!next) {
     pinnedProductId.value = null
     broadcastInfo.value = null
-    chatMessages.value = []
+    messages.value = []
     isLoadingStream.value = false
     return
   }
@@ -233,7 +244,7 @@ const hydrateStream = () => {
     waitingScreen: next.waitingScreen,
     qCards: next.qCards,
   }
-  chatMessages.value = (next.chat ?? []).map((item, index) => ({
+  messages.value = (next.chat ?? []).map((item, index) => ({
     ...item,
     time: item.time ?? defaultChatTimes[index % defaultChatTimes.length],
   }))
@@ -330,8 +341,8 @@ const applySanction = (payload: { type: string; reason: string }) => {
   sanctionTarget.value = null
   const now = new Date()
   const at = `${now.getHours()}시 ${String(now.getMinutes()).padStart(2, '0')}분`
-  chatMessages.value = [
-    ...chatMessages.value,
+  messages.value = [
+    ...messages.value,
     {
       id: `sys-${Date.now()}`,
       name: 'SYSTEM',
@@ -356,20 +367,20 @@ const formatChatTime = () => {
   return `${hours >= 12 ? '오후' : '오전'} ${displayHour}:${minutes}`
 }
 
-const handleSendChat = () => {
-  if (!chatText.value.trim()) return
-  chatMessages.value = [
-    ...chatMessages.value,
-    {
-      id: `seller-${Date.now()}`,
-      name: '판매자',
-      message: chatText.value.trim(),
-      time: formatChatTime(),
-    },
-  ]
-  chatText.value = ''
-  scrollChatToBottom()
-}
+// const handleSendChat = () => {
+//   if (!input.value.trim()) return
+//   chatMessages.value = [
+//     ...chatMessages.value,
+//     {
+//       id: `seller-${Date.now()}`,
+//       name: '판매자',
+//       message: input.value.trim(),
+//       time: formatChatTime(),
+//     },
+//   ]
+//   input.value = ''
+//   scrollChatToBottom()
+// }
 
 watch(showChat, (open) => {
   if (open) {
@@ -416,6 +427,265 @@ const toggleFullscreen = async () => {
     return
   }
 }
+
+type LiveMessageType = 'TALK' | 'ENTER' | 'EXIT' | 'PURCHASE' | 'NOTICE'
+
+type LiveChatMessageDTO = {
+  broadcastId: number
+  memberEmail: string
+  type: LiveMessageType
+  sender: string
+  content: string
+  senderRole?: string
+  vodPlayTime: number
+  sentAt?: number
+}
+
+const isChatConnected = ref(false)
+const stompClient = ref<Client | null>(null)
+let stompSubscription: StompSubscription | null = null
+let viewerSubscription: StompSubscription | null = null
+
+const isLoggedIn = ref(true)
+const nickname = ref('판매자')
+const memberEmail = ref('seller@deskit.com')
+const ENTER_SENT_KEY_PREFIX = 'deskit_live_enter_sent_v1'
+
+const getAccessToken = () => {
+  return localStorage.getItem('access') || sessionStorage.getItem('access')
+}
+
+const refreshAuth = () => {
+  const user = getAuthUser()
+  isLoggedIn.value = user !== null
+  if (user?.name) {
+    nickname.value = user.name
+  }
+  memberEmail.value = user?.email || memberEmail.value || 'seller@deskit.com'
+}
+
+const handleAuthUpdate = () => {
+  refreshAuth()
+}
+
+const getEnterSentKey = () => {
+  if (!broadcastId.value) {
+    return null
+  }
+  return `${ENTER_SENT_KEY_PREFIX}:${broadcastId.value}`
+}
+
+const shouldSendEnterMessage = () => {
+  const key = getEnterSentKey()
+  if (!key) {
+    return false
+  }
+  try {
+    return localStorage.getItem(key) !== 'true'
+  } catch {
+    return true
+  }
+}
+
+const markEnterMessageSent = () => {
+  const key = getEnterSentKey()
+  if (!key) {
+    return
+  }
+  try {
+    localStorage.setItem(key, 'true')
+  } catch {
+    return
+  }
+}
+
+// 1. 메시지를 화면 배열에 추가
+const appendMessage = (payload: LiveChatMessageDTO) => {
+  const isSystem = payload.type !== 'TALK'
+  messages.value.push({
+    id: `chat-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+    name: isSystem ? 'SYSTEM' : payload.sender || 'unknown',
+    message: payload.content ?? '',
+    senderRole: payload.senderRole,
+    time: payload.sentAt ? new Date(payload.sentAt).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }) : formatChatTime()
+  })
+  scrollChatToBottom()
+}
+
+const formatChatUser = (item: StreamChat) => {
+  if (item.name === 'SYSTEM') {
+    return item.name
+  }
+  if (item.senderRole) {
+    if (item.senderRole === 'ROLE_ADMIN') {
+      return `${item.name}(관리자)`
+    }
+    if (item.senderRole.startsWith('ROLE_SELLER')) {
+      return `${item.name}(판매자)`
+    }
+    if (item.senderRole === 'ROLE_MEMBER' && item.name === nickname.value) {
+      return `${item.name}(나)`
+    }
+  }
+  return item.name === nickname.value ? `${item.name}(판매자)` : item.name
+}
+
+const fetchRecentMessages = async () => {
+  if (!broadcastId.value) {
+    return
+  }
+  try {
+    const response = await fetch(`${apiBase}/livechats/${broadcastId.value}/recent?seconds=60`)
+    if (!response.ok) {
+      return
+    }
+    const recent = (await response.json()) as LiveChatMessageDTO[]
+    if (!Array.isArray(recent) || recent.length === 0) {
+      return
+    }
+    messages.value = recent
+      .filter((item) => item.type === 'TALK')
+      .map((item) => {
+        const at = new Date(item.sentAt ?? Date.now())
+          return {
+            id: `${item.sentAt ?? Date.now()}-${Math.random().toString(16).slice(2)}`,
+            name: item.sender || 'unknown',
+            message: item.content ?? '',
+            senderRole: item.senderRole,
+            time: at.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })
+          }
+        })
+    scrollChatToBottom()
+  } catch (error) {
+    console.error('[livechat] recent fetch failed', error)
+  }
+}
+
+// 2. 소켓을 통해 메시지 전송
+const sendSocketMessage = (type: LiveMessageType, content: string) => {
+  if (!stompClient.value?.connected || !broadcastId.value) return
+
+  const payload: LiveChatMessageDTO = {
+    broadcastId: broadcastId.value,
+    memberEmail: memberEmail.value,
+    type,
+    sender: nickname.value,
+    content,
+    vodPlayTime: 0,
+    sentAt: Date.now()
+  }
+
+  stompClient.value.publish({
+    destination: '/pub/chat/message',
+    body: JSON.stringify(payload)
+  })
+}
+
+// 3. 채팅방 연결
+const connectChat = () => {
+  if (!broadcastId.value || stompClient.value?.active) return
+
+  const client = new Client({
+    webSocketFactory: () =>
+      new SockJS(`${apiBase}/ws`, undefined, {
+        withCredentials: true,
+      }),
+    reconnectDelay: 5000,
+    debug: (str) => console.log('[STOMP]', str)
+  })
+  const access = getAccessToken()
+  if (access) {
+    client.connectHeaders = {
+      access,
+      Authorization: `Bearer ${access}`
+    }
+  }
+
+  client.onConnect = () => {
+    isChatConnected.value = true
+    // 구독 시작
+    stompSubscription?.unsubscribe()
+    stompSubscription = client.subscribe(`/sub/chat/${broadcastId.value}`, (frame) => {
+      try {
+        const payload = JSON.parse(frame.body) as LiveChatMessageDTO
+        appendMessage(payload)
+      } catch (e) {
+        console.error('메시지 수신 에러:', e)
+      }
+    })
+    viewerSubscription?.unsubscribe()
+    viewerSubscription = client.subscribe(`/sub/live/${broadcastId.value}/viewers`, (frame) => {
+      try {
+        const payload = JSON.parse(frame.body) as { broadcastId: number; viewers: number }
+        if (typeof payload.viewers === 'number') {
+          viewerCount.value = payload.viewers
+        }
+      } catch {
+        const count = Number.parseInt(frame.body, 10)
+        if (Number.isFinite(count)) {
+          viewerCount.value = count
+        }
+      }
+    })
+
+    // 입장 알림
+    if (shouldSendEnterMessage()) {
+      sendSocketMessage('ENTER', `${nickname.value}님이 입장했습니다.`)
+      markEnterMessageSent()
+    }
+  }
+
+  client.onStompError = (frame) => {
+    console.error('[livechat] stomp error', frame.headers, frame.body)
+  }
+
+  client.onWebSocketClose = () => { isChatConnected.value = false }
+  client.onDisconnect = () => { isChatConnected.value = false }
+  stompClient.value = client
+  client.activate()
+}
+
+// 4. 채팅방 해제
+const disconnectChat = () => {
+  if (stompClient.value?.connected) {
+    sendSocketMessage('EXIT', `${nickname.value}님이 퇴장했습니다.`)
+  }
+  stompSubscription?.unsubscribe()
+  stompSubscription = null
+  viewerSubscription?.unsubscribe()
+  viewerSubscription = null
+  stompClient.value?.deactivate()
+  stompClient.value = null
+  isChatConnected.value = false
+}
+
+// 5. 메시지 전송 버튼 핸들러 (UI와 연결)
+const handleSendChat = () => {
+  if (!input.value.trim() || !isChatConnected.value || !isLoggedIn.value) return
+  sendSocketMessage('TALK', input.value.trim())
+  input.value = ''
+}
+
+onMounted(() => {
+  refreshAuth()
+  window.addEventListener('deskit-user-updated', handleAuthUpdate)
+})
+
+// 6. 방송 ID 변경 시 재연결 및 정리
+watch(broadcastId, (newId) => {
+  messages.value = []
+  viewerCount.value = null
+  disconnectChat()
+  if (newId) {
+    fetchRecentMessages()
+    connectChat()
+  }
+}, { immediate: true })
+
+onBeforeUnmount(() => {
+  window.removeEventListener('deskit-user-updated', handleAuthUpdate)
+  disconnectChat()
+})
 </script>
 
 <template>
@@ -508,7 +778,7 @@ const toggleFullscreen = async () => {
           >
             <div class="stream-overlay stream-overlay--stack">
               <div class="stream-overlay__row">⏱ 경과 {{ elapsed }}</div>
-              <div class="stream-overlay__row">👥 {{ viewerCount.toLocaleString('ko-KR') }}명</div>
+              <div class="stream-overlay__row">👥 {{ displayViewerCount.toLocaleString('ko-KR') }}명</div>
               <div class="stream-overlay__row">❤ {{ likeCount.toLocaleString('ko-KR') }}</div>
             </div>
             <div class="stream-fab">
@@ -683,7 +953,7 @@ const toggleFullscreen = async () => {
             @contextmenu.prevent="openSanction(item.name)"
           >
             <div class="chat-meta">
-              <span class="chat-user">{{ item.name }}</span>
+              <span class="chat-user">{{ formatChatUser(item) }}</span>
               <span class="chat-time">{{ item.time }}</span>
               <span v-if="sanctionedUsers[item.name]" class="chat-badge">{{ sanctionedUsers[item.name].type }}</span>
             </div>
@@ -691,8 +961,14 @@ const toggleFullscreen = async () => {
           </div>
         </div>
         <div class="chat-input">
-          <input v-model="chatText" type="text" placeholder="메시지를 입력하세요" @keyup.enter="handleSendChat" />
-          <button type="button" class="stream-btn primary" @click="handleSendChat">전송</button>
+          <input
+            v-model="input"
+            type="text"
+            placeholder="메시지를 입력하세요"
+            :disabled="!isLoggedIn || !isChatConnected"
+            @keyup.enter="handleSendChat"
+          />
+          <button type="button" class="stream-btn primary" :disabled="!isLoggedIn || !isChatConnected" @click="handleSendChat">전송</button>
         </div>
       </aside>
     </section>
@@ -1356,3 +1632,7 @@ const toggleFullscreen = async () => {
   }
 }
 </style>
+
+
+
+

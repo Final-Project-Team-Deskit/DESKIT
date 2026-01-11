@@ -264,7 +264,7 @@ const buildLiveItems = () => {
 
   const seeds: Array<LiveItem & { startOffset: number; duration: number }> = [
     {
-      id: 'live-1',
+      id: 'live-11',
       title: '진행 중인 방송 제목',
       subtitle: '셋업 추천 라이브',
       thumb: gradientThumb('0f172a', '1f2937'),

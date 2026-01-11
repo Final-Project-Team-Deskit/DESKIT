@@ -33,6 +33,9 @@ public class LiveChat {
     @Column(length = 500, nullable = false,name = "content")
     private String content;
 
+    @Column(length = 500, nullable = false,name = "raw_content")
+    private String rawContent;
+
     @Column(length = 50, nullable = false,name = "send_nick")
     private String sendNick;
 
