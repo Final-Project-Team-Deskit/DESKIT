@@ -523,18 +523,6 @@ public class BroadcastService {
             try {
                 Map<String, Object> params = Map.of("role", "HOST", "sellerId", sellerId);
                 String token = openViduService.createToken(broadcastId, params);
-                try {
-                    openViduService.startRecording(broadcastId);
-                } catch (OpenViduHttpException e) {
-                    int status = e.getStatus();
-                    if (status == 406) {
-                        scheduleRecordingStartRetry(broadcastId, "start_broadcast", status);
-                    } else if (status == 409) {
-                        log.info("OpenVidu recording already started: broadcastId={}", broadcastId);
-                    } else {
-                        throw e;
-                    }
-                }
                 return token;
             } catch (OpenViduJavaClientException | OpenViduHttpException e) {
                 log.error("OpenVidu error during broadcast start: broadcastId={}, message={}", broadcastId, e.getMessage());
@@ -612,6 +600,37 @@ public class BroadcastService {
             sseService.notifyBroadcastUpdate(broadcastId, "BROADCAST_ENDED", "ended");
         } finally {
             redisService.releaseLock(lockKey);
+        }
+    }
+
+    public void startRecording(Long sellerId, Long broadcastId) {
+        Broadcast broadcast = broadcastRepository.findById(broadcastId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.BROADCAST_NOT_FOUND));
+
+        if (!broadcast.getSeller().getSellerId().equals(sellerId)) {
+            throw new BusinessException(ErrorCode.FORBIDDEN_ACCESS);
+        }
+
+        if (broadcast.getStatus() != BroadcastStatus.ON_AIR) {
+            throw new BusinessException(ErrorCode.BROADCAST_NOT_ON_AIR);
+        }
+
+        try {
+            openViduService.startRecording(broadcastId);
+        } catch (OpenViduHttpException e) {
+            int status = e.getStatus();
+            if (status == 406) {
+                scheduleRecordingStartRetry(broadcastId, "publisher_stream_created", status);
+            } else if (status == 409) {
+                log.info("OpenVidu recording already started: broadcastId={}", broadcastId);
+            } else {
+                log.error("OpenVidu recording start failed: broadcastId={}, status={}", broadcastId, status);
+                throw new BusinessException(ErrorCode.OPENVIDU_ERROR);
+            }
+        } catch (OpenViduJavaClientException e) {
+            scheduleRecordingStartRetry(broadcastId, "publisher_stream_created", 0);
+        } catch (Exception e) {
+            throw new BusinessException(ErrorCode.OPENVIDU_ERROR);
         }
     }
 

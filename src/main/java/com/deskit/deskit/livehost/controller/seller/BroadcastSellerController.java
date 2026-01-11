@@ -145,6 +145,15 @@ public class BroadcastSellerController {
         return ResponseEntity.ok(ApiResult.success(token));
     }
 
+    @PostMapping("/{broadcastId}/recording/start")
+    public ResponseEntity<ApiResult<Void>> startRecording(
+            @PathVariable Long broadcastId
+    ) {
+        Seller seller = liveAuthUtils.getCurrentSeller();
+        broadcastService.startRecording(seller.getSellerId(), broadcastId);
+        return ResponseEntity.ok(ApiResult.success(null));
+    }
+
     @PostMapping("/{broadcastId}/end")
     public ResponseEntity<ApiResult<Void>> endBroadcast(
             @PathVariable Long broadcastId

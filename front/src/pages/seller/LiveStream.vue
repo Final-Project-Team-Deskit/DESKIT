@@ -16,6 +16,7 @@ import {
   joinBroadcast,
   leaveBroadcast,
   startSellerBroadcast,
+  startSellerRecording,
   endSellerBroadcast,
   pinSellerBroadcastProduct,
   unpinSellerBroadcastProduct,
@@ -151,6 +152,7 @@ const openviduConnected = ref(false)
 let publisherRestartTimer: number | null = null
 const joinInFlight = ref(false)
 const startRequested = ref(false)
+const recordingStartRequested = ref(false)
 const endRequested = ref(false)
 const endRequestTimer = ref<number | null>(null)
 const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080'
@@ -421,7 +423,7 @@ const restartPublisher = async () => {
   }
 }
 
-const connectPublisher = async (token: string) => {
+const connectPublisher = async (broadcastId: number, token: string) => {
   if (openviduConnected.value) return
   if (!publisherContainerRef.value) return
   try {
@@ -436,6 +438,7 @@ const connectPublisher = async (token: string) => {
     await openviduSession.value.publish(openviduPublisher.value)
     openviduConnected.value = true
     applyPublisherVolume()
+    await requestStartRecording(broadcastId)
   } catch {
     disconnectOpenVidu()
   }
@@ -464,7 +467,7 @@ const ensurePublisherConnected = async (broadcastId: number) => {
     if (!token) return
   }
   if (!publisherToken.value) return
-  await connectPublisher(publisherToken.value)
+  await connectPublisher(broadcastId, publisherToken.value)
 }
 
 const clearStartTimer = () => {
@@ -580,6 +583,7 @@ const resetRealtimeState = () => {
   clearPublisherRestartTimer()
   disconnectOpenVidu()
   startRequested.value = false
+  recordingStartRequested.value = false
   endRequested.value = false
 }
 
@@ -589,10 +593,20 @@ const requestStartBroadcast = async (broadcastId: number) => {
   try {
     const token = await startSellerBroadcast(broadcastId)
     publisherToken.value = token
-    await connectPublisher(token)
+    await connectPublisher(broadcastId, token)
     scheduleRefresh(broadcastId)
   } catch {
     startRequested.value = false
+  }
+}
+
+const requestStartRecording = async (broadcastId: number) => {
+  if (recordingStartRequested.value) return
+  recordingStartRequested.value = true
+  try {
+    await startSellerRecording(broadcastId)
+  } catch {
+    recordingStartRequested.value = false
   }
 }
 
