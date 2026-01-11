@@ -633,9 +633,7 @@ const visibleVodItems = computed(() => filteredVodItems.value.slice(0, VOD_PAGE_
 const buildLoopItems = (items: LiveItem[], enableLoop: boolean): LiveItem[] => {
   if (!items.length) return []
   if (!enableLoop || items.length === 1) return items
-  const first = items[0]!
-  const last = items[items.length - 1]!
-  return [last, ...items, first]
+  return items
 }
 
 const scheduledLoopItems = computed<LiveItem[]>(() => buildLoopItems(scheduledSummary.value, loopEnabled.value.scheduled))
@@ -667,7 +665,7 @@ const baseItemsFor = (kind: LoopKind) => (kind === 'scheduled' ? scheduledSummar
 const getBaseLoopIndex = (kind: LoopKind) => {
   const items = loopItemsFor(kind)
   if (!items.length) return 0
-  return loopEnabled.value[kind] && items.length > 1 ? 1 : 0
+  return 0
 }
 
 const setCarouselRef = (kind: LoopKind) => (el: Element | ComponentPublicInstance | null) => {
@@ -708,22 +706,7 @@ const getTrackStyle = (kind: LoopKind) => {
 
 const handleLoopTransitionEnd = (kind: LoopKind) => {
   if (!loopEnabled.value[kind]) return
-  const items = loopItemsFor(kind)
-  if (items.length <= 1 || !isCarouselOverflowing(kind)) return
-  const lastIndex = items.length - 1
-  if (loopIndex.value[kind] === lastIndex) {
-    loopTransition.value[kind] = false
-    loopIndex.value[kind] = 1
-    requestAnimationFrame(() => {
-      loopTransition.value[kind] = true
-    })
-  } else if (loopIndex.value[kind] === 0) {
-    loopTransition.value[kind] = false
-    loopIndex.value[kind] = lastIndex - 1
-    requestAnimationFrame(() => {
-      loopTransition.value[kind] = true
-    })
-  }
+  if (!isCarouselOverflowing(kind)) return
 }
 
 const stepCarousel = (kind: LoopKind, delta: -1 | 1) => {
@@ -739,21 +722,20 @@ const stepCarousel = (kind: LoopKind, delta: -1 | 1) => {
     loopIndex.value[kind] = getBaseLoopIndex(kind)
     return
   }
-  const firstRealIndex = 1
-  const lastRealIndex = items.length - 2
   const nextIndex = loopIndex.value[kind] + delta
-  if (nextIndex > lastRealIndex) {
+  const lastIndex = items.length - 1
+  if (nextIndex > lastIndex) {
     loopTransition.value[kind] = false
-    loopIndex.value[kind] = firstRealIndex
+    loopIndex.value[kind] = 0
     requestAnimationFrame(() => {
       loopTransition.value[kind] = true
     })
     restartAutoLoop(kind)
     return
   }
-  if (nextIndex < firstRealIndex) {
+  if (nextIndex < 0) {
     loopTransition.value[kind] = false
-    loopIndex.value[kind] = lastRealIndex
+    loopIndex.value[kind] = lastIndex
     requestAnimationFrame(() => {
       loopTransition.value[kind] = true
     })
