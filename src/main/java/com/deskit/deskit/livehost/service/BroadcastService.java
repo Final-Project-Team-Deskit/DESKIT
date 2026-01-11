@@ -1235,6 +1235,79 @@ public class BroadcastService {
         );
     }
 
+    @Transactional
+    public void saveBroadcastResultSnapshot(Broadcast broadcast) {
+        if (broadcast == null) {
+            return;
+        }
+
+        Long broadcastId = broadcast.getBroadcastId();
+        int uv = redisService.getTotalUniqueViewerCount(broadcastId);
+        int likes = redisService.getLikeCount(broadcastId);
+        int reports = redisService.getReportCount(broadcastId);
+        int mv = redisService.getMaxViewers(broadcastId);
+        LocalDateTime peak = redisService.getMaxViewersTime(broadcastId);
+        Double avg = viewHistoryRepository.getAverageWatchTime(broadcastId);
+        int totalChats = countBroadcastChats(broadcastId);
+        SalesSummary salesSummary = fetchBroadcastSalesSummary(broadcast);
+
+        BroadcastResult result = broadcastResultRepository.findById(broadcastId).orElse(null);
+        int avgWatchTime = avg != null ? avg.intValue() : 0;
+        BigDecimal totalSales = salesSummary.totalSales() != null ? salesSummary.totalSales() : BigDecimal.ZERO;
+        LocalDateTime peakTime = peak;
+        int maxViews = mv;
+        int totalViews = uv;
+        int totalLikes = likes;
+        int totalReports = reports;
+        int chats = totalChats;
+
+        if (result != null) {
+            totalViews = Math.max(result.getTotalViews(), uv);
+            totalLikes = Math.max(result.getTotalLikes(), likes);
+            totalReports = Math.max(result.getTotalReports(), reports);
+            chats = Math.max(result.getTotalChats(), totalChats);
+            maxViews = Math.max(result.getMaxViews(), mv);
+            if (mv <= result.getMaxViews()) {
+                peakTime = result.getPickViewsAt();
+            }
+            if (peakTime == null) {
+                peakTime = peak;
+            }
+            if (avg == null) {
+                avgWatchTime = result.getAvgWatchTime();
+            }
+            if (result.getTotalSales() != null && result.getTotalSales().compareTo(totalSales) > 0) {
+                totalSales = result.getTotalSales();
+            }
+        }
+
+        if (result == null) {
+            result = BroadcastResult.builder()
+                    .broadcast(broadcast)
+                    .totalViews(totalViews)
+                    .totalLikes(totalLikes)
+                    .totalReports(totalReports)
+                    .avgWatchTime(avgWatchTime)
+                    .maxViews(maxViews)
+                    .pickViewsAt(peakTime)
+                    .totalChats(chats)
+                    .totalSales(totalSales)
+                    .build();
+        } else {
+            result.updateFinalStats(
+                    totalViews,
+                    totalLikes,
+                    totalReports,
+                    avgWatchTime,
+                    maxViews,
+                    peakTime,
+                    chats,
+                    totalSales
+            );
+        }
+        broadcastResultRepository.save(result);
+    }
+
     private record SalesSummary(BigDecimal totalSales, Map<Long, SalesMetric> productMetrics) {
     }
 
@@ -1302,6 +1375,9 @@ public class BroadcastService {
                     if (broadcast != null && (broadcast.getStatus() == BroadcastStatus.ENDED || broadcast.getStatus() == BroadcastStatus.STOPPED)) {
                         validateTransition(broadcast.getStatus(), BroadcastStatus.VOD);
                         broadcast.changeStatus(BroadcastStatus.VOD);
+                    }
+                    if (broadcast != null) {
+                        saveBroadcastResultSnapshot(broadcast);
                     }
                     sseService.notifyBroadcastUpdate(schedule.broadcastId(), "BROADCAST_SCHEDULED_END", "ended");
                 }

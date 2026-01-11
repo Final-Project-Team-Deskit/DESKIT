@@ -20,6 +20,7 @@ public class AdminService {
     private final RedisService redisService;
     private final SseService sseService;
     private final SanctionService sanctionService;
+    private final BroadcastService broadcastService;
 
     @Transactional(readOnly = true)
     public SanctionStatisticsResponse getSanctionStatistics(String period) {
@@ -48,6 +49,7 @@ public class AdminService {
             validateTransition(broadcast.getStatus(), BroadcastStatus.STOPPED);
             broadcast.forceStopByAdmin(reason);
 
+            broadcastService.saveBroadcastResultSnapshot(broadcast);
             openViduService.closeSession(broadcastId);
             redisService.deleteBroadcastKeys(broadcastId);
             sseService.notifyBroadcastUpdate(broadcastId, "BROADCAST_STOPPED", reason);
