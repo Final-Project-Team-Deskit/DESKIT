@@ -25,12 +25,15 @@ import {
   deleteSellerImage,
   fetchCategories,
   fetchReservationSlots,
+  fetchSellerBroadcasts,
   fetchSellerProducts,
   type ReservationSlot,
   type UploadImageType,
   uploadSellerImage,
   updateBroadcast,
 } from '../../lib/live/api'
+import {normalizeBroadcastStatus} from '../../lib/broadcastStatus'
+import {parseLiveDate} from '../../lib/live/utils'
 
 const router = useRouter()
 const route = useRoute()
@@ -46,6 +49,7 @@ const modalProducts = ref<LiveCreateProduct[]>([])
 const sellerProducts = ref<LiveCreateProduct[]>([])
 const categories = ref<BroadcastCategory[]>([])
 const reservationSlots = ref<ReservationSlot[]>([])
+const reservedTimes = ref<string[]>([])
 const activeDate = ref('')
 const cropperOpen = ref(false)
 const cropperSource = ref('')
@@ -593,8 +597,31 @@ const reloadReservationSlots = async (date: string) => {
   if (!date) return
   try {
     reservationSlots.value = await fetchReservationSlots(date)
-    const current = reservationSlots.value.map((slot) => slot.time)
-    if (draft.value.time && !current.includes(draft.value.time)) {
+    reservedTimes.value = []
+    try {
+      const reservedList = await fetchSellerBroadcasts({
+        tab: 'RESERVED',
+        size: 200,
+        startDate: date,
+        endDate: date,
+      })
+      const blocked = reservedList
+        .filter((item) => normalizeBroadcastStatus(item.status) !== 'CANCELED')
+        .filter((item) => !isEditMode.value || String(item.broadcastId) !== reservationId.value)
+        .map((item) => item.startAt)
+        .filter((value): value is string => Boolean(value))
+        .map((value) => {
+          const parsed = parseLiveDate(value)
+          if (Number.isNaN(parsed.getTime())) return null
+          return `${String(parsed.getHours()).padStart(2, '0')}:${String(parsed.getMinutes()).padStart(2, '0')}`
+        })
+        .filter((value): value is string => Boolean(value))
+      reservedTimes.value = Array.from(new Set(blocked))
+    } catch {
+      reservedTimes.value = []
+    }
+    const availableTimes = reservationSlots.value.map((slot) => slot.time).filter((time) => !reservedTimes.value.includes(time))
+    if (draft.value.time && !availableTimes.includes(draft.value.time)) {
       draft.value.time = ''
     }
   } catch (apiError) {
@@ -602,7 +629,10 @@ const reloadReservationSlots = async (date: string) => {
   }
 }
 
-const timeOptions = computed(() => reservationSlots.value.map((slot) => slot.time))
+const timeOptions = computed(() => {
+  if (!reservedTimes.value.length) return reservationSlots.value.map((slot) => slot.time)
+  return reservationSlots.value.filter((slot) => !reservedTimes.value.includes(slot.time)).map((slot) => slot.time)
+})
 
 watch(
     () => [isEditMode.value, reservationId.value],

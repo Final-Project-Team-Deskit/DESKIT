@@ -111,7 +111,7 @@ const endedCountdownLabel = computed(() => {
 })
 const playerMessage = computed(() => {
   if (lifecycleStatus.value === 'STOPPED') {
-    return '방송 운영 정책위반으로 방송이 송출 중지되었습니다.'
+    return '방송이 운영정책 위반으로 송출 중지되었습니다.'
   }
   if (lifecycleStatus.value === 'ENDED') {
     return '방송이 종료되었습니다.'
@@ -238,6 +238,8 @@ const handleProductClick = (productId: string) => {
 }
 
 const showChat = ref(true)
+const stopEntryPrompted = ref(false)
+const isStopRestricted = ref(false)
 const isFullscreen = ref(false)
 const stageRef = ref<HTMLElement | null>(null)
 const isLiked = ref(false)
@@ -388,6 +390,7 @@ const ensureSubscriberConnected = async () => {
 }
 
 const toggleChat = () => {
+  if (isStopRestricted.value) return
   showChat.value = !showChat.value
 }
 
@@ -482,7 +485,23 @@ const parseSseData = (event: MessageEvent) => {
 }
 
 const buildStopConfirmMessage = () => {
-  return '방송 운영 정책위반으로 방송이 송출 중지되었습니다.\n방송에서 나가시겠습니까?'
+  return '방송 운영 정책 위반으로 방송이 중지되었습니다.\n방송에서 나가시겠습니까?'
+}
+
+const handleStopDecision = (message: string) => {
+  const ok = window.confirm(message)
+  if (ok) {
+    router.push({ name: 'live' }).catch(() => {})
+    return
+  }
+  isStopRestricted.value = true
+  showChat.value = false
+}
+
+const promptStoppedEntry = () => {
+  if (stopEntryPrompted.value) return
+  stopEntryPrompted.value = true
+  handleStopDecision('해당 방송은 운영정책 위반으로 송출 중지되었습니다. 방송을 나가겠습니까?')
 }
 
 const scheduleRefresh = () => {
@@ -531,9 +550,8 @@ const handleSseEvent = (event: MessageEvent) => {
         }
       }
       scheduleRefresh()
-      if (window.confirm(buildStopConfirmMessage())) {
-        router.push({ name: 'live' }).catch(() => {})
-      }
+      stopEntryPrompted.value = true
+      handleStopDecision(buildStopConfirmMessage())
       break
     default:
       break
@@ -982,6 +1000,12 @@ watch(
 watch(
   lifecycleStatus,
   () => {
+    if (lifecycleStatus.value === 'STOPPED') {
+      promptStoppedEntry()
+    } else {
+      isStopRestricted.value = false
+      stopEntryPrompted.value = false
+    }
     void requestJoinToken()
     if (lifecycleStatus.value === 'ON_AIR') {
       void ensureSubscriberConnected()
@@ -1049,9 +1073,9 @@ onBeforeUnmount(() => {
     <section v-else class="live-detail-layout">
       <div
         class="live-detail-main"
-        :class="{ 'live-detail-main--chat': showChat }"
+        :class="{ 'live-detail-main--chat': showChat && !isStopRestricted }"
         :style="{
-          gridTemplateColumns: showChat ? 'minmax(0, 1.6fr) minmax(0, 0.95fr)' : 'minmax(0, 1fr)',
+          gridTemplateColumns: showChat && !isStopRestricted ? 'minmax(0, 1.6fr) minmax(0, 0.95fr)' : 'minmax(0, 1fr)',
         }"
       >
         <section class="panel panel--player live-detail-main__primary">
@@ -1091,7 +1115,7 @@ onBeforeUnmount(() => {
               <p v-if="playerMessage" class="player-frame__message">{{ playerMessage }}</p>
             </div>
             <span v-else-if="!hasSubscriberStream" class="player-frame__label">LIVE 플레이어</span>
-            <div class="player-actions">
+            <div v-if="!isStopRestricted" class="player-actions">
               <div class="icon-action">
                 <button
                   type="button"
@@ -1198,7 +1222,7 @@ onBeforeUnmount(() => {
           </div>
         </section>
 
-        <aside v-if="showChat" class="chat-panel ds-surface">
+        <aside v-if="showChat && !isStopRestricted" class="chat-panel ds-surface">
           <header class="chat-head">
             <div class="chat-head__title">
               <h4>실시간 채팅</h4>
@@ -1244,7 +1268,7 @@ onBeforeUnmount(() => {
         </aside>
       </div>
 
-      <section class="panel panel--products">
+      <section v-if="!isStopRestricted" class="panel panel--products">
         <div class="panel__header">
           <h3 class="panel__title">라이브 상품</h3>
           <span class="panel__count">{{ products.length }}개</span>

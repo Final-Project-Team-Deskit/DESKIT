@@ -325,6 +325,9 @@ const modalTitle = computed(() => (props.broadcastTitle ? `${props.broadcastTitl
   display: flex;
   flex-direction: column;
   gap: 14px;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
 }
 
 .preview-box {

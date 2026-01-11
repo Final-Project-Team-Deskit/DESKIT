@@ -17,6 +17,7 @@ import { useNow } from '../../lib/live/useNow'
 import {
   fetchBroadcastStats,
   fetchCategories,
+  fetchMediaConfig,
   fetchSellerBroadcastDetail,
   fetchSellerBroadcastReport,
   fetchSellerBroadcasts,
@@ -937,10 +938,22 @@ watch(
   { immediate: true },
 )
 
-const handleCta = (kind: CarouselKind, item: LiveItem) => {
+const handleCta = async (kind: CarouselKind, item: LiveItem) => {
   if (kind === 'live') {
     const lifecycleStatus = getLifecycleStatus(item)
     if (lifecycleStatus === 'READY' && hasReachedStartTime(item.startAtMs)) {
+      const id = parseBroadcastId(item.id)
+      if (id) {
+        try {
+          const config = await fetchMediaConfig(id)
+          if (config) {
+            router.push({ path: `/seller/live/stream/${resolveRouteId(item)}`, query: { tab: activeTab.value } }).catch(() => {})
+            return
+          }
+        } catch {
+          // ignore
+        }
+      }
       selectedScheduled.value = item
       showDeviceModal.value = true
       return
