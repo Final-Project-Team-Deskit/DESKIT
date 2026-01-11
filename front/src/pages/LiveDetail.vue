@@ -391,7 +391,7 @@ const disconnectOpenVidu = () => {
   if (openviduSession.value) {
     try {
       if (openviduSubscriber.value) {
-        openviduSession.value.unsubscribe(openviduSubscriber.value)
+        openviduSession.value.unsubscribe(openviduSubscriber.value as Subscriber)
       }
       openviduSession.value.disconnect()
     } catch {
@@ -410,7 +410,7 @@ const connectSubscriber = async (token: string) => {
     openviduSession.value.on('streamCreated', (event) => {
       if (!viewerContainerRef.value || !openviduSession.value) return
       if (openviduSubscriber.value) {
-        openviduSession.value.unsubscribe(openviduSubscriber.value)
+        openviduSession.value.unsubscribe(openviduSubscriber.value as Subscriber)
         openviduSubscriber.value = null
         clearViewerContainer()
       }
