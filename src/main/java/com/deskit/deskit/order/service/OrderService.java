@@ -81,7 +81,7 @@ public class OrderService {
 
     Map<Long, Product> productsById = new HashMap<>();
     for (Long productId : productIds) {
-      Product product = productRepository.findByIdForUpdate(productId)
+      Product product = productRepository.findByIdForUpdateAndStatus(productId, Product.Status.ON_SALE)
         .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "product not found"));
       int requestedQty = quantityByProductId.get(productId);
       Integer stockQty = product.getStockQty();

@@ -37,7 +37,8 @@ public class ProductService {
 
   // 상품 목록 조회: deleted_at IS NULL인 상품만 가져오고, 태그는 productIds로 한 번에 batch 조회 (N+1 방지)
   public List<ProductResponse> getProducts() {
-    List<Product> products = productRepository.findAllByDeletedAtIsNullOrderByIdAsc();
+    List<Product> products =
+      productRepository.findAllByStatusAndDeletedAtIsNullOrderByIdAsc(Product.Status.ON_SALE);
     if (products.isEmpty()) {
       return Collections.emptyList();
     }
@@ -66,7 +67,8 @@ public class ProductService {
 
   // 상품 단건 조회: deleted_at IS NULL인 상품만 반환. 없으면 Optional.empty()
   public Optional<ProductResponse> getProduct(Long id) {
-    Optional<Product> product = productRepository.findByIdAndDeletedAtIsNull(id);
+    Optional<Product> product =
+      productRepository.findByIdAndStatusAndDeletedAtIsNull(id, Product.Status.ON_SALE);
     if (product.isEmpty()) {
       return Optional.empty();
     }
@@ -80,6 +82,43 @@ public class ProductService {
     List<String> tagsFlat = bundle == null ? Collections.emptyList() : bundle.getTagsFlat();
 
     return Optional.of(ProductResponse.from(product.get(), tags, tagsFlat));
+  }
+
+  public List<ProductResponse> getSellerProducts(Long sellerId) {
+    if (sellerId == null) {
+      throw new ResponseStatusException(HttpStatus.FORBIDDEN, "seller_id required");
+    }
+
+    List<Product.Status> statuses = List.of(
+      Product.Status.DRAFT,
+      Product.Status.READY,
+      Product.Status.ON_SALE,
+      Product.Status.SOLD_OUT,
+      Product.Status.PAUSED,
+      Product.Status.HIDDEN
+    );
+
+    List<Product> products =
+      productRepository.findAllBySellerIdAndStatusInAndDeletedAtIsNullOrderByIdAsc(sellerId, statuses);
+    if (products.isEmpty()) {
+      return Collections.emptyList();
+    }
+
+    List<Long> productIds = products.stream()
+            .map(Product::getId)
+            .collect(Collectors.toList());
+
+    List<ProductTagRow> rows = productTagRepository.findActiveTagsByProductIds(productIds);
+    Map<Long, TagsBundle> tagsByProductId = buildTagsByProductId(rows);
+
+    return products.stream()
+            .map(product -> {
+              TagsBundle bundle = tagsByProductId.get(product.getId());
+              ProductTags tags = bundle == null ? ProductTags.empty() : bundle.getTags();
+              List<String> tagsFlat = bundle == null ? Collections.emptyList() : bundle.getTagsFlat();
+              return ProductResponse.fromForSeller(product, tags, tagsFlat);
+            })
+            .collect(Collectors.toList());
   }
 
   public ProductCreateResponse createProduct(Long sellerId, ProductCreateRequest request) {
@@ -127,7 +166,6 @@ public class ProductService {
       detailHtml,
       price,
       costPrice,
-      Product.Status.DRAFT,
       stockQty,
       0
     );

@@ -6,15 +6,18 @@ import com.deskit.deskit.account.repository.SellerRepository;
 import com.deskit.deskit.product.dto.ProductCreateRequest;
 import com.deskit.deskit.product.dto.ProductCreateResponse;
 import com.deskit.deskit.product.dto.ProductImageResponse;
+import com.deskit.deskit.product.dto.ProductResponse;
 import com.deskit.deskit.product.dto.ProductTagUpdateRequest;
 import com.deskit.deskit.product.entity.ProductImage.ImageType;
 import com.deskit.deskit.product.service.ProductImageService;
 import com.deskit.deskit.product.service.ProductService;
 import com.deskit.deskit.product.service.ProductTagService;
 import jakarta.validation.Valid;
+import java.util.List;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -51,6 +54,14 @@ public class SellerProductController {
   ) {
     Long sellerId = resolveSellerId(user);
     return ResponseEntity.ok(productService.createProduct(sellerId, request));
+  }
+
+  @GetMapping
+  public ResponseEntity<List<ProductResponse>> getSellerProducts(
+          @AuthenticationPrincipal CustomOAuth2User user
+  ) {
+    Long sellerId = resolveSellerId(user);
+    return ResponseEntity.ok(productService.getSellerProducts(sellerId));
   }
 
   @PostMapping("/{productId}/images")
