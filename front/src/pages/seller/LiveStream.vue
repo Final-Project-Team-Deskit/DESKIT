@@ -1230,6 +1230,14 @@ watch(lifecycleStatus, () => {
   disconnectOpenVidu()
 })
 
+watch([lifecycleStatus, publisherContainerRef], ([status, container]) => {
+  if (status !== 'ON_AIR') return
+  if (!container) return
+  const idValue = streamId.value ? Number(streamId.value) : NaN
+  if (Number.isNaN(idValue)) return
+  void ensurePublisherConnected(idValue)
+})
+
 onBeforeRouteLeave(async () => {
   if (!isInteractive.value) return true
   return await confirmLeaveBroadcast()
