@@ -51,6 +51,7 @@ type LiveItem = {
   ctaLabel: string
   likes?: number
   viewers?: number
+  reports?: number
   visibility?: string | boolean
   createdAt?: string
   category?: string
@@ -354,6 +355,7 @@ const mapBroadcastItem = (item: any, kind: 'live' | 'scheduled' | 'vod'): LiveIt
     endAtMs: Number.isNaN(endAtMs ?? NaN) ? undefined : endAtMs,
     viewers,
     likes: item.totalLikes ?? 0,
+    reports: item.reportCount ?? 0,
     revenue: parseAmount(item.totalSales),
     visibility,
     statusBadge: kind === 'vod' ? (visibility === 'private' ? '비공개' : 'VOD') : undefined,
@@ -452,20 +454,27 @@ const updateLiveViewerCounts = async () => {
       stats: await fetchBroadcastStats(Number(item.id)),
     })),
   )
-  const viewerMap = new Map<string, number>()
+  const statsMap = new Map<string, { viewerCount: number; likeCount: number; reportCount: number }>()
   updates.forEach((result) => {
     if (result.status === 'fulfilled') {
-      viewerMap.set(result.value.id, result.value.stats.viewerCount ?? 0)
+      statsMap.set(result.value.id, {
+        viewerCount: result.value.stats.viewerCount ?? 0,
+        likeCount: result.value.stats.likeCount ?? 0,
+        reportCount: result.value.stats.reportCount ?? 0,
+      })
     }
   })
-  if (!viewerMap.size) return
+  if (!statsMap.size) return
   liveItems.value = liveItems.value.map((item) => {
-    if (!viewerMap.has(item.id)) return item
-    const viewers = viewerMap.get(item.id) ?? item.viewers ?? 0
+    const stats = statsMap.get(item.id)
+    if (!stats) return item
+    const viewers = stats.viewerCount ?? item.viewers ?? 0
     return {
       ...item,
       viewers,
       viewerBadge: `${viewers}명 시청 중`,
+      likes: stats.likeCount ?? item.likes ?? 0,
+      reports: stats.reportCount ?? item.reports ?? 0,
     }
   })
 }

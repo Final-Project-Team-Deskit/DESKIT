@@ -472,16 +472,26 @@ const updateLiveViewerCounts = async () => {
       stats: await fetchBroadcastStats(Number(item.id)),
     })),
   )
-  const viewerMap = new Map<string, number>()
+  const statsMap = new Map<string, { viewerCount: number; likeCount: number; reportCount: number }>()
   updates.forEach((result) => {
     if (result.status === 'fulfilled') {
-      viewerMap.set(result.value.id, result.value.stats.viewerCount ?? 0)
+      statsMap.set(result.value.id, {
+        viewerCount: result.value.stats.viewerCount ?? 0,
+        likeCount: result.value.stats.likeCount ?? 0,
+        reportCount: result.value.stats.reportCount ?? 0,
+      })
     }
   })
-  if (!viewerMap.size) return
+  if (!statsMap.size) return
   liveItems.value = liveItems.value.map((item) => {
-    if (!viewerMap.has(item.id)) return item
-    return { ...item, viewers: viewerMap.get(item.id) ?? item.viewers ?? 0 }
+    const stats = statsMap.get(item.id)
+    if (!stats) return item
+    return {
+      ...item,
+      viewers: stats.viewerCount ?? item.viewers ?? 0,
+      likes: stats.likeCount ?? item.likes ?? 0,
+      reports: stats.reportCount ?? item.reports ?? 0,
+    }
   })
 }
 
