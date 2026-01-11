@@ -14,6 +14,7 @@ import { resolveViewerId } from '../lib/live/viewer'
 import {
   fetchBroadcastProducts,
   fetchBroadcastStats,
+  fetchChatPermission,
   fetchPublicBroadcastDetail,
   joinBroadcast,
   leaveBroadcast,
@@ -77,12 +78,21 @@ const stopConfirmOpen = ref(false)
 const stopConfirmMessage = ref('')
 
 const isChatEnabled = computed(() => lifecycleStatus.value === 'ON_AIR')
+const hasChatPermission = ref(true)
+const isChatAvailable = computed(() => isChatEnabled.value && hasChatPermission.value)
 const isProductEnabled = computed(() => {
   if (lifecycleStatus.value === 'ON_AIR') return true
   if (lifecycleStatus.value === 'ENDED') {
     return scheduledEndMs.value ? Date.now() <= scheduledEndMs.value : false
   }
   return false
+})
+
+const chatHelperMessage = computed(() => {
+  if (!isLoggedIn.value) return '로그인 후 이용하실 수 있습니다.'
+  if (!hasChatPermission.value) return '채팅이 금지되었습니다.'
+  if (!isChatEnabled.value) return '방송 중에만 채팅을 이용할 수 있습니다.'
+  return ''
 })
 
 const statusLabel = computed(() => getBroadcastStatusLabel(lifecycleStatus.value))
@@ -255,7 +265,8 @@ const formatPrice = (price: number) => {
 }
 
 const handleProductClick = (productId: string) => {
-  if (!isProductEnabled.value) return
+  const selected = products.value.find((product) => product.id === productId)
+  if (!isProductEnabled.value || selected?.isSoldOut) return
   if (!isLoggedIn.value) {
     alert('회원만 이용할 수 있습니다. 로그인해주세요.')
     router.push({ path: '/login', query: { redirect: route.fullPath } }).catch(() => {})
@@ -541,7 +552,28 @@ const scheduleRefresh = () => {
     void loadDetail()
     void loadStats()
     void loadProducts()
+    void refreshChatPermission()
   }, 500)
+}
+
+const resolveMemberId = () => {
+  const id = viewerId.value ?? resolveViewerId(getAuthUser())
+  if (!id) return undefined
+  const numeric = Number(id)
+  if (Number.isNaN(numeric)) {
+    return undefined
+  }
+  return numeric
+}
+
+const refreshChatPermission = async () => {
+  if (!broadcastId.value) return
+  try {
+    const permission = await fetchChatPermission(broadcastId.value, resolveMemberId())
+    hasChatPermission.value = permission
+  } catch {
+    hasChatPermission.value = true
+  }
 }
 
 const handleSseEvent = (event: MessageEvent) => {
@@ -557,7 +589,32 @@ const handleSseEvent = (event: MessageEvent) => {
       scheduleRefresh()
       break
     case 'SANCTION_ALERT':
-      alert(typeof data === 'object' && data ? `${data.type} 제재가 적용되었습니다.` : '제재가 적용되었습니다.')
+      if (typeof data === 'object' && data) {
+        const sanctionType = String((data as { type?: string }).type || '').toUpperCase()
+        if (sanctionType === 'MUTE') {
+          hasChatPermission.value = false
+          alert('채팅이 금지되었습니다.')
+          appendMessage({
+            id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+            user: 'system',
+            text: '채팅이 금지되었습니다.',
+            at: new Date(),
+            kind: 'system',
+          })
+          break
+        }
+        if (sanctionType === 'OUT') {
+          alert('방송에서 퇴장당했습니다.')
+          void sendLeaveSignal()
+          disconnectChat()
+          disconnectOpenVidu()
+          sseSource.value?.close()
+          sseSource.value = null
+          router.push({ name: 'live' }).catch(() => {})
+          break
+        }
+      }
+      alert('제재가 적용되었습니다.')
       router.push({ name: 'live' }).catch(() => {})
       break
     case 'BROADCAST_CANCELED':
@@ -849,7 +906,7 @@ const markEnterMessageSent = () => {
 }
 
 const sendMessage = () => {
-  if (!isChatEnabled.value || !isChatConnected.value) {
+  if (!isChatAvailable.value || !isChatConnected.value) {
     return
   }
   if (!isLoggedIn.value) {
@@ -964,10 +1021,12 @@ onMounted(() => {
 const handleAuthUpdate = () => {
   refreshAuth()
   viewerId.value = resolveViewerId(getAuthUser())
+  void refreshChatPermission()
 }
 
 onMounted(() => {
   refreshAuth()
+  void refreshChatPermission()
   window.addEventListener('deskit-user-updated', handleAuthUpdate)
 })
 
@@ -1001,6 +1060,7 @@ watch(
     statsTimer.value = null
     if (refreshTimer.value) window.clearTimeout(refreshTimer.value)
     refreshTimer.value = null
+    hasChatPermission.value = true
     if (value) {
       if (isChatEnabled.value) {
         fetchRecentMessages()
@@ -1009,6 +1069,7 @@ watch(
       connectSse(value)
       startStatsPolling()
       void requestJoinToken()
+      void refreshChatPermission()
     }
   },
   { immediate: true }
@@ -1292,20 +1353,19 @@ onBeforeUnmount(() => {
               v-model="input"
               type="text"
               placeholder="메시지를 입력하세요."
-              :disabled="!isChatConnected || !isChatEnabled"
+              :disabled="!isChatConnected || !isChatAvailable"
               @keydown.enter="sendMessage"
             />
             <button
               type="button"
               class="btn primary"
-              :disabled="!isChatConnected || !isChatEnabled || !input.trim()"
+              :disabled="!isChatConnected || !isChatAvailable || !input.trim()"
               @click="sendMessage"
             >
               전송
             </button>
           </div>
-          <p v-if="!isLoggedIn" class="chat-helper">로그인 후 이용하실 수 있습니다.</p>
-          <p v-else-if="!isChatEnabled" class="chat-helper">방송 중에만 채팅을 이용할 수 있습니다.</p>
+          <p v-if="chatHelperMessage" class="chat-helper">{{ chatHelperMessage }}</p>
         </aside>
       </div>
 
@@ -1321,10 +1381,11 @@ onBeforeUnmount(() => {
             :key="product.id"
             type="button"
             class="product-card"
-            :class="{ 'product-card--disabled': !isProductEnabled }"
-            :disabled="!isProductEnabled"
+            :class="{ 'product-card--disabled': !isProductEnabled || product.isSoldOut, 'product-card--pinned': product.isPinned }"
+            :disabled="!isProductEnabled || product.isSoldOut"
             @click="handleProductClick(product.id)"
           >
+            <span v-if="product.isPinned" class="product-card__pin">PIN</span>
             <img class="product-card__thumb" :src="product.imageUrl" :alt="product.name" @error="handleImageError" />
             <div class="product-card__info">
               <p class="product-card__name">{{ product.name }}</p>
@@ -1424,12 +1485,30 @@ onBeforeUnmount(() => {
   gap: 12px;
   cursor: pointer;
   text-align: left;
+  position: relative;
+}
+
+.product-card--pinned {
+  border-color: var(--primary-color);
+  box-shadow: 0 0 0 1px rgba(var(--primary-rgb), 0.2);
 }
 
 .product-card--disabled {
   opacity: 0.5;
   cursor: not-allowed;
   pointer-events: none;
+}
+
+.product-card__pin {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(var(--primary-rgb), 0.12);
+  color: var(--primary-color);
+  font-size: 0.7rem;
+  font-weight: 700;
 }
 
 .product-card__thumb {
