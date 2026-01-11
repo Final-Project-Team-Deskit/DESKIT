@@ -458,7 +458,9 @@ public class BroadcastService {
 
     @Transactional(readOnly = true)
     public Object getAdminBroadcasts(BroadcastSearch condition, Pageable pageable) {
-        return broadcastRepository.searchBroadcasts(null, condition, pageable, true);
+        Slice<BroadcastListResponse> list = broadcastRepository.searchBroadcasts(null, condition, pageable, true);
+        injectLiveStats(list.getContent());
+        return list;
     }
 
     @Transactional

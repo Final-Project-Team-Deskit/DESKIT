@@ -6,7 +6,8 @@ import LiveCarousel from '../components/LiveCarousel.vue'
 import SetupCarousel from '../components/SetupCarousel.vue'
 import ProductCarousel from '../components/ProductCarousel.vue'
 import PageContainer from '../components/PageContainer.vue'
-import { fetchPublicBroadcastOverview } from '../lib/live/api'
+import { fetchBroadcastStats, fetchPublicBroadcastOverview } from '../lib/live/api'
+import { normalizeBroadcastStatus } from '../lib/broadcastStatus'
 import type { LiveItem } from '../lib/live/types'
 
 const liveItems = ref<LiveItem[]>([])
@@ -86,11 +87,35 @@ const loadLiveItems = async () => {
   }
 }
 
+const updateLiveViewerCounts = async () => {
+  const targets = liveItems.value.filter((item) => normalizeBroadcastStatus(item.status) === 'ON_AIR')
+  if (!targets.length) return
+  const updates = await Promise.allSettled(
+    targets.map(async (item) => ({
+      id: item.id,
+      stats: await fetchBroadcastStats(Number(item.id)),
+    })),
+  )
+  const viewerMap = new Map<string, number>()
+  updates.forEach((result) => {
+    if (result.status === 'fulfilled') {
+      viewerMap.set(result.value.id, result.value.stats.viewerCount ?? 0)
+    }
+  })
+  if (!viewerMap.size) return
+  liveItems.value = liveItems.value.map((item) => {
+    if (!viewerMap.has(item.id)) return item
+    return { ...item, viewerCount: viewerMap.get(item.id) ?? item.viewerCount ?? 0 }
+  })
+}
+
 onMounted(() => {
   loadPopulars()
   loadLiveItems()
   liveRefreshTimer = window.setInterval(() => {
-    loadLiveItems()
+    if (document.visibilityState === 'visible') {
+      void updateLiveViewerCounts()
+    }
   }, 5000)
 })
 

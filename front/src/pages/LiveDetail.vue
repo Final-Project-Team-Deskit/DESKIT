@@ -519,11 +519,12 @@ const connectSse = (id: number) => {
 const startStatsPolling = () => {
   if (statsTimer.value) window.clearInterval(statsTimer.value)
   statsTimer.value = window.setInterval(() => {
-    if (['READY', 'ON_AIR', 'ENDED'].includes(lifecycleStatus.value) || !sseConnected.value) {
-      void loadStats()
-      if (!sseConnected.value) {
-        void loadProducts()
-      }
+    if (document.visibilityState !== 'visible') {
+      return
+    }
+    void loadStats()
+    if (!sseConnected.value) {
+      void loadProducts()
     }
   }, 5000)
 }
