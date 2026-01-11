@@ -1,5 +1,5 @@
 ﻿<script setup lang="ts">
-import { OpenVidu, type Session } from 'openvidu-browser'
+import { OpenVidu, type Session, type Subscriber } from 'openvidu-browser'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Client, type StompSubscription } from '@stomp/stompjs'
@@ -43,9 +43,7 @@ const leaveRequested = ref(false)
 const viewerContainerRef = ref<HTMLDivElement | null>(null)
 const openviduInstance = ref<OpenVidu | null>(null)
 const openviduSession = ref<Session | null>(null)
-type OpenViduSubscriber = Parameters<Session['unsubscribe']>[0]
-
-const openviduSubscriber = ref<OpenViduSubscriber | null>(null)
+const openviduSubscriber = ref<Subscriber | null>(null)
 const openviduConnected = ref(false)
 
 const FALLBACK_IMAGE = 'data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs='
@@ -417,7 +415,7 @@ const connectSubscriber = async (token: string) => {
       }
     openviduSubscriber.value = openviduSession.value.subscribe(event.stream, viewerContainerRef.value, {
       insertMode: 'append',
-    }) as OpenViduSubscriber
+    })
     })
     openviduSession.value.on('streamDestroyed', () => {
       openviduSubscriber.value = null
