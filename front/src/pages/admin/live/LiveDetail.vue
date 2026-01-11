@@ -500,9 +500,8 @@ const handleSseEvent = (event: MessageEvent) => {
       void refreshDetail(idValue)
       break
     case 'BROADCAST_SCHEDULED_END':
-      if (window.confirm('방송이 종료되었습니다.')) {
-        goToList()
-      }
+      alert('방송이 종료되었습니다.')
+      goToList()
       break
     case 'BROADCAST_STOPPED':
       if (detail.value) {

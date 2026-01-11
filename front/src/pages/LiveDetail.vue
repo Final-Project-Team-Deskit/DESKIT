@@ -569,9 +569,8 @@ const handleSseEvent = (event: MessageEvent) => {
       scheduleRefresh()
       break
     case 'BROADCAST_SCHEDULED_END':
-      if (window.confirm('방송이 종료되었습니다.')) {
-        router.push({ name: 'live' }).catch(() => {})
-      }
+      alert('방송이 종료되었습니다.')
+      router.push({ name: 'live' }).catch(() => {})
       break
     case 'BROADCAST_STOPPED':
       if (liveItem.value) {

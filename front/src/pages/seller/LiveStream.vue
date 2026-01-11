@@ -942,9 +942,8 @@ const handleSseEvent = (event: MessageEvent) => {
       scheduleRefresh(id)
       break
     case 'BROADCAST_SCHEDULED_END':
-      if (window.confirm('방송이 종료되었습니다.')) {
-        handleGoToList()
-      }
+      alert('방송이 종료되었습니다.')
+      handleGoToList()
       break
     case 'BROADCAST_STOPPED':
       streamStatus.value = 'STOPPED'
