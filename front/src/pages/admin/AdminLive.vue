@@ -509,7 +509,7 @@ const vodItemsWithStatus = computed(() => vodItems.value.map(withLifecycleStatus
 
 const liveDisplayItems = computed(() => {
   const byId = new Map<string, LiveItem>()
-  ;[...liveItemsWithStatus.value, ...scheduledItemsWithStatus.value].forEach((item) => {
+  ;[...scheduledItemsWithStatus.value, ...liveItemsWithStatus.value].forEach((item) => {
     const status = getLifecycleStatus(item)
     if (!LIVE_SECTION_STATUSES.includes(status)) return
     if (status === 'STOPPED' && isPastScheduledEnd(item)) return

@@ -368,7 +368,7 @@ const liveItemsWithStatus = computed(() => liveItems.value.map(withLifecycleStat
 const scheduledWithStatus = computed(() => scheduledItems.value.map(withLifecycleStatus))
 
 const liveStageItems = computed(() => {
-  const merged = [...liveItemsWithStatus.value, ...scheduledWithStatus.value]
+  const merged = [...scheduledWithStatus.value, ...liveItemsWithStatus.value]
   const byId = new Map<string, LiveItem>()
   merged.forEach((item) => {
     const lifecycleStatus = normalizeBroadcastStatus(item.lifecycleStatus ?? item.status)
