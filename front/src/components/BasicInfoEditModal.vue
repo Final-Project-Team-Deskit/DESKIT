@@ -50,7 +50,7 @@ const isOpen = computed(() => props.modelValue)
 
 const extractFileName = (source: string) => {
   if (!source || source.startsWith('data:')) return ''
-  const [path] = source.split('?')
+  const [path = ''] = source.split('?')
   const segments = path.split('/')
   const last = segments[segments.length - 1] ?? ''
   return decodeURIComponent(last)
