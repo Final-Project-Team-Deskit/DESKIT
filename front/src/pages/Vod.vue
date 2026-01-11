@@ -170,7 +170,7 @@ const scheduledLabel = computed(() => {
   return `${month}.${date} (${day}) ${hours}:${minutes} 예정`
 })
 
-const buildVodItem = (detail: { broadcastId: number; title: string; notice?: string; thumbnailUrl?: string; scheduledAt?: string; startedAt?: string; sellerName?: string }) => {
+const buildVodItem = (detail: { broadcastId: number; title: string; notice?: string; thumbnailUrl?: string; scheduledAt?: string; startedAt?: string; sellerName?: string; vodUrl?: string }) => {
   const startAt = detail.startedAt ?? detail.scheduledAt ?? ''
   const startAtMs = startAt ? parseLiveDate(startAt).getTime() : NaN
   const endAtMs = Number.isNaN(startAtMs) ? undefined : getScheduledEndMs(startAtMs)
@@ -182,6 +182,7 @@ const buildVodItem = (detail: { broadcastId: number; title: string; notice?: str
     thumbnailUrl: detail.thumbnailUrl ?? '',
     startAt,
     endAt,
+    vodUrl: detail.vodUrl ?? '',
     sellerName: detail.sellerName ?? '',
   }
 }
