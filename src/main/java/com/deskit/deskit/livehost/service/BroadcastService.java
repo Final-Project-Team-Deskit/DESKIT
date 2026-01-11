@@ -1405,6 +1405,30 @@ public class BroadcastService {
         }
     }
 
+    @Scheduled(fixedDelay = 300000)
+    @Transactional
+    public void recoverMissingVodOrResult() {
+        List<Broadcast> targets = broadcastRepository.findMissingVodOrResultByStatus(
+                List.of(BroadcastStatus.ENDED, BroadcastStatus.STOPPED)
+        );
+
+        for (Broadcast broadcast : targets) {
+            Long broadcastId = broadcast.getBroadcastId();
+            boolean hasVod = vodRepository.findByBroadcast(broadcast).isPresent();
+            boolean hasResult = broadcastResultRepository.findById(broadcastId).isPresent();
+
+            if (!hasVod) {
+                log.info("Missing VOD detected, triggering fallback: broadcastId={}", broadcastId);
+                triggerRecordingFallback(broadcastId, "missing_vod");
+            }
+
+            if (!hasResult) {
+                log.info("Missing broadcast result detected, saving snapshot: broadcastId={}", broadcastId);
+                saveBroadcastResultSnapshot(broadcast);
+            }
+        }
+    }
+
     private void triggerRecordingFallback(Long broadcastId, String reason) {
         Broadcast broadcast = broadcastRepository.findById(broadcastId).orElse(null);
         if (broadcast == null) {

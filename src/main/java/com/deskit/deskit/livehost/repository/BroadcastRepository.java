@@ -14,4 +14,14 @@ public interface BroadcastRepository extends JpaRepository<Broadcast, Long>, Bro
     long countBySellerIdAndStatus(@Param("sellerId") Long sellerId, @Param("status") BroadcastStatus status);
 
     List<Broadcast> findByStatusAndStartedAtBefore(BroadcastStatus status, LocalDateTime threshold);
+
+    @Query("""
+            SELECT DISTINCT b
+            FROM Broadcast b
+            LEFT JOIN Vod v ON v.broadcast = b
+            LEFT JOIN BroadcastResult br ON br.broadcast = b
+            WHERE b.status IN :statuses
+              AND (v IS NULL OR br IS NULL)
+            """)
+    List<Broadcast> findMissingVodOrResultByStatus(@Param("statuses") List<BroadcastStatus> statuses);
 }
