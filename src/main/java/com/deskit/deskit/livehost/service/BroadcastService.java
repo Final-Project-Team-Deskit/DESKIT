@@ -1440,7 +1440,7 @@ public class BroadcastService {
 
     private void injectLiveStats(List<BroadcastListResponse> list) {
         list.forEach(item -> {
-            if (item.getStatus() == BroadcastStatus.ON_AIR) {
+            if (isLiveGroup(item.getStatus())) {
                 item.setLiveViewerCount(redisService.getRealtimeViewerCount(item.getBroadcastId()));
                 item.setTotalLikes(redisService.getLikeCount(item.getBroadcastId()));
                 item.setReportCount(redisService.getReportCount(item.getBroadcastId()));
@@ -1450,7 +1450,7 @@ public class BroadcastService {
 
     private void injectLiveDetails(List<BroadcastListResponse> list) {
         List<Long> liveIds = list.stream()
-                .filter(item -> item.getStatus() == BroadcastStatus.ON_AIR)
+                .filter(item -> isLiveGroup(item.getStatus()))
                 .map(BroadcastListResponse::getBroadcastId)
                 .toList();
         if (liveIds.isEmpty()) {
@@ -1461,7 +1461,7 @@ public class BroadcastService {
                 .collect(Collectors.groupingBy(bp -> bp.getBroadcast().getBroadcastId()));
 
         list.forEach(item -> {
-            if (item.getStatus() == BroadcastStatus.ON_AIR) {
+            if (isLiveGroup(item.getStatus())) {
                 item.setLiveViewerCount(redisService.getRealtimeViewerCount(item.getBroadcastId()));
                 item.setTotalLikes(redisService.getLikeCount(item.getBroadcastId()));
                 item.setReportCount(redisService.getReportCount(item.getBroadcastId()));
