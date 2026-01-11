@@ -213,7 +213,7 @@ type BroadcastPayload = {
   title: string
   notice: string
   categoryId: number
-  scheduledAt: string
+  scheduledAt: string | null
   thumbnailUrl: string
   waitScreenUrl: string | null
   broadcastLayout: string
@@ -462,6 +462,11 @@ export const fetchRecentLiveChats = async (broadcastId: number, seconds = 60): P
 
 export const fetchMediaConfig = async (broadcastId: number): Promise<MediaConfig> => {
   const { data } = await http.get<ApiResult<MediaConfig>>(`/api/seller/broadcasts/${broadcastId}/media-config`)
+  return ensureSuccess(data)
+}
+
+export const saveMediaConfig = async (broadcastId: number, payload: MediaConfig): Promise<void> => {
+  const { data } = await http.put<ApiResult<void>>(`/api/seller/broadcasts/${broadcastId}/media-config`, payload)
   return ensureSuccess(data)
 }
 

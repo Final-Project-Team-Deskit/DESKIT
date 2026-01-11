@@ -4,10 +4,13 @@ import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 const props = defineProps<{
   modelValue: boolean
   broadcastTitle?: string
+  initialCameraId?: string
+  initialMicId?: string
 }>()
 
 const emit = defineEmits<{
   (e: 'update:modelValue', value: boolean): void
+  (e: 'apply', value: { cameraId: string; microphoneId: string }): void
   (e: 'start'): void
 }>()
 
@@ -45,6 +48,11 @@ const stopPreview = () => {
   if (videoRef.value) {
     videoRef.value.srcObject = null
   }
+}
+
+const hydrateSelection = () => {
+  selectedCamera.value = props.initialCameraId ?? ''
+  selectedMic.value = props.initialMicId ?? ''
 }
 
 const startMeter = (stream: MediaStream) => {
@@ -161,6 +169,7 @@ watch(
   () => props.modelValue,
   (value) => {
     if (value) {
+      hydrateSelection()
       volumeLevel.value = 0
       loadDevices()
       startPreview()
@@ -183,6 +192,7 @@ onBeforeUnmount(() => {
 const close = () => emit('update:modelValue', false)
 
 const handleStart = () => {
+  emit('apply', { cameraId: selectedCamera.value, microphoneId: selectedMic.value })
   emit('start')
   close()
 }

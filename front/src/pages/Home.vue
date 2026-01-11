@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { onBeforeUnmount, onMounted, ref } from 'vue'
 import { type ProductItem, type SetupItem } from '../lib/home-data'
 import { listPopularProducts, listPopularSetups } from '../api/home'
 import LiveCarousel from '../components/LiveCarousel.vue'
@@ -16,6 +16,7 @@ const popularProductsLoading = ref(true)
 const popularSetupsLoading = ref(true)
 const popularProductsError = ref(false)
 const popularSetupsError = ref(false)
+let liveRefreshTimer: number | null = null
 
 const buildProductItems = (items: Awaited<ReturnType<typeof listPopularProducts>>) =>
   items.map((item) => ({
@@ -88,6 +89,14 @@ const loadLiveItems = async () => {
 onMounted(() => {
   loadPopulars()
   loadLiveItems()
+  liveRefreshTimer = window.setInterval(() => {
+    loadLiveItems()
+  }, 5000)
+})
+
+onBeforeUnmount(() => {
+  if (liveRefreshTimer) window.clearInterval(liveRefreshTimer)
+  liveRefreshTimer = null
 })
 </script>
 
