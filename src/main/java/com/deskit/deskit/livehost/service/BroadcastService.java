@@ -72,6 +72,9 @@ import java.io.InputStream;
 import java.math.BigDecimal;
 import java.net.HttpURLConnection;
 import java.net.URL;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.security.cert.X509Certificate;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -115,6 +118,9 @@ public class BroadcastService {
 
     @Value("${openvidu.secret}")
     private String openViduSecret;
+
+    @Value("${vod.admin-download-dir:${user.home}/deskit-admin-vod}")
+    private String adminVodDownloadDir;
 
     @Transactional
     public Long createBroadcast(Long sellerId, BroadcastCreateRequest request) {
@@ -569,6 +575,9 @@ public class BroadcastService {
         Vod vod = vodRepository.findByBroadcast(broadcast)
                 .orElseThrow(() -> new BusinessException(ErrorCode.VOD_NOT_FOUND));
         VodStatus nextStatus = resolveVisibilityStatus(status);
+        if (vod.isVodAdminLock() && nextStatus == VodStatus.PUBLIC) {
+            throw new BusinessException(ErrorCode.VOD_ADMIN_LOCKED);
+        }
         vod.changeStatus(nextStatus);
         return nextStatus.name();
     }
@@ -582,7 +591,10 @@ public class BroadcastService {
         }
         Vod vod = vodRepository.findByBroadcast(broadcast)
                 .orElseThrow(() -> new BusinessException(ErrorCode.VOD_NOT_FOUND));
-        vod.changeStatus(VodStatus.DELETED);
+        if (vod.getVodUrl() != null && !vod.getVodUrl().isBlank()) {
+            s3Service.deleteObjectByUrl(vod.getVodUrl());
+        }
+        vod.markDeleted();
     }
 
     @Transactional
@@ -593,6 +605,11 @@ public class BroadcastService {
                 .orElseThrow(() -> new BusinessException(ErrorCode.VOD_NOT_FOUND));
         VodStatus nextStatus = resolveVisibilityStatus(status);
         vod.changeStatus(nextStatus);
+        vod.setAdminLock(nextStatus == VodStatus.PRIVATE);
+        if (broadcast.getStatus() == BroadcastStatus.STOPPED && nextStatus == VodStatus.PUBLIC) {
+            validateTransition(broadcast.getStatus(), BroadcastStatus.VOD);
+            broadcast.changeStatus(BroadcastStatus.VOD);
+        }
         return nextStatus.name();
     }
 
@@ -602,7 +619,10 @@ public class BroadcastService {
                 .orElseThrow(() -> new BusinessException(ErrorCode.BROADCAST_NOT_FOUND));
         Vod vod = vodRepository.findByBroadcast(broadcast)
                 .orElseThrow(() -> new BusinessException(ErrorCode.VOD_NOT_FOUND));
-        vod.changeStatus(VodStatus.DELETED);
+        if (vod.getVodUrl() != null && !vod.getVodUrl().isBlank()) {
+            s3Service.deleteObjectByUrl(vod.getVodUrl());
+        }
+        vod.markDeleted();
     }
 
     private VodStatus resolveVisibilityStatus(String status) {
@@ -670,7 +690,11 @@ public class BroadcastService {
         s3Url = uploadVodWithRetry(recordingId, s3Key, s3Url);
 
         boolean isStopped = broadcast.getStatus() == BroadcastStatus.STOPPED;
-        VodStatus status = isStopped ? VodStatus.PRIVATE : VodStatus.PUBLIC;
+        boolean hasVodUrl = s3Url != null && !s3Url.isBlank();
+        VodStatus status = (isStopped || !hasVodUrl) ? VodStatus.PRIVATE : VodStatus.PUBLIC;
+        if (isStopped && hasVodUrl) {
+            downloadVodToAdminLocal(s3Url, broadcastId, recordingId);
+        }
 
         long vodSize = payload.getSize() != null ? payload.getSize() : 0L;
         if (vodSize == 0L && s3Url != null && !s3Url.isBlank()) {
@@ -714,6 +738,21 @@ public class BroadcastService {
         if (isStopped || broadcast.getStatus() == BroadcastStatus.ENDED) {
             validateTransition(broadcast.getStatus(), BroadcastStatus.VOD);
             broadcast.changeStatus(BroadcastStatus.VOD);
+        }
+    }
+
+    private void downloadVodToAdminLocal(String vodUrl, Long broadcastId, String recordingId) {
+        try {
+            Path baseDir = Paths.get(adminVodDownloadDir);
+            Files.createDirectories(baseDir);
+            String safeRecordingId = recordingId != null && !recordingId.isBlank() ? recordingId : UUID.randomUUID().toString();
+            Path target = baseDir.resolve("broadcast-" + broadcastId + "-" + safeRecordingId + ".mp4");
+            try (InputStream inputStream = s3Service.getObjectStream(vodUrl, null, null)) {
+                Files.copy(inputStream, target);
+            }
+            log.info("관리자 로컬에 VOD 저장 완료: {}", target.toAbsolutePath());
+        } catch (Exception e) {
+            log.error("관리자 로컬 VOD 저장 실패: {}", vodUrl, e);
         }
     }
 
@@ -915,6 +954,7 @@ public class BroadcastService {
                 .sanctionCount(sanctions)
                 .vodUrl((vod != null && vod.getStatus() != VodStatus.DELETED) ? vod.getVodUrl() : null)
                 .vodStatus(vod != null ? vod.getStatus() : null)
+                .vodAdminLock(vod != null && vod.isVodAdminLock())
                 .isEncoding(vod == null)
                 .productStats(productStats)
                 .build();
