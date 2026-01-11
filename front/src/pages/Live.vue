@@ -13,7 +13,7 @@ import {
 import { computeLifecycleStatus, getScheduledEndMs, normalizeBroadcastStatus, type BroadcastStatus } from '../lib/broadcastStatus'
 import type { LiveItem } from '../lib/live/types'
 import { useNow } from '../lib/live/useNow'
-import { fetchPublicBroadcastOverview } from '../lib/live/api'
+import { fetchBroadcastStats, fetchPublicBroadcastOverview } from '../lib/live/api'
 import { getAuthUser } from '../lib/auth'
 import { resolveViewerId } from '../lib/live/viewer'
 
@@ -457,11 +457,33 @@ const connectSse = () => {
   sseSource.value = source
 }
 
+const updateLiveViewerCounts = async () => {
+  const targets = liveItems.value.filter((item) => getLifecycleStatus(item) === 'ON_AIR')
+  if (!targets.length) return
+  const updates = await Promise.allSettled(
+    targets.map(async (item) => ({
+      id: item.id,
+      stats: await fetchBroadcastStats(Number(item.id)),
+    })),
+  )
+  const viewerMap = new Map<string, number>()
+  updates.forEach((result) => {
+    if (result.status === 'fulfilled') {
+      viewerMap.set(result.value.id, result.value.stats.viewerCount ?? 0)
+    }
+  })
+  if (!viewerMap.size) return
+  liveItems.value = liveItems.value.map((item) => {
+    if (!viewerMap.has(item.id)) return item
+    return { ...item, viewerCount: viewerMap.get(item.id) ?? item.viewerCount ?? 0 }
+  })
+}
+
 const startStatsPolling = () => {
   if (statsTimer.value) window.clearInterval(statsTimer.value)
   statsTimer.value = window.setInterval(() => {
     if (document.visibilityState === 'visible') {
-      void loadBroadcasts()
+      void updateLiveViewerCounts()
     }
   }, 5000)
 }
