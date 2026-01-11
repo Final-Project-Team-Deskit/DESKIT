@@ -69,6 +69,7 @@ const liveProducts = ref<
     thumb: string
     sold: number
     stock: number
+    isPinned: boolean
   }>
 >([])
 const sseSource = ref<EventSource | null>(null)
@@ -142,6 +143,7 @@ const mapLiveProduct = (item: {
   name: string
   price: number
   isSoldOut: boolean
+  isPinned?: boolean
   imageUrl?: string
   totalQty?: number
   stockQty?: number
@@ -159,6 +161,7 @@ const mapLiveProduct = (item: {
     thumb: item.imageUrl ?? '',
     sold,
     stock: stockQty,
+    isPinned: item.isPinned ?? false,
   }
 }
 
@@ -167,6 +170,7 @@ const sortedLiveProducts = computed(() => {
     const aSoldOut = a.status === '품절'
     const bSoldOut = b.status === '품절'
     if (aSoldOut !== bSoldOut) return aSoldOut ? 1 : -1
+    if (a.isPinned !== b.isPinned) return a.isPinned ? -1 : 1
     return 0
   })
 })
@@ -943,7 +947,13 @@ watch(streamToken, () => {
             <span class="pill">총 {{ liveProducts.length }}개</span>
           </header>
           <div class="product-list">
-            <article v-for="product in sortedLiveProducts" :key="product.id" class="product-row">
+            <article
+              v-for="product in sortedLiveProducts"
+              :key="product.id"
+              class="product-row"
+              :class="{ 'product-row--pinned': product.isPinned, 'product-row--soldout': product.status === '품절' }"
+            >
+              <span v-if="product.isPinned" class="product-pin">PIN</span>
               <div class="product-thumb">
                 <img :src="product.thumb" :alt="product.name" loading="lazy" @error="handleImageError" />
               </div>
@@ -1686,6 +1696,28 @@ watch(streamToken, () => {
   padding: 12px;
   border-radius: 12px;
   border: 1px solid var(--border-color);
+  position: relative;
+}
+
+.product-row--pinned {
+  border-color: var(--primary-color);
+  box-shadow: 0 0 0 1px rgba(var(--primary-rgb), 0.2);
+}
+
+.product-row--soldout {
+  opacity: 0.65;
+}
+
+.product-pin {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(var(--primary-rgb), 0.12);
+  color: var(--primary-color);
+  font-size: 0.7rem;
+  font-weight: 700;
 }
 
 .product-thumb img {

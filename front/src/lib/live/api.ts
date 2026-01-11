@@ -354,6 +354,12 @@ export const fetchBroadcastProducts = async (broadcastId: number): Promise<Broad
   }))
 }
 
+export const fetchChatPermission = async (broadcastId: number, memberId?: number): Promise<boolean> => {
+  const params = memberId ? { memberId } : undefined
+  const { data } = await http.get<ApiResult<boolean>>(`/api/broadcasts/${broadcastId}/chat-permission`, { params })
+  return ensureSuccess(data)
+}
+
 export const fetchBroadcastStats = async (broadcastId: number): Promise<BroadcastStats> => {
   return withInFlight(`broadcast-stats-${broadcastId}`, async () => {
     const { data } = await http.get<ApiResult<BroadcastStats>>(`/api/broadcasts/${broadcastId}/stats`)
