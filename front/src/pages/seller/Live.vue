@@ -443,13 +443,40 @@ const scheduleRefresh = () => {
   }, 500)
 }
 
+const updateLiveViewerCounts = async () => {
+  const targets = liveItems.value.filter((item) => normalizeBroadcastStatus(item.status) === 'ON_AIR')
+  if (!targets.length) return
+  const updates = await Promise.allSettled(
+    targets.map(async (item) => ({
+      id: item.id,
+      stats: await fetchBroadcastStats(Number(item.id)),
+    })),
+  )
+  const viewerMap = new Map<string, number>()
+  updates.forEach((result) => {
+    if (result.status === 'fulfilled') {
+      viewerMap.set(result.value.id, result.value.stats.viewerCount ?? 0)
+    }
+  })
+  if (!viewerMap.size) return
+  liveItems.value = liveItems.value.map((item) => {
+    if (!viewerMap.has(item.id)) return item
+    const viewers = viewerMap.get(item.id) ?? item.viewers ?? 0
+    return {
+      ...item,
+      viewers,
+      viewerBadge: `${viewers}명 시청 중`,
+    }
+  })
+}
+
 const startStatsPolling = () => {
   if (statsTimer.value) window.clearInterval(statsTimer.value)
   statsTimer.value = window.setInterval(() => {
     if (document.visibilityState !== 'visible') {
       return
     }
-    void loadSellerData()
+    void updateLiveViewerCounts()
     const current = currentLive.value
     if (current) {
       void loadCurrentLiveDetails(current)
