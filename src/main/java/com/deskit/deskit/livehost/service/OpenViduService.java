@@ -1,11 +1,24 @@
 package com.deskit.deskit.livehost.service;
 
-import io.openvidu.java.client.*;
+import io.openvidu.java.client.Connection;
+import io.openvidu.java.client.ConnectionProperties;
+import io.openvidu.java.client.ConnectionType;
+import io.openvidu.java.client.OpenVidu;
+import io.openvidu.java.client.OpenViduHttpException;
+import io.openvidu.java.client.OpenViduJavaClientException;
+import io.openvidu.java.client.OpenViduRole;
+import io.openvidu.java.client.Recording;
+import io.openvidu.java.client.RecordingMode;
+import io.openvidu.java.client.RecordingProperties;
+import io.openvidu.java.client.Session;
+import io.openvidu.java.client.SessionProperties;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
+import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 
 @Slf4j
@@ -97,6 +110,17 @@ public class OpenViduService {
                 log.error("세션 종료 중 오류: {}", e.getMessage());
             }
         }
+    }
+
+    public Optional<Recording> findRecordingBySessionId(String sessionId)
+            throws OpenViduJavaClientException, OpenViduHttpException {
+        List<Recording> recordings = openVidu.listRecordings();
+        if (recordings == null || recordings.isEmpty()) {
+            return Optional.empty();
+        }
+        return recordings.stream()
+                .filter(recording -> sessionId.equals(recording.getSessionId()))
+                .findFirst();
     }
 
     public void forceDisconnect(Long broadcastId, String connectionId) {

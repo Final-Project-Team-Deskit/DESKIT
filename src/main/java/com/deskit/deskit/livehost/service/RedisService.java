@@ -5,6 +5,7 @@ import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
 
 import java.time.Duration;
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Set;
@@ -92,6 +93,14 @@ public class RedisService {
         return "broadcast:" + broadcastId + ":notice:" + type;
     }
 
+    public String getRecordingRetryQueueKey() {
+        return "broadcast:recording:retry";
+    }
+
+    public String getRecordingRetryAttemptKey(Long broadcastId) {
+        return "broadcast:recording:retry:" + broadcastId + ":attempts";
+    }
+
     public Boolean acquireLock(String key, long timeoutMillis) {
         return redisTemplate.opsForValue()
                 .setIfAbsent(key, "LOCKED", Duration.ofMillis(timeoutMillis));
@@ -104,6 +113,37 @@ public class RedisService {
     public boolean setIfAbsent(String key, String value, Duration ttl) {
         Boolean result = redisTemplate.opsForValue().setIfAbsent(key, value, ttl);
         return Boolean.TRUE.equals(result);
+    }
+
+    public void scheduleRecordingRetry(Long broadcastId, Duration delay) {
+        long score = Instant.now().plus(delay).toEpochMilli();
+        redisTemplate.opsForZSet().add(getRecordingRetryQueueKey(), broadcastId, score);
+    }
+
+    public Set<Long> popDueRecordingRetries(int count) {
+        long now = Instant.now().toEpochMilli();
+        Set<Object> due = redisTemplate.opsForZSet().rangeByScore(getRecordingRetryQueueKey(), 0, now, 0, count);
+        if (due == null || due.isEmpty()) {
+            return Set.of();
+        }
+        redisTemplate.opsForZSet().remove(getRecordingRetryQueueKey(), due.toArray());
+        return due.stream()
+                .map(value -> Long.parseLong(value.toString()))
+                .collect(Collectors.toSet());
+    }
+
+    public int incrementRecordingRetryAttempt(Long broadcastId, Duration ttl) {
+        String key = getRecordingRetryAttemptKey(broadcastId);
+        Long value = redisTemplate.opsForValue().increment(key);
+        if (value != null && value == 1) {
+            redisTemplate.expire(key, ttl);
+        }
+        return value != null ? value.intValue() : 0;
+    }
+
+    public void clearRecordingRetry(Long broadcastId) {
+        redisTemplate.opsForZSet().remove(getRecordingRetryQueueKey(), broadcastId);
+        redisTemplate.delete(getRecordingRetryAttemptKey(broadcastId));
     }
 
     public void enterLiveRoom(Long broadcastId, String uuid) {
