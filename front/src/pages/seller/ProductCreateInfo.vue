@@ -6,6 +6,12 @@ import PageHeader from '../../components/PageHeader.vue'
 import ProductBasicFields from '../../components/seller/ProductBasicFields.vue'
 import {clearProductDraft, loadProductDraft, saveProductDraft} from '../../composables/useSellerProducts'
 
+type ImageSlot = {
+  slot: number
+  file?: File
+  preview?: string
+}
+
 const route = useRoute()
 const router = useRouter()
 const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080'
@@ -15,7 +21,7 @@ const shortDesc = ref('')
 const costPrice = ref(0)
 const price = ref(0)
 const stock = ref(0)
-const images = ref<string[]>(['', '', '', '', ''])
+const images = ref<ImageSlot[]>([])
 const error = ref('')
 
 const buildAuthHeaders = (): Record<string, string> => {
@@ -32,12 +38,8 @@ const loadDraft = () => {
   costPrice.value = draft.costPrice
   price.value = draft.price
   stock.value = draft.stock
-  if (Array.isArray(draft.images)) {
-    images.value = [...draft.images].slice(0, 5)
-  }
-  while (images.value.length < 5) {
-    images.value.push('')
-  }
+  const previews = Array.isArray(draft.images) ? [...draft.images].slice(0, 5) : []
+  images.value = buildImageSlots(previews)
 }
 
 const saveDraft = (productId?: number) => {
@@ -48,10 +50,28 @@ const saveDraft = (productId?: number) => {
     costPrice: costPrice.value,
     price: price.value,
     stock: stock.value,
-    images: images.value,
+    images: images.value.map((slot) => slot.preview ?? ''),
     detailHtml: '',
   })
 }
+
+const buildImageSlots = (previews: string[] = []) => {
+  const slots: ImageSlot[] = []
+  for (let i = 0; i < 5; i += 1) {
+    const preview = previews[i] ?? ''
+    slots.push({slot: i, preview: preview || undefined})
+  }
+  return slots
+}
+
+const buildImageUploadPayload = (slots: ImageSlot[]) =>
+  slots
+    .filter((slot) => slot.file)
+    .map((slot) => ({
+      file: slot.file as File,
+      imageType: slot.slot === 0 ? 'THUMBNAIL' : 'GALLERY',
+      slotIndex: slot.slot,
+    }))
 
 const setImageAt = (index: number, event: Event) => {
   const input = event.target as HTMLInputElement
@@ -65,18 +85,18 @@ const setImageAt = (index: number, event: Event) => {
   const reader = new FileReader()
   reader.onload = () => {
     if (typeof reader.result === 'string') {
-      const next = [...images.value]
-      next[index] = reader.result
-      images.value = next
+      images.value = images.value.map((slot) =>
+        slot.slot === index ? {slot: index, file, preview: reader.result} : slot,
+      )
     }
   }
   reader.readAsDataURL(file)
 }
 
 const clearImageAt = (index: number) => {
-  const next = [...images.value]
-  next[index] = ''
-  images.value = next
+  images.value = images.value.map((slot) =>
+    slot.slot === index ? {slot: index} : slot,
+  )
 }
 
 const goNext = async () => {
@@ -138,7 +158,7 @@ onMounted(() => {
   costPrice.value = 0
   price.value = 0
   stock.value = 0
-  images.value = ['', '', '', '', '']
+  images.value = buildImageSlots()
 })
 </script>
 
@@ -164,17 +184,17 @@ onMounted(() => {
           <h3>상품 이미지</h3>
         </div>
         <div class="image-slots">
-          <div v-for="(img, idx) in images" :key="idx" class="image-slot">
-            <div class="image-slot__label">{{ idx === 0 ? '썸네일' : String(idx) }}</div>
+          <div v-for="slot in images" :key="slot.slot" class="image-slot">
+            <div class="image-slot__label">{{ slot.slot === 0 ? '썸네일' : String(slot.slot) }}</div>
             <div class="image-slot__preview">
-              <img v-if="img" :src="img" :alt="`상품 이미지 ${idx}`"/>
-              <label v-if="!img" class="btn ghost image-slot__upload">
+              <img v-if="slot.preview" :src="slot.preview" :alt="`상품 이미지 ${slot.slot}`"/>
+              <label v-if="!slot.preview" class="btn ghost image-slot__upload">
                 업로드
-                <input type="file" accept="image/*" @change="setImageAt(idx, $event)" hidden/>
+                <input type="file" accept="image/*" @change="setImageAt(slot.slot, $event)" hidden/>
               </label>
             </div>
             <div class="image-slot__actions">
-              <button v-if="img" type="button" class="btn ghost" @click="clearImageAt(idx)">
+              <button v-if="slot.preview" type="button" class="btn ghost" @click="clearImageAt(slot.slot)">
                 삭제
               </button>
             </div>
