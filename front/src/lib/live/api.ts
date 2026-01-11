@@ -79,6 +79,16 @@ export type BroadcastStats = {
   reportCount: number
 }
 
+export type BroadcastLikeResponse = {
+  liked: boolean
+  likeCount: number
+}
+
+export type BroadcastReportResponse = {
+  reported: boolean
+  reportCount: number
+}
+
 export type BroadcastResult = {
   broadcastId: number
   title: string
@@ -353,6 +363,16 @@ export const fetchBroadcastStats = async (broadcastId: number): Promise<Broadcas
 export const joinBroadcast = async (broadcastId: number, viewerId?: string | null): Promise<string> => {
   const headers = viewerId ? { 'X-Viewer-Id': viewerId } : undefined
   const { data } = await http.post<ApiResult<string>>(`/api/broadcasts/${broadcastId}/join`, null, { headers })
+  return ensureSuccess(data)
+}
+
+export const toggleBroadcastLike = async (broadcastId: number): Promise<BroadcastLikeResponse> => {
+  const { data } = await http.post<ApiResult<BroadcastLikeResponse>>(`/api/member/broadcasts/${broadcastId}/like`)
+  return ensureSuccess(data)
+}
+
+export const reportBroadcast = async (broadcastId: number): Promise<BroadcastReportResponse> => {
+  const { data } = await http.post<ApiResult<BroadcastReportResponse>>(`/api/member/broadcasts/${broadcastId}/report`)
   return ensureSuccess(data)
 }
 

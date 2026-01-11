@@ -150,6 +150,7 @@ const loopEnabled = ref<Record<LoopKind, boolean>>({
 const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080'
 const sseSource = ref<EventSource | null>(null)
 const sseConnected = ref(false)
+const statsTimer = ref<number | null>(null)
 const sseRetryCount = ref(0)
 const sseRetryTimer = ref<number | null>(null)
 const refreshTimer = ref<number | null>(null)
@@ -448,6 +449,15 @@ const connectSse = () => {
     }
   }
   sseSource.value = source
+}
+
+const startStatsPolling = () => {
+  if (statsTimer.value) window.clearInterval(statsTimer.value)
+  statsTimer.value = window.setInterval(() => {
+    if (document.visibilityState === 'visible') {
+      void loadAdminData()
+    }
+  }, 5000)
 }
 
 const loadCategories = async () => {
@@ -889,6 +899,7 @@ onMounted(() => {
   void loadCategories()
   loadAdminData()
   connectSse()
+  startStatsPolling()
   nextTick(() => {
     resetAllLoops()
     handleResize()
@@ -905,6 +916,8 @@ onBeforeUnmount(() => {
   sseRetryTimer.value = null
   if (refreshTimer.value) window.clearTimeout(refreshTimer.value)
   refreshTimer.value = null
+  if (statsTimer.value) window.clearInterval(statsTimer.value)
+  statsTimer.value = null
   sseSource.value?.close()
 })
 </script>

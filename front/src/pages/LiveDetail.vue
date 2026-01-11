@@ -10,7 +10,15 @@ import { parseLiveDate } from '../lib/live/utils'
 import { useNow } from '../lib/live/useNow'
 import { getAuthUser } from '../lib/auth'
 import { resolveViewerId } from '../lib/live/viewer'
-import { fetchBroadcastProducts, fetchBroadcastStats, fetchPublicBroadcastDetail, joinBroadcast, type BroadcastProductItem } from '../lib/live/api'
+import {
+  fetchBroadcastProducts,
+  fetchBroadcastStats,
+  fetchPublicBroadcastDetail,
+  joinBroadcast,
+  reportBroadcast,
+  toggleBroadcastLike,
+  type BroadcastProductItem,
+} from '../lib/live/api'
 import type { LiveItem } from '../lib/live/types'
 import { computeLifecycleStatus, getBroadcastStatusLabel, getScheduledEndMs, normalizeBroadcastStatus } from '../lib/broadcastStatus'
 
@@ -162,6 +170,7 @@ const loadDetail = async () => {
   try {
     const detail = await fetchPublicBroadcastDetail(broadcastId.value)
     liveItem.value = buildLiveItem(detail)
+    likeCount.value = detail.totalLikes ?? 0
   } catch {
     liveItem.value = null
   }
@@ -175,6 +184,7 @@ const loadStats = async () => {
       ...liveItem.value,
       viewerCount: stats.viewerCount ?? liveItem.value.viewerCount ?? 0,
     }
+    likeCount.value = stats.likeCount ?? likeCount.value
   } catch {
     return
   }
@@ -222,8 +232,49 @@ const showChat = ref(true)
 const isFullscreen = ref(false)
 const stageRef = ref<HTMLElement | null>(null)
 const isLiked = ref(false)
-const toggleLike = () => {
-  isLiked.value = !isLiked.value
+const likeCount = ref(0)
+const likeInFlight = ref(false)
+const reportInFlight = ref(false)
+const hasReported = ref(false)
+
+const requireMemberAction = () => {
+  if (!isLoggedIn.value) {
+    alert('회원만 이용할 수 있습니다.')
+    return false
+  }
+  return true
+}
+
+const toggleLike = async () => {
+  if (!broadcastId.value || !requireMemberAction() || likeInFlight.value) return
+  likeInFlight.value = true
+  try {
+    const result = await toggleBroadcastLike(broadcastId.value)
+    isLiked.value = result.liked
+    likeCount.value = result.likeCount
+  } catch {
+    return
+  } finally {
+    likeInFlight.value = false
+  }
+}
+
+const submitReport = async () => {
+  if (!broadcastId.value || !requireMemberAction() || reportInFlight.value) return
+  reportInFlight.value = true
+  try {
+    const result = await reportBroadcast(broadcastId.value)
+    hasReported.value = hasReported.value || result.reported
+    if (result.reported) {
+      alert('신고가 접수되었습니다.')
+    } else {
+      alert('이미 신고한 방송입니다.')
+    }
+  } catch {
+    return
+  } finally {
+    reportInFlight.value = false
+  }
 }
 
 const isSettingsOpen = ref(false)
@@ -443,7 +494,7 @@ const startStatsPolling = () => {
         void loadProducts()
       }
     }
-  }, 30000)
+  }, 5000)
 }
 
 const requestJoinToken = async () => {
@@ -758,6 +809,9 @@ watch(
     if (value === previous) {
       return
     }
+    isLiked.value = false
+    likeCount.value = 0
+    hasReported.value = false
     void loadDetail()
     void loadProducts()
     void loadStats()
@@ -890,28 +944,47 @@ onBeforeUnmount(() => {
             </div>
             <span v-else class="player-frame__label">LIVE 플레이어</span>
             <div class="player-actions">
-              <button
-                type="button"
-                class="icon-circle"
-                :class="{ active: isLiked }"
-                aria-label="좋아요"
-                @click="toggleLike"
-              >
-                <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
-                  <path
-                    v-if="isLiked"
-                    d="M12.1 21.35l-1.1-1.02C5.14 15.24 2 12.39 2 8.99 2 6.42 4.02 4.5 6.58 4.5c1.54 0 3.04.74 3.92 1.91C11.38 5.24 12.88 4.5 14.42 4.5 16.98 4.5 19 6.42 19 8.99c0 3.4-3.14 6.25-8.9 11.34l-1.1 1.02z"
-                    fill="currentColor"
-                  />
-                  <path
-                    v-else
-                    d="M12.1 21.35l-1.1-1.02C5.14 15.24 2 12.39 2 8.99 2 6.42 4.02 4.5 6.58 4.5c1.54 0 3.04.74 3.92 1.91C11.38 5.24 12.88 4.5 14.42 4.5 16.98 4.5 19 6.42 19 8.99c0 3.4-3.14 6.25-8.9 11.34l-1.1 1.02z"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="1.8"
-                  />
-                </svg>
-              </button>
+              <div class="icon-action">
+                <button
+                  type="button"
+                  class="icon-circle"
+                  :class="{ active: isLiked }"
+                  aria-label="좋아요"
+                  :disabled="likeInFlight"
+                  @click="toggleLike"
+                >
+                  <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+                    <path
+                      v-if="isLiked"
+                      d="M12.1 21.35l-1.1-1.02C5.14 15.24 2 12.39 2 8.99 2 6.42 4.02 4.5 6.58 4.5c1.54 0 3.04.74 3.92 1.91C11.38 5.24 12.88 4.5 14.42 4.5 16.98 4.5 19 6.42 19 8.99c0 3.4-3.14 6.25-8.9 11.34l-1.1 1.02z"
+                      fill="currentColor"
+                    />
+                    <path
+                      v-else
+                      d="M12.1 21.35l-1.1-1.02C5.14 15.24 2 12.39 2 8.99 2 6.42 4.02 4.5 6.58 4.5c1.54 0 3.04.74 3.92 1.91C11.38 5.24 12.88 4.5 14.42 4.5 16.98 4.5 19 6.42 19 8.99c0 3.4-3.14 6.25-8.9 11.34l-1.1 1.02z"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="1.8"
+                    />
+                  </svg>
+                </button>
+                <span class="icon-count">{{ likeCount.toLocaleString('ko-KR') }}</span>
+              </div>
+              <div class="icon-action">
+                <button
+                  type="button"
+                  class="icon-circle"
+                  aria-label="신고하기"
+                  :disabled="reportInFlight || hasReported"
+                  @click="submitReport"
+                >
+                  <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M6 3v18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
+                    <path d="M6 4h11l-2 4 2 4H6z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" />
+                  </svg>
+                </button>
+                <span class="icon-label">신고</span>
+              </div>
               <button
                 type="button"
                 class="icon-circle"
@@ -1304,6 +1377,21 @@ onBeforeUnmount(() => {
   z-index: 2;
 }
 
+.icon-action {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
+.icon-count,
+.icon-label {
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: #fff;
+  text-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
+}
+
 .player-settings {
   position: relative;
   display: flex;
@@ -1335,6 +1423,11 @@ onBeforeUnmount(() => {
   color: #fff;
   cursor: pointer;
   transition: border-color 0.2s ease, background 0.2s ease, color 0.2s ease;
+}
+
+.icon-circle:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
 }
 
 .icon-circle.active {

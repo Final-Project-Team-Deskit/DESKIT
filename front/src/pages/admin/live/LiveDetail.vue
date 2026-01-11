@@ -457,7 +457,7 @@ const startStatsPolling = (broadcastId: number) => {
         void refreshProducts(broadcastId)
       }
     }
-  }, 30000)
+  }, 5000)
 }
 
 const openStopConfirm = () => {
@@ -490,6 +490,7 @@ const handleStopSave = () => {
     .then(() => {
       if (detail.value) {
         detail.value.status = 'STOPPED'
+        detail.value.stoppedReason = reason
       }
     })
     .catch(() => {})
@@ -1012,6 +1013,7 @@ watch(
   padding: 16px;
   text-align: center;
   background: rgba(6, 10, 18, 0.92);
+  z-index: 1;
 }
 
 .player-placeholder__image {
@@ -1039,6 +1041,7 @@ watch(
   border-radius: 12px;
   font-weight: 800;
   font-size: 0.9rem;
+  z-index: 2;
 }
 
 .overlay-item {
@@ -1068,6 +1071,7 @@ watch(
   flex-direction: column;
   gap: 10px;
   align-items: flex-end;
+  z-index: 2;
 }
 
 .icon-circle {

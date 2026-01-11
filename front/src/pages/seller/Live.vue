@@ -164,6 +164,7 @@ const sseConnected = ref(false)
 const sseRetryCount = ref(0)
 const sseRetryTimer = ref<number | null>(null)
 const refreshTimer = ref<number | null>(null)
+const statsTimer = ref<number | null>(null)
 
 const toDateMs = (item: LiveItem) => {
   const raw = item.createdAt || item.datetime || ''
@@ -437,6 +438,20 @@ const scheduleRefresh = () => {
   refreshTimer.value = window.setTimeout(() => {
     void loadSellerData()
   }, 500)
+}
+
+const startStatsPolling = () => {
+  if (statsTimer.value) window.clearInterval(statsTimer.value)
+  statsTimer.value = window.setInterval(() => {
+    if (document.visibilityState !== 'visible') {
+      return
+    }
+    void loadSellerData()
+    const current = currentLive.value
+    if (current) {
+      void loadCurrentLiveDetails(current)
+    }
+  }, 5000)
 }
 
 const handleSseEvent = (event: MessageEvent) => {
@@ -973,6 +988,7 @@ onMounted(() => {
   loadSellerData()
   syncTabFromRoute()
   connectSse()
+  startStatsPolling()
   nextTick(() => {
     resetAllLoops()
     handleResize()
@@ -988,6 +1004,8 @@ onBeforeUnmount(() => {
   sseRetryTimer.value = null
   if (refreshTimer.value) window.clearTimeout(refreshTimer.value)
   refreshTimer.value = null
+  if (statsTimer.value) window.clearInterval(statsTimer.value)
+  statsTimer.value = null
   sseSource.value?.close()
 })
 </script>
