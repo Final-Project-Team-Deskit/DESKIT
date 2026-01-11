@@ -349,20 +349,24 @@ onMounted(() => {
   }
 })
 
-const mapToLiveItems = (items: Array<{ broadcastId: number; title: string; notice?: string; thumbnailUrl?: string; startAt?: string; endAt?: string; liveViewerCount?: number; viewerCount?: number; sellerName?: string; status?: string }>) =>
+const mapToLiveItems = (items: Array<{ broadcastId: number; title: string; notice?: string; thumbnailUrl?: string; startAt?: string; scheduledAt?: string; endAt?: string; liveViewerCount?: number; viewerCount?: number; sellerName?: string; status?: string }>) =>
   items
-    .filter((item) => item.startAt)
-    .map((item) => ({
-      id: String(item.broadcastId),
-      title: item.title,
-      description: item.notice ?? '',
-      thumbnailUrl: item.thumbnailUrl ?? '',
-      startAt: item.startAt ?? '',
-      endAt: item.endAt ?? item.startAt ?? '',
-      viewerCount: item.liveViewerCount ?? item.viewerCount ?? 0,
-      status: item.status,
-      sellerName: item.sellerName ?? '',
-    }))
+    .map((item) => {
+      const startAt = item.startAt ?? item.scheduledAt ?? ''
+      if (!startAt) return null
+      return {
+        id: String(item.broadcastId),
+        title: item.title,
+        description: item.notice ?? '',
+        thumbnailUrl: item.thumbnailUrl ?? '',
+        startAt,
+        endAt: item.endAt ?? startAt,
+        viewerCount: item.liveViewerCount ?? item.viewerCount ?? 0,
+        status: item.status,
+        sellerName: item.sellerName ?? '',
+      }
+    })
+    .filter((item): item is LiveItem => Boolean(item))
 
 const loadBroadcasts = async () => {
   try {
