@@ -63,7 +63,7 @@ const loadPopulars = async () => {
   popularSetupsLoading.value = false
 }
 
-const mapToLiveItems = (items: Array<{ broadcastId: number; title: string; notice?: string; thumbnailUrl?: string; startAt?: string; endAt?: string; liveViewerCount?: number; viewerCount?: number; sellerName?: string; status?: string }>) =>
+const mapToLiveItems = (items: Array<{ broadcastId: number; title: string; notice?: string; thumbnailUrl?: string; startAt?: string; endAt?: string; liveViewerCount?: number; viewerCount?: number; sellerName?: string; status?: string; totalLikes?: number; reportCount?: number }>) =>
   items
     .filter((item) => item.startAt)
     .map((item) => ({
@@ -75,6 +75,8 @@ const mapToLiveItems = (items: Array<{ broadcastId: number; title: string; notic
       endAt: item.endAt ?? item.startAt ?? '',
       status: item.status,
       viewerCount: item.liveViewerCount ?? item.viewerCount ?? 0,
+      likeCount: item.totalLikes ?? 0,
+      reportCount: item.reportCount ?? 0,
       sellerName: item.sellerName ?? '',
     }))
 
@@ -96,16 +98,26 @@ const updateLiveViewerCounts = async () => {
       stats: await fetchBroadcastStats(Number(item.id)),
     })),
   )
-  const viewerMap = new Map<string, number>()
+  const statsMap = new Map<string, { viewerCount: number; likeCount: number; reportCount: number }>()
   updates.forEach((result) => {
     if (result.status === 'fulfilled') {
-      viewerMap.set(result.value.id, result.value.stats.viewerCount ?? 0)
+      statsMap.set(result.value.id, {
+        viewerCount: result.value.stats.viewerCount ?? 0,
+        likeCount: result.value.stats.likeCount ?? 0,
+        reportCount: result.value.stats.reportCount ?? 0,
+      })
     }
   })
-  if (!viewerMap.size) return
+  if (!statsMap.size) return
   liveItems.value = liveItems.value.map((item) => {
-    if (!viewerMap.has(item.id)) return item
-    return { ...item, viewerCount: viewerMap.get(item.id) ?? item.viewerCount ?? 0 }
+    const stats = statsMap.get(item.id)
+    if (!stats) return item
+    return {
+      ...item,
+      viewerCount: stats.viewerCount ?? item.viewerCount ?? 0,
+      likeCount: stats.likeCount ?? item.likeCount ?? 0,
+      reportCount: stats.reportCount ?? item.reportCount ?? 0,
+    }
   })
 }
 
