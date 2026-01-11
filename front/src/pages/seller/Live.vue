@@ -214,9 +214,9 @@ const withLifecycleStatus = (item: LiveItem): LiveItem => {
 }
 
 const isPastScheduledEnd = (item: LiveItem): boolean => {
-  const endAtMs = getScheduledEndMs(item.startAtMs, item.endAtMs)
-  if (!endAtMs) return false
-  return Date.now() > endAtMs
+  const scheduledEndMs = getScheduledEndMs(item.startAtMs)
+  if (!scheduledEndMs) return false
+  return Date.now() > scheduledEndMs
 }
 
 const formatDateLabel = (ms?: number, prefix: string = '업로드'): string => {

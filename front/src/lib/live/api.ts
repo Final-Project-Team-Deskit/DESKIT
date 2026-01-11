@@ -376,6 +376,15 @@ export const leaveBroadcast = async (broadcastId: number, viewerId?: string | nu
   ensureSuccess(data)
 }
 
+export const recordVodView = async (broadcastId: number, viewerId?: string | null): Promise<void> => {
+  const headers = viewerId ? { 'X-Viewer-Id': viewerId } : undefined
+  const { data } = await http.post<ApiResult<void>>(`/api/broadcasts/${broadcastId}/vod/view`, null, {
+    headers,
+    params: viewerId ? { viewerId } : undefined,
+  })
+  ensureSuccess(data)
+}
+
 export const toggleBroadcastLike = async (broadcastId: number): Promise<BroadcastLikeResponse> => {
   const { data } = await http.post<ApiResult<BroadcastLikeResponse>>(`/api/member/broadcasts/${broadcastId}/like`)
   return ensureSuccess(data)

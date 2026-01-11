@@ -73,6 +73,17 @@ public class BroadcastPublicController {
         return ResponseEntity.ok(ApiResult.success(null));
     }
 
+    @PostMapping("/broadcasts/{broadcastId}/vod/view")
+    public ResponseEntity<ApiResult<Void>> recordVodView(
+            @PathVariable Long broadcastId,
+            @RequestHeader(value = "X-Viewer-Id", required = false) String viewerId,
+            @RequestParam(value = "viewerId", required = false) String viewerIdParam
+    ) {
+        String userId = (viewerId != null) ? viewerId : viewerIdParam;
+        broadcastService.recordVodView(broadcastId, userId);
+        return ResponseEntity.ok(ApiResult.success(null));
+    }
+
     @GetMapping("/broadcasts/{broadcastId}/stats")
     public ResponseEntity<ApiResult<BroadcastStatsResponse>> getBroadcastStats(
             @PathVariable Long broadcastId

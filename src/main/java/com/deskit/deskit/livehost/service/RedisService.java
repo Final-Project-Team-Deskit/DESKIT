@@ -7,6 +7,7 @@ import org.springframework.stereotype.Service;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 @Service
@@ -53,6 +54,34 @@ public class RedisService {
 
     public String getMaxViewersTimeKey(Long broadcastId) {
         return "broadcast:" + broadcastId + ":max_viewers_time";
+    }
+
+    public String getVodStatsDirtyKey() {
+        return "vod:stats:dirty";
+    }
+
+    public String getVodViewersKey(Long broadcastId) {
+        return "vod:" + broadcastId + ":viewers";
+    }
+
+    public String getVodViewDeltaKey(Long broadcastId) {
+        return "vod:" + broadcastId + ":view_delta";
+    }
+
+    public String getVodLikeUsersKey(Long broadcastId) {
+        return "vod:" + broadcastId + ":like_users";
+    }
+
+    public String getVodLikeDeltaKey(Long broadcastId) {
+        return "vod:" + broadcastId + ":like_delta";
+    }
+
+    public String getVodReportUsersKey(Long broadcastId) {
+        return "vod:" + broadcastId + ":report_users";
+    }
+
+    public String getVodReportDeltaKey(Long broadcastId) {
+        return "vod:" + broadcastId + ":report_delta";
     }
 
     public String getMediaConfigKey(Long broadcastId, Long sellerId) {
@@ -174,6 +203,81 @@ public class RedisService {
         return getInt(getReportCountKey(broadcastId));
     }
 
+    public boolean recordVodView(Long broadcastId, String viewerId) {
+        if (viewerId == null || viewerId.isBlank()) {
+            return false;
+        }
+        Long added = redisTemplate.opsForSet().add(getVodViewersKey(broadcastId), viewerId);
+        if (added != null && added == 1) {
+            redisTemplate.opsForValue().increment(getVodViewDeltaKey(broadcastId));
+            markVodDirty(broadcastId);
+            return true;
+        }
+        return false;
+    }
+
+    public boolean toggleVodLike(Long broadcastId, Long memberId) {
+        String key = getVodLikeUsersKey(broadcastId);
+        String memberKey = String.valueOf(memberId);
+
+        Boolean isMember = redisTemplate.opsForSet().isMember(key, memberKey);
+        if (Boolean.TRUE.equals(isMember)) {
+            redisTemplate.opsForSet().remove(key, memberKey);
+            redisTemplate.opsForValue().decrement(getVodLikeDeltaKey(broadcastId));
+            markVodDirty(broadcastId);
+            return false;
+        }
+
+        redisTemplate.opsForSet().add(key, memberKey);
+        redisTemplate.opsForValue().increment(getVodLikeDeltaKey(broadcastId));
+        markVodDirty(broadcastId);
+        return true;
+    }
+
+    public int getVodLikeDelta(Long broadcastId) {
+        return getInt(getVodLikeDeltaKey(broadcastId));
+    }
+
+    public boolean reportVod(Long broadcastId, Long memberId) {
+        String userKey = getVodReportUsersKey(broadcastId);
+        String memberKey = String.valueOf(memberId);
+
+        Long added = redisTemplate.opsForSet().add(userKey, memberKey);
+        if (added != null && added == 1) {
+            redisTemplate.opsForValue().increment(getVodReportDeltaKey(broadcastId));
+            markVodDirty(broadcastId);
+            return true;
+        }
+
+        return false;
+    }
+
+    public int getVodReportDelta(Long broadcastId) {
+        return getInt(getVodReportDeltaKey(broadcastId));
+    }
+
+    public VodStatsDelta consumeVodStats(Long broadcastId) {
+        int viewDelta = consumeDelta(getVodViewDeltaKey(broadcastId));
+        int likeDelta = consumeDelta(getVodLikeDeltaKey(broadcastId));
+        int reportDelta = consumeDelta(getVodReportDeltaKey(broadcastId));
+        return new VodStatsDelta(viewDelta, likeDelta, reportDelta);
+    }
+
+    public java.util.Set<Long> getDirtyVodIds() {
+        var members = redisTemplate.opsForSet().members(getVodStatsDirtyKey());
+        if (members == null || members.isEmpty()) {
+            return Set.of();
+        }
+        return members.stream()
+                .map(Object::toString)
+                .map(Long::parseLong)
+                .collect(Collectors.toSet());
+    }
+
+    public void markVodDirty(Long broadcastId) {
+        redisTemplate.opsForSet().add(getVodStatsDirtyKey(), String.valueOf(broadcastId));
+    }
+
     public void saveMediaConfig(Long broadcastId, Long sellerId, String cameraId, String microphoneId, boolean cameraOn, boolean microphoneOn, int volume) {
         String key = getMediaConfigKey(broadcastId, sellerId);
         redisTemplate.opsForHash().put(key, "cameraId", cameraId);
@@ -248,6 +352,18 @@ public class RedisService {
 
     private int getInt(String key) {
         Object value = redisTemplate.opsForValue().get(key);
+        if (value == null) {
+            return 0;
+        }
+        try {
+            return Integer.parseInt(value.toString());
+        } catch (NumberFormatException e) {
+            return 0;
+        }
+    }
+
+    private int consumeDelta(String key) {
+        Object value = redisTemplate.opsForValue().getAndSet(key, 0);
         if (value == null) {
             return 0;
         }

@@ -108,6 +108,7 @@ const getStatus = (item: LiveItem) => {
   if (status === 'READY') return 'READY'
   if (status === 'RESERVED') return 'UPCOMING'
   if (status === 'STOPPED') return 'STOPPED'
+  if (status === 'VOD') return 'VOD'
   return 'ENDED'
 }
 const getSectionStatus = (item: LiveItem) => {
@@ -119,10 +120,9 @@ const getSectionStatus = (item: LiveItem) => {
 const isPastScheduledEnd = (item: LiveItem): boolean => {
   const startAtMs = parseLiveDate(item.startAt).getTime()
   const normalizedStart = Number.isNaN(startAtMs) ? undefined : startAtMs
-  const endAtMs = parseLiveDate(item.endAt).getTime()
-  const normalizedEnd = Number.isNaN(endAtMs) ? getScheduledEndMs(normalizedStart) : endAtMs
-  if (!normalizedEnd) return false
-  return Date.now() > normalizedEnd
+  const scheduledEndMs = getScheduledEndMs(normalizedStart)
+  if (!scheduledEndMs) return false
+  return Date.now() > scheduledEndMs
 }
 const isRowDisabled = (item: LiveItem) => getLifecycleStatus(item) === 'RESERVED'
 const getElapsedLabel = (item: LiveItem) => {
@@ -580,7 +580,18 @@ onMounted(() => {
                 <span v-else-if="getStatus(item) === 'READY'" class="status-pill">대기</span>
                 <span v-else-if="getStatus(item) === 'UPCOMING'" class="status-pill">예정</span>
                 <span v-else-if="getStatus(item) === 'STOPPED'" class="status-pill status-pill--ended">중지됨</span>
-                <span v-else class="status-pill status-pill--ended">종료</span>
+                <span v-else-if="getStatus(item) === 'VOD'" class="status-pill status-pill--ended">
+                  VOD
+                  <span v-if="item.viewerCount" class="status-viewers">
+                    누적 {{ item.viewerCount.toLocaleString() }}명
+                  </span>
+                </span>
+                <span v-else class="status-pill status-pill--ended">
+                  종료
+                  <span v-if="item.viewerCount" class="status-viewers">
+                    시청자 {{ item.viewerCount.toLocaleString() }}명
+                  </span>
+                </span>
                 <span
                   v-if="getStatus(item) === 'LIVE'"
                   class="status-pill status-pill--sub"
