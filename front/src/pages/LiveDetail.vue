@@ -311,6 +311,14 @@ const syncChatHeight = () => {
   playerHeight.value = playerPanelRef.value.getBoundingClientRect().height
 }
 
+watch(showChat, async (value) => {
+  if (!value) {
+    return
+  }
+  await nextTick()
+  syncChatHeight()
+})
+
 const toggleSettings = () => {
   isSettingsOpen.value = !isSettingsOpen.value
 }
@@ -913,7 +921,7 @@ onBeforeUnmount(() => {
               <span class="status-badge" :class="statusBadgeClass">
                 {{ statusLabel }}
               </span>
-              <span v-if="lifecycleStatus === 'ON_AIR' && liveItem.viewerCount" class="status-viewers">
+              <span v-if="liveItem.viewerCount != null" class="status-viewers">
                 {{ liveItem.viewerCount.toLocaleString() }}명 시청 중
               </span>
               <span v-else-if="lifecycleStatus === 'RESERVED'" class="status-schedule">
@@ -1057,7 +1065,12 @@ onBeforeUnmount(() => {
           :style="{ height: playerHeight ? `${playerHeight}px` : undefined }"
         >
           <header class="chat-head">
-            <h4>실시간 채팅</h4>
+            <div class="chat-head__title">
+              <h4>실시간 채팅</h4>
+              <span v-if="liveItem.viewerCount != null" class="chat-viewers">
+                시청자 {{ liveItem.viewerCount.toLocaleString() }}명
+              </span>
+            </div>
             <button type="button" class="chat-close" aria-label="채팅 닫기" @click="toggleChat">×</button>
           </header>
           <div ref="chatListRef" class="chat-messages">
@@ -1464,11 +1477,26 @@ onBeforeUnmount(() => {
   gap: 10px;
 }
 
+.chat-head__title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .chat-head h4 {
   margin: 0;
   font-size: 1rem;
   font-weight: 900;
   color: var(--text-strong);
+}
+
+.chat-viewers {
+  font-size: 0.85rem;
+  font-weight: 800;
+  color: var(--text-soft);
+  background: var(--surface-weak);
+  padding: 3px 8px;
+  border-radius: 999px;
 }
 
 .chat-close {
