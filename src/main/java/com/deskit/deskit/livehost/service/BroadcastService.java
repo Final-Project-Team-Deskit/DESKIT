@@ -265,7 +265,8 @@ public class BroadcastService {
         List<String> reservedStatuses = List.of(
                 BroadcastStatus.RESERVED.name(),
                 BroadcastStatus.READY.name(),
-                BroadcastStatus.ON_AIR.name()
+                BroadcastStatus.ON_AIR.name(),
+                BroadcastStatus.ENDED.name()
         );
 
         var reservedQuantityField = org.jooq.impl.DSL.coalesce(org.jooq.impl.DSL.sum(bpQuantity), 0).as("reserved_qty");
