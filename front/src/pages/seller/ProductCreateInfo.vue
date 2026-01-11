@@ -8,6 +8,7 @@ import {clearProductDraft, loadProductDraft, saveProductDraft} from '../../compo
 
 const route = useRoute()
 const router = useRouter()
+const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080'
 
 const name = ref('')
 const shortDesc = ref('')
@@ -18,6 +19,12 @@ const images = ref<string[]>(['', '', '', '', ''])
 const error = ref('')
 
 const sellerId = ref<number | null>(null)
+
+const buildAuthHeaders = (): Record<string, string> => {
+  const access = localStorage.getItem('access') || sessionStorage.getItem('access')
+  if (!access) return {}
+  return {Authorization: `Bearer ${access}`}
+}
 
 const deriveSellerId = () => {
   const user = getAuthUser() as any
@@ -48,8 +55,9 @@ const loadDraft = () => {
   }
 }
 
-const saveDraft = () => {
+const saveDraft = (productId?: number) => {
   saveProductDraft({
+    id: productId ? String(productId) : undefined,
     sellerId: sellerId.value ?? undefined,
     name: name.value.trim(),
     shortDesc: shortDesc.value.trim(),
@@ -87,15 +95,45 @@ const clearImageAt = (index: number) => {
   images.value = next
 }
 
-const goNext = () => {
+const goNext = async () => {
   error.value = ''
   if (!name.value.trim() || !shortDesc.value.trim()) {
     error.value = '상품명과 한 줄 소개를 입력해주세요.'
     return
   }
-  saveDraft()
-  router.push('/seller/products/create/detail').catch(() => {
-  })
+  try {
+    const response = await fetch(`${apiBase}/api/seller/products`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...buildAuthHeaders(),
+      },
+      credentials: 'include',
+      body: JSON.stringify({
+        product_name: name.value.trim(),
+        short_desc: shortDesc.value.trim(),
+        detail_html: '',
+        price: price.value,
+        stock_qty: stock.value,
+        cost_price: costPrice.value,
+      }),
+    })
+    if (!response.ok) {
+      error.value = '상품 등록에 실패했습니다.'
+      return
+    }
+    const payload = (await response.json().catch(() => null)) as {product_id?: number} | null
+    if (!payload?.product_id) {
+      error.value = '상품 등록에 실패했습니다.'
+      return
+    }
+    console.log(payload.product_id)
+    saveDraft(payload.product_id)
+    router.push('/seller/products/create/detail').catch(() => {
+    })
+  } catch {
+    error.value = '상품 등록에 실패했습니다.'
+  }
 }
 
 const cancel = () => {
