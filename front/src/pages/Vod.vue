@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import PageContainer from '../components/PageContainer.vue'
 import PageHeader from '../components/PageHeader.vue'
@@ -67,16 +67,12 @@ const handleImageError = (event: Event) => {
 
 
 const showChat = ref(true)
-const isFullscreen = ref(false)
-const stageRef = ref<HTMLElement | null>(null)
 const isLiked = ref(false)
 const likeCount = ref(0)
 const likeInFlight = ref(false)
 const reportInFlight = ref(false)
 const hasReported = ref(false)
-const isSettingsOpen = ref(false)
-const settingsButtonRef = ref<HTMLElement | null>(null)
-const settingsPanelRef = ref<HTMLElement | null>(null)
+const totalViews = ref<number | null>(null)
 
 const isLoggedIn = computed(() => Boolean(getAuthUser()))
 
@@ -123,27 +119,6 @@ const submitReport = async () => {
 const toggleChat = () => {
   showChat.value = !showChat.value
 }
-
-const toggleSettings = () => {
-  isSettingsOpen.value = !isSettingsOpen.value
-}
-
-const toggleFullscreen = async () => {
-  const el = stageRef.value
-  if (!el) return
-  try {
-    if (document.fullscreenElement) {
-      await document.exitFullscreen()
-      isFullscreen.value = false
-    } else if (el.requestFullscreen) {
-      await el.requestFullscreen()
-      isFullscreen.value = true
-    }
-  } catch {
-    return
-  }
-}
-
 
 const products = ref<BroadcastProductItem[]>([])
 
@@ -200,11 +175,13 @@ const loadVodDetail = async () => {
     likeCount.value = detail.totalLikes ?? 0
     isLiked.value = false
     hasReported.value = false
+    totalViews.value = detail.totalViews ?? null
     await loadProducts(numeric)
     const viewerId = resolveViewerId(getAuthUser())
     void recordVodView(numeric, viewerId)
   } catch {
     vodItem.value = null
+    totalViews.value = null
   }
 }
 
@@ -278,45 +255,6 @@ onMounted(() => {
   scrollChatToBottom()
 })
 
-const handleDocumentClick = (event: MouseEvent) => {
-  if (!isSettingsOpen.value) {
-    return
-  }
-  const target = event.target as Node | null
-  if (
-    settingsButtonRef.value?.contains(target) ||
-    settingsPanelRef.value?.contains(target)
-  ) {
-    return
-  }
-  isSettingsOpen.value = false
-}
-
-const handleDocumentKeydown = (event: KeyboardEvent) => {
-  if (!isSettingsOpen.value) {
-    return
-  }
-  if (event.key === 'Escape') {
-    isSettingsOpen.value = false
-  }
-}
-
-const handleFullscreenChange = () => {
-  isFullscreen.value = Boolean(document.fullscreenElement)
-}
-
-onBeforeUnmount(() => {
-  document.removeEventListener('click', handleDocumentClick)
-  document.removeEventListener('keydown', handleDocumentKeydown)
-  document.removeEventListener('fullscreenchange', handleFullscreenChange)
-})
-
-onMounted(() => {
-  document.addEventListener('click', handleDocumentClick)
-  document.addEventListener('keydown', handleDocumentKeydown)
-  document.addEventListener('fullscreenchange', handleFullscreenChange)
-})
-
 watch(showChat, (visible) => {
   if (visible) {
     scrollChatToBottom()
@@ -347,10 +285,12 @@ watch(showChat, (visible) => {
               <span v-if="status === 'LIVE' && vodItem.viewerCount" class="status-viewers">
                 {{ vodItem.viewerCount.toLocaleString() }}명 시청 중
               </span>
+              <span v-else-if="totalViews !== null" class="status-views">
+                누적 조회수 {{ totalViews.toLocaleString('ko-KR') }}회
+              </span>
               <span v-else-if="status === 'UPCOMING'" class="status-schedule">
                 {{ scheduledLabel }}
               </span>
-              <span v-else-if="status === 'ENDED'" class="status-ended">방송 종료</span>
             </div>
             <h3 class="player-title">{{ vodItem.title }}</h3>
             <span> {{ formatSchedule(vodItem.startAt, vodItem.endAt)}}</span>
@@ -358,7 +298,7 @@ watch(showChat, (visible) => {
             <p v-if="vodItem.sellerName" class="player-seller">{{ vodItem.sellerName }}</p>
           </div>
 
-          <div class="player-frame" ref="stageRef" :class="{ 'player-frame--fullscreen': isFullscreen }">
+          <div class="player-frame">
             <span v-if="status === 'UPCOMING'" class="player-frame__label">아직 시작 전입니다</span>
             <span v-else-if="!vodItem.vodUrl" class="player-frame__label">VOD 준비 중</span>
             <iframe
@@ -370,8 +310,21 @@ watch(showChat, (visible) => {
               allowfullscreen
             />
             <video v-else class="player-video" :src="vodItem.vodUrl" controls />
-
-            <div class="player-actions">
+          </div>
+          <div class="player-footer">
+            <button
+              type="button"
+              class="icon-circle"
+              :class="{ active: showChat }"
+              aria-label="채팅 패널 토글"
+              @click="toggleChat"
+            >
+              <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M3 20l1.62-3.24A2 2 0 0 1 6.42 16H20a1 1 0 0 0 1-1V5a1 1 0 0 0-1-1H4a1 1 0 0 0-1 1v15z" fill="none" stroke="currentColor" stroke-width="1.8" />
+                <path d="M7 9h10M7 12h6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
+              </svg>
+            </button>
+            <div class="player-reactions">
               <div class="icon-action">
                 <button
                   type="button"
@@ -413,69 +366,6 @@ watch(showChat, (visible) => {
                 </button>
                 <span class="icon-label">신고</span>
               </div>
-              <button
-                type="button"
-                class="icon-circle"
-                :class="{ active: showChat }"
-                aria-label="채팅 패널 토글"
-                @click="toggleChat"
-              >
-                <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
-                  <path d="M3 20l1.62-3.24A2 2 0 0 1 6.42 16H20a1 1 0 0 0 1-1V5a1 1 0 0 0-1-1H4a1 1 0 0 0-1 1v15z" fill="none" stroke="currentColor" stroke-width="1.8" />
-                  <path d="M7 9h10M7 12h6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
-                </svg>
-              </button>
-              <div class="player-settings">
-                <button
-                  ref="settingsButtonRef"
-                  type="button"
-                  class="icon-circle"
-                  aria-controls="player-settings"
-                  :aria-expanded="isSettingsOpen ? 'true' : 'false'"
-                  aria-label="설정"
-                  @click="toggleSettings"
-                >
-                  <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
-                    <path d="M4 6h16M4 12h16M4 18h16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
-                    <circle cx="9" cy="6" r="2" fill="none" stroke="currentColor" stroke-width="1.8" />
-                    <circle cx="14" cy="12" r="2" fill="none" stroke="currentColor" stroke-width="1.8" />
-                    <circle cx="7" cy="18" r="2" fill="none" stroke="currentColor" stroke-width="1.8" />
-                  </svg>
-                </button>
-                <div
-                  v-if="isSettingsOpen"
-                  id="player-settings"
-                  ref="settingsPanelRef"
-                  class="settings-popover"
-                >
-                  <label class="settings-row">
-                    <span class="settings-label">볼륨</span>
-                    <input
-                      class="toolbar-slider"
-                      type="range"
-                      min="0"
-                      max="100"
-                      value="60"
-                      aria-label="볼륨 조절"
-                      disabled
-                    />
-                  </label>
-                  <label class="settings-row">
-                    <span class="settings-label">화질</span>
-                    <select class="settings-select" aria-label="화질" disabled>
-                      <option>자동</option>
-                      <option>1080p</option>
-                      <option>720p</option>
-                      <option>480p</option>
-                    </select>
-                  </label>
-                </div>
-              </div>
-              <button type="button" class="icon-circle" aria-label="전체 화면" @click="toggleFullscreen">
-                <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
-                  <path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
-                </svg>
-              </button>
             </div>
           </div>
         </section>
@@ -736,8 +626,8 @@ watch(showChat, (visible) => {
   font-weight: 700;
 }
 
-.status-ended {
-  color: var(--text-soft);
+.status-views {
+  color: var(--text-muted);
   font-weight: 700;
 }
 
@@ -774,21 +664,6 @@ watch(showChat, (visible) => {
   overflow: hidden;
 }
 
-.player-frame--fullscreen,
-.player-frame:fullscreen {
-  width: min(100vw, calc(100vh * (16 / 9)));
-  height: min(100vh, calc(100vw * (9 / 16)));
-  max-height: 100vh;
-  max-width: 100vw;
-  border-radius: 0;
-  background: #000;
-}
-
-.player-frame:fullscreen .player-embed,
-.player-frame:fullscreen .player-video {
-  object-fit: contain;
-}
-
 .player-frame__label {
   position: absolute;
   z-index: 2;
@@ -810,90 +685,31 @@ watch(showChat, (visible) => {
   background: #0b0f18;
 }
 
-.player-actions {
-  position: absolute;
-  right: 14px;
-  bottom: 14px;
+.player-footer {
+  margin-top: 12px;
   display: flex;
   flex-direction: column;
   align-items: flex-end;
   gap: 12px;
-  z-index: 3;
+}
+
+.player-reactions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 10px;
 }
 
 .icon-action {
   display: flex;
   align-items: center;
   gap: 8px;
-  color: #fff;
   font-weight: 700;
 }
 
 .icon-count,
 .icon-label {
   font-size: 0.85rem;
-}
-
-.player-settings {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-}
-
-.settings-popover {
-  position: absolute;
-  top: 0;
-  right: calc(100% + 10px);
-  background: var(--surface);
-  border: 1px solid var(--border-color);
-  border-radius: 12px;
-  padding: 12px;
-  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.12);
-  min-width: 220px;
-  display: grid;
-  gap: 10px;
-}
-
-.settings-select {
-  border: 1px solid var(--border-color);
-  background: var(--surface);
-  color: var(--text-strong);
-  border-radius: 10px;
-  height: 36px;
-  padding: 0 12px;
-  font-weight: 700;
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  transition: border-color 0.2s ease, box-shadow 0.2s ease, color 0.2s ease;
-}
-
-.settings-select:hover {
-  border-color: var(--primary-color);
-}
-
-.settings-select:focus-visible,
-.toolbar-slider:focus-visible {
-  outline: 2px solid var(--primary-color);
-  outline-offset: 2px;
-}
-
-.toolbar-slider {
-  accent-color: var(--primary-color);
-  width: 140px;
-}
-
-.settings-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-
-.settings-label {
-  font-weight: 800;
-  color: var(--text-strong);
 }
 
 .icon-circle {
@@ -911,6 +727,22 @@ watch(showChat, (visible) => {
 }
 
 .icon-circle.active {
+  border-color: var(--primary-color);
+  color: var(--primary-color);
+  background: rgba(var(--primary-rgb), 0.12);
+}
+
+.player-footer .icon-action {
+  color: var(--text-strong);
+}
+
+.player-footer .icon-circle {
+  border-color: var(--border-color);
+  background: var(--surface);
+  color: var(--text-strong);
+}
+
+.player-footer .icon-circle.active {
   border-color: var(--primary-color);
   color: var(--primary-color);
   background: rgba(var(--primary-rgb), 0.12);
