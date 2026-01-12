@@ -60,6 +60,7 @@ type ChatMessageUI = {
   time: string
   kind?: 'system' | 'user'
   senderRole?: string
+  memberLoginId?: string
 }
 
 // --- State ---
@@ -102,7 +103,7 @@ const nickname = ref("관리자")
 
 // Moderation State
 const showModerationModal = ref(false)
-const moderationTarget = ref<{ user: string } | null>(null)
+const moderationTarget = ref<{ user: string; memberLoginId?: string } | null>(null)
 const moderationType = ref('')
 const moderationReason = ref('')
 const moderatedUsers = ref<Record<string, { type: string; reason: string; at: string }>>({})
@@ -283,7 +284,8 @@ const handleIncomingMessage = (payload: LiveChatMessageDTO) => {
     text: payload.content || '',
     time: timeStr,
     kind: payload.type === 'TALK' ? 'user' : 'system',
-    senderRole: payload.senderRole
+    senderRole: payload.senderRole,
+    memberLoginId: payload.memberEmail,
   })
 
   nextTick(() => {
@@ -316,7 +318,8 @@ const fetchRecentMessages = async () => {
             text: item.content ?? '',
             time: timeStr,
             kind: 'user',
-            senderRole: item.senderRole
+            senderRole: item.senderRole,
+            memberLoginId: item.memberEmail,
           }
         })
     nextTick(() => {
@@ -964,11 +967,11 @@ const closeChat = () => {
 }
 
 // Moderation
-const openModeration = (msg: { user: string; kind?: string }) => {
+const openModeration = (msg: { user: string; kind?: string; memberLoginId?: string }) => {
   if (!isInteractive.value) return
   if (msg.user === 'SYSTEM' || msg.kind === 'system' || msg.user === '관리자') return
   console.log('[admin chat] moderation open', msg.user)
-  moderationTarget.value = { user: msg.user }
+  moderationTarget.value = { user: msg.user, memberLoginId: msg.memberLoginId }
   moderationType.value = ''
   moderationReason.value = ''
   showModerationModal.value = true
@@ -991,10 +994,14 @@ const saveModeration = async () => {
   const target = moderationTarget.value
   if (!target) return
   if (!broadcastId.value) return
+  if (!target.memberLoginId) {
+    window.alert('로그인된 시청자만 제재할 수 있습니다.')
+    return
+  }
   const sanctionType = moderationType.value === '채팅 금지' ? 'MUTE' : 'OUT'
   try {
     await sanctionAdminViewer(broadcastId.value, {
-      memberLoginId: target.user,
+      memberLoginId: target.memberLoginId,
       status: sanctionType,
       reason: moderationReason.value.trim(),
     })
