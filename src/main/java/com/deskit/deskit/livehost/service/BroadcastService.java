@@ -1190,8 +1190,8 @@ public class BroadcastService {
             topView = broadcastResultRepository.getRanking(sellerId, period, "VIEWS", true, 5);
             worstView = broadcastResultRepository.getRanking(sellerId, period, "VIEWS", false, 5);
         } else {
-            best = broadcastResultRepository.getRanking(null, period, "SALES", true, 10);
-            worst = broadcastResultRepository.getRanking(null, period, "SALES", false, 10);
+            best = broadcastResultRepository.getRanking(null, period, "SALES", true, 5);
+            worst = broadcastResultRepository.getRanking(null, period, "SALES", false, 5);
             topView = List.of();
             worstView = List.of();
             bestProducts = getProductSalesRanking(period, true, 5);
@@ -1252,7 +1252,7 @@ public class BroadcastService {
                 .join(broadcastTable).on(bpBroadcastIdField.eq(broadcastIdField))
                 .join(productTable).on(bpProductIdField.eq(productIdField))
                 .where(
-                        orderStatusField.eq(OrderStatus.COMPLETED.name()),
+                        orderStatusField.in(OrderStatus.PAID.name(), OrderStatus.COMPLETED.name()),
                         orderPaidAtField.isNotNull(),
                         orderPaidAtField.ge(startDate),
                         orderPaidAtField.between(broadcastStartedAtField, broadcastEndedAtField),
@@ -1321,7 +1321,7 @@ public class BroadcastService {
                 .join(bpTable).on(bpProductIdField.eq(orderItemProductIdField)
                         .and(bpBroadcastIdField.eq(broadcast.getBroadcastId())))
                 .where(
-                        orderStatusField.eq(OrderStatus.PAID.name()),
+                        orderStatusField.in(OrderStatus.PAID.name(), OrderStatus.COMPLETED.name()),
                         orderPaidAtField.isNotNull(),
                         orderPaidAtField.between(startedAt, endedAt),
                         priceMatchCondition,
