@@ -73,6 +73,8 @@ const likeInFlight = ref(false)
 const reportInFlight = ref(false)
 const hasReported = ref(false)
 const totalViews = ref<number | null>(null)
+const isVodUnavailable = ref(false)
+const refreshTimerId = ref<number | null>(null)
 
 const isLoggedIn = computed(() => Boolean(getAuthUser()))
 
@@ -100,6 +102,10 @@ const toggleLike = async () => {
 
 const submitReport = async () => {
   if (!vodItem.value || reportInFlight.value || !requireMemberAction()) return
+  if (hasReported.value) {
+    alert('이미 신고 완료되어 1회만 신고 가능합니다.')
+    return
+  }
   reportInFlight.value = true
   try {
     const result = await reportBroadcast(Number(vodItem.value.id))
@@ -107,7 +113,7 @@ const submitReport = async () => {
     if (result.reported) {
       alert('신고가 접수되었습니다.')
     } else {
-      alert('이미 신고한 VOD입니다.')
+      alert('이미 신고 완료되어 1회만 신고 가능합니다.')
     }
   } catch {
     return
@@ -176,12 +182,18 @@ const loadVodDetail = async () => {
     isLiked.value = false
     hasReported.value = false
     totalViews.value = detail.totalViews ?? null
+    isVodUnavailable.value = false
     await loadProducts(numeric)
     const viewerId = resolveViewerId(getAuthUser())
     void recordVodView(numeric, viewerId)
   } catch {
     vodItem.value = null
     totalViews.value = null
+    if (!isVodUnavailable.value) {
+      isVodUnavailable.value = true
+      alert('VOD가 삭제되어 방송 목록으로 이동합니다.')
+      router.replace('/live').catch(() => {})
+    }
   }
 }
 
@@ -253,6 +265,16 @@ const scrollChatToBottom = () => {
 
 onMounted(() => {
   scrollChatToBottom()
+  refreshTimerId.value = window.setInterval(() => {
+    void loadVodDetail()
+  }, 30000)
+})
+
+onBeforeUnmount(() => {
+  if (refreshTimerId.value !== null) {
+    window.clearInterval(refreshTimerId.value)
+    refreshTimerId.value = null
+  }
 })
 
 watch(showChat, (visible) => {
@@ -309,22 +331,29 @@ watch(showChat, (visible) => {
               allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
               allowfullscreen
             />
-            <video v-else class="player-video" :src="vodItem.vodUrl" controls />
+            <video
+              v-else
+              class="player-video"
+              :src="vodItem.vodUrl"
+              controls
+              controlslist="nodownload"
+              @contextmenu.prevent
+            />
           </div>
           <div class="player-footer">
-            <button
-              type="button"
-              class="icon-circle"
-              :class="{ active: showChat }"
-              aria-label="채팅 패널 토글"
-              @click="toggleChat"
-            >
-              <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
-                <path d="M3 20l1.62-3.24A2 2 0 0 1 6.42 16H20a1 1 0 0 0 1-1V5a1 1 0 0 0-1-1H4a1 1 0 0 0-1 1v15z" fill="none" stroke="currentColor" stroke-width="1.8" />
-                <path d="M7 9h10M7 12h6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
-              </svg>
-            </button>
             <div class="player-reactions">
+              <button
+                type="button"
+                class="icon-circle"
+                :class="{ active: showChat }"
+                aria-label="채팅 패널 토글"
+                @click="toggleChat"
+              >
+                <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M3 20l1.62-3.24A2 2 0 0 1 6.42 16H20a1 1 0 0 0 1-1V5a1 1 0 0 0-1-1H4a1 1 0 0 0-1 1v15z" fill="none" stroke="currentColor" stroke-width="1.8" />
+                  <path d="M7 9h10M7 12h6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
+                </svg>
+              </button>
               <div class="icon-action">
                 <button
                   type="button"
@@ -349,7 +378,7 @@ watch(showChat, (visible) => {
                     />
                   </svg>
                 </button>
-                <span class="icon-count">{{ likeCount.toLocaleString('ko-KR') }}</span>
+                <span class="icon-text">{{ likeCount.toLocaleString('ko-KR') }}</span>
               </div>
               <div class="icon-action">
                 <button
@@ -364,7 +393,7 @@ watch(showChat, (visible) => {
                     <path d="M6 4h11l-2 4 2 4H6z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" />
                   </svg>
                 </button>
-                <span class="icon-label">신고</span>
+                <span class="icon-text">신고</span>
               </div>
             </div>
           </div>
@@ -697,18 +726,18 @@ watch(showChat, (visible) => {
   display: flex;
   flex-direction: column;
   align-items: flex-end;
-  gap: 10px;
+  gap: 12px;
 }
 
 .icon-action {
   display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   font-weight: 700;
 }
 
-.icon-count,
-.icon-label {
+.icon-text {
   font-size: 0.85rem;
 }
 
