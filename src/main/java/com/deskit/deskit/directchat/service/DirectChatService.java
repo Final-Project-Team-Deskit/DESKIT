@@ -126,7 +126,7 @@ public class DirectChatService {
         ChatMessage closeMessage = new ChatMessage();
         closeMessage.setChatId(chatId);
         closeMessage.setType(MessageType.SYSTEM);
-        closeMessage.setContent("상담이 종료되었습니다");
+        closeMessage.setContent("상담이 종료되었습니다.");
         chatRepository.save(closeMessage);
 
         chatHandoffRepository.findTopByChatIdOrderByCreatedAtDesc(chatId)

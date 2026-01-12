@@ -2,6 +2,7 @@ package com.deskit.deskit.ai.chatbot.rag.service;
 
 import com.deskit.deskit.ai.config.RagVectorProperties;
 import com.deskit.deskit.ai.chatbot.openai.entity.ChatInfo;
+import com.deskit.deskit.ai.chatbot.openai.service.OpenAIService;
 import com.deskit.deskit.ai.chatbot.openai.service.ConversationService;
 import com.deskit.deskit.ai.chatbot.rag.dto.ChatResponse;
 import com.openai.client.OpenAIClient;
@@ -37,7 +38,7 @@ public class RagService {
     private static final String MODEL = "gpt-4o-mini";
     private static final double TEMPERATURE = 0.7;
     private static final String NO_CONTEXT_MESSAGE =
-            "해당 내용은 현재 제공된 정보로는 안내드릴 수 없어요. \"관리자 연결\"을 입력하시면 관리자에게 문의가 접수돼요.";
+            "해당 내용은 현재 제공된 정보로는 안내드릴 수 없습니다. \"관리자 연결\"을 입력하시면 관리자에게 문의가 접수됩니다.";
 
     private final RedisVectorStore vectorStore;
     private final RagVectorProperties properties;
@@ -46,12 +47,11 @@ public class RagService {
     private final ChatSaveService chatSaveService;
     private final ChatMemoryRepository chatMemoryRepository;
     private final OpenAIClient openAIClient;
+    private final OpenAIService openAIService;
 
     private static final String ESCALATION_TRIGGER = "관리자 연결";
 
-    public ChatResponse chat(String question, int topK) {
-        Long memberId = 1L;
-
+    public ChatResponse chat(Long memberId, String question, int topK) {
         ChatInfo chatInfo = conversationService.getOrCreateActiveConversation(memberId);
 
         boolean escalated = false;
@@ -79,12 +79,12 @@ public class RagService {
         log.info("[RAG] similaritySearch result size={}", documents.size());
 
         if (documents.isEmpty()) {
-            return new ChatResponse(NO_CONTEXT_MESSAGE, List.of(), false);
+            return openAIService.generate(memberId, question);
         }
 
         String context = buildContext(documents);
         if (context.isBlank()) {
-            return new ChatResponse(NO_CONTEXT_MESSAGE, List.of(), false);
+            return openAIService.generate(memberId, question);
         }
 
         List<Message> messages = buildMessages(context, normalized);
@@ -101,7 +101,7 @@ public class RagService {
         } catch (OpenAIException e) {
             log.error("RAG OpenAI error", e);
             return new ChatResponse(
-                    "현재 상담 시스템에 문제가 발생했어요. 잠시 후 다시 시도해 주세요.",
+                    "현재 상담 시스템에 문제가 발생했습니다. 잠시 후 다시 시도해주세요.",
                     List.of(),
                     false
             );
@@ -131,41 +131,25 @@ public class RagService {
         List<Message> messages = new ArrayList<>();
         messages.add(new SystemMessage(
                 """
-                        당신은 고객 지원을 돕는 AI 상담 챗봇입니다.
-                        
-                        문서에 질문과 정확히 일치하는 내용이 없더라도,
-                        관련된 정보가 문서에 일부라도 포함되어 있다면
-                        그 범위 내에서만 요약하여 안내하세요.
-                        
-                        단, 문서에 전혀 근거가 없는 내용은
-                        추측하거나 일반적인 답변을 하지 마세요.
-                        
-                        다음과 같은 경우에는 직접 답변하지 말고,
-                        관리자 상담이 필요하다는 안내를 하세요.
-                        
-                        1. 제공된 문서(Context)에 근거가 없는 질문인 경우
-                        2. 사용자의 개인적인 상황, 주문 내역, 결제 정보, 계정 상태 등
-                           개인 정보 또는 개인별 처리가 필요한 질문인 경우
-                        3. 정책 문서에 없는 예외 처리, 임의 판단, 특수 요청을 요구하는 경우
-                        4. 문서 내용만으로 정확하고 책임 있는 답변을 제공할 수 없다고 판단되는 경우
-                        5. "관리자 문의", "사람이랑 상담", "직접 문의하고 싶다" 등 고객이 명시적으로 관리자 상담을 요청하는 경우
-                        
-                        위 조건에 해당하는 경우에는
-                        반드시 아래 문장 중 하나의 형태로만 응답하세요.
-                        
-                        - 해당 내용은 현재 제공된 정보로는 안내드릴 수 없어요. "관리자 연결"을 입력하시면 관리자에게 문의가 접수돼요.
-                        - 개인 정보 또는 개별 확인이 필요한 내용으로, 관리자 상담을 통해 안내가 가능해요. "관리자 연결"을 입력하시면 관리자에게 문의가 접수돼요.
-                        - 요청하신 내용은 관리자 확인이 필요하여 상담 연결이 필요해요. "관리자 연결"을 입력하시면 관리자에게 문의가 접수돼요.
-                        - 관리자와 직접 상담을 원하시는 것 같아요. "관리자 연결"을 입력하시면 관리자에게 문의가 접수돼요.
-                        
-                        절대 위 문구 외의 임의의 답변을 생성하지 마세요.
-                        
+                        당신은 고객 지원 AI 어시스턴트입니다.
+
+                        제공된 문맥을 사용해 사용자의 질문에 답변하세요.
+                        문맥이 관련 있으나 불완전하다면, 알고 있는 범위에서 답변하고
+                        짧은 추가 질문을 하세요.
+                        문맥에 충분한 정보가 없다면, 제공된 문서에서 답을 찾지 못했다고
+                        말하고 더 자세한 정보를 요청하세요.
+
+                        사용자가 관리자와 연결을 원하는 것 같다고 판단되면, 아래와 같이 대답하세요.
+                        "관리자와 상담을 원하시는 것 같아요. '관리자 연결'이라고 입력하면 관리자와 상담이 가능해요."
+
+                        문맥에 근거하지 않은 사실을 만들어내지 마세요.
+                        응답은 간결하고 도움이 되도록 작성하세요.
                         """
         ));
         messages.add(new UserMessage("""
                 [Context]
                 %s
-                
+
                 [Question]
                 %s
                 """.formatted(context, question)));
