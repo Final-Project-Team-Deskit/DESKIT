@@ -51,7 +51,7 @@ public class AdminService {
 
             broadcastService.saveBroadcastResultSnapshot(broadcast);
             openViduService.closeSession(broadcastId);
-            redisService.deleteBroadcastKeys(broadcastId);
+            redisService.deleteBroadcastRuntimeKeys(broadcastId);
             sseService.notifyBroadcastUpdate(broadcastId, "BROADCAST_STOPPED", reason);
         } finally {
             redisService.releaseLock(lockKey);
