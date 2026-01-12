@@ -416,7 +416,7 @@ const handleImageError = (event: Event) => {
   target.src = FALLBACK_IMAGE
 }
 
-const mapStreamProduct = (product: BroadcastDetailResponse['products'][number]) => {
+const mapStreamProduct = (product: NonNullable<BroadcastDetailResponse['products']>[number]) => {
   const totalQty = product.bpQuantity ?? product.stockQty ?? 0
   const stockQty = product.stockQty ?? totalQty
   const sold = Math.max(0, totalQty - stockQty)
