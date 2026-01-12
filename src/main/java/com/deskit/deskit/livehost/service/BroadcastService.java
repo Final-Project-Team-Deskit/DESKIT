@@ -790,6 +790,31 @@ public class BroadcastService {
                 .build();
     }
 
+    @Transactional(readOnly = true)
+    public BroadcastLikeResponse getBroadcastLikeStatus(Long broadcastId, Long memberId) {
+        Broadcast broadcast = broadcastRepository.findById(broadcastId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.BROADCAST_NOT_FOUND));
+
+        boolean liked = redisService.isMemberLiked(broadcastId, memberId);
+        if (broadcast.getStatus() == BroadcastStatus.VOD) {
+            int baseLikes = broadcastResultRepository.findById(broadcastId)
+                    .map(BroadcastResult::getTotalLikes)
+                    .orElse(0);
+            int pendingDelta = redisService.getVodLikeDelta(broadcastId);
+            int likeCount = Math.max(0, baseLikes + pendingDelta);
+            return BroadcastLikeResponse.builder()
+                    .liked(liked)
+                    .likeCount(likeCount)
+                    .build();
+        }
+
+        int likeCount = redisService.getLikeCount(broadcastId);
+        return BroadcastLikeResponse.builder()
+                .liked(liked)
+                .likeCount(likeCount)
+                .build();
+    }
+
     @Transactional
     public void processVod(OpenViduRecordingWebhook payload) {
         Long broadcastId = Long.parseLong(payload.getSessionId().replace("broadcast-", ""));
@@ -1061,6 +1086,7 @@ public class BroadcastService {
         long avgTime = 0;
         BigDecimal sales = BigDecimal.ZERO;
         LocalDateTime maxTime = null;
+        int pendingViewDelta = 0;
 
         if (result != null) {
             views = result.getTotalViews();
@@ -1070,6 +1096,9 @@ public class BroadcastService {
             maxTime = result.getPickViewsAt();
             avgTime = result.getAvgWatchTime();
             reports = result.getTotalReports();
+        }
+        if (broadcast.getStatus() == BroadcastStatus.VOD) {
+            pendingViewDelta = redisService.getVodViewDelta(broadcastId);
         }
         sanctions = sanctionRepository.countByBroadcast(broadcast);
 
@@ -1105,7 +1134,7 @@ public class BroadcastService {
                 .durationMinutes(duration)
                 .status(broadcast.getStatus())
                 .stoppedReason(broadcast.getBroadcastStoppedReason())
-                .totalViews(views)
+                .totalViews(Math.max(0, views + pendingViewDelta))
                 .totalLikes(likes)
                 .totalSales(sales)
                 .totalChats(chats)
