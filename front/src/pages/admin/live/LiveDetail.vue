@@ -632,6 +632,9 @@ const startStatsPolling = (broadcastId: number) => {
     if (document.visibilityState !== 'visible') {
       return
     }
+    if (!['READY', 'ON_AIR', 'ENDED', 'STOPPED'].includes(lifecycleStatus.value)) {
+      return
+    }
     void refreshStats(broadcastId)
     if (!sseConnected.value) {
       void refreshProducts(broadcastId)
