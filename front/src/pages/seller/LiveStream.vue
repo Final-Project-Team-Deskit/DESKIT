@@ -458,8 +458,11 @@ const applyPublisherVolume = () => {
   if (!publisherContainerRef.value) return
   const video = publisherContainerRef.value.querySelector('video') as HTMLVideoElement | null
   if (!video) return
-  video.muted = false
+  video.muted = true
+  video.autoplay = true
+  video.playsInline = true
   video.volume = Math.min(1, Math.max(0, volume.value / 100))
+  void video.play().catch(() => {})
 }
 
 const waitForPublisherContainer = async () => {
