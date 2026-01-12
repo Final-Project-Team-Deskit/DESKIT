@@ -16,6 +16,7 @@ public class BroadcastProductResponse {
     private int originalPrice;    // 원가
     private int stockQty;         // 방송 판매 수량 기준 재고
     private int safetyStock;      // 안전 재고
+    private int productStockQty;  // 상품 원본 재고 수량
 
     private int bpPrice;        // 라이브 특가 (bp_price)
     private int bpQuantity;     // 판매 수량 (bp_quantity)
@@ -39,6 +40,7 @@ public class BroadcastProductResponse {
                 .originalPrice(p.getPrice())
                 .stockQty(remaining)
                 .safetyStock(p.getSafetyStock())
+                .productStockQty(p.getStockQty())
                 .bpPrice(bp.getBpPrice())
                 .bpQuantity(bp.getBpQuantity())
                 .displayOrder(bp.getDisplayOrder())

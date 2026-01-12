@@ -149,6 +149,7 @@ export type BroadcastDetailResponse = {
     originalPrice: number
     stockQty?: number
     safetyStock?: number
+    productStockQty?: number
     bpPrice: number
     bpQuantity: number
     displayOrder: number
