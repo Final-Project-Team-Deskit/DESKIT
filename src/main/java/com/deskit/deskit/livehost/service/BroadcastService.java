@@ -997,9 +997,12 @@ public class BroadcastService {
 
     @Transactional
     public List<BroadcastProductResponse> getBroadcastProducts(Long broadcastId) {
+        Broadcast broadcast = broadcastRepository.findById(broadcastId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.BROADCAST_NOT_FOUND));
         List<BroadcastProduct> products = broadcastProductRepository.findAllWithProductByBroadcastId(broadcastId);
+        Map<Long, Integer> remainingQuantities = calculateRemainingQuantities(broadcast, products);
         List<Long> soldOutProductIds = products.stream()
-                .filter(bp -> bp.markSoldOutIfNeeded(bp.getBpQuantity()))
+                .filter(bp -> bp.markSoldOutIfNeeded(remainingQuantities.get(bp.getProduct().getId())))
                 .map(bp -> bp.getProduct().getId())
                 .distinct()
                 .collect(Collectors.toList());
@@ -1009,7 +1012,10 @@ public class BroadcastService {
         }
 
         return products.stream()
-                .map(BroadcastProductResponse::fromEntity)
+                .map(bp -> BroadcastProductResponse.fromEntity(
+                        bp,
+                        remainingQuantities.getOrDefault(bp.getProduct().getId(), bp.getBpQuantity())
+                ))
                 .collect(Collectors.toList());
     }
 
@@ -1262,9 +1268,11 @@ public class BroadcastService {
     }
 
     private SalesSummary fetchBroadcastSalesSummary(Broadcast broadcast) {
-        if (broadcast.getStartedAt() == null || broadcast.getEndedAt() == null) {
+        if (broadcast.getStartedAt() == null) {
             return new SalesSummary(BigDecimal.ZERO, Map.of());
         }
+        LocalDateTime startedAt = broadcast.getStartedAt();
+        LocalDateTime endedAt = broadcast.getEndedAt() != null ? broadcast.getEndedAt() : LocalDateTime.now();
 
         var orderTable = org.jooq.impl.DSL.table(name("order")).as("o");
         var orderItemTable = org.jooq.impl.DSL.table(name("order_item")).as("oi");
@@ -1285,6 +1293,8 @@ public class BroadcastService {
         var bpProductIdField = field(name("bp", "product_id"), Long.class);
         var bpPriceField = field(name("bp", "bp_price"), Integer.class);
 
+        var priceMatchCondition = bpPriceField.isNull().or(orderItemUnitPriceField.eq(bpPriceField));
+
         var effectivePrice = org.jooq.impl.DSL.coalesce(bpPriceField, orderItemUnitPriceField).cast(BigDecimal.class);
         var salesAmount = org.jooq.impl.DSL.sum(
                 effectivePrice.mul(orderItemQuantityField.cast(BigDecimal.class))
@@ -1299,7 +1309,8 @@ public class BroadcastService {
                 .where(
                         orderStatusField.eq(OrderStatus.PAID.name()),
                         orderPaidAtField.isNotNull(),
-                        orderPaidAtField.between(broadcast.getStartedAt(), broadcast.getEndedAt()),
+                        orderPaidAtField.between(startedAt, endedAt),
+                        priceMatchCondition,
                         orderDeletedAtField.isNull(),
                         orderItemDeletedAtField.isNull()
                 )
@@ -1736,8 +1747,12 @@ public class BroadcastService {
     }
 
     private List<BroadcastProductResponse> getProductListResponse(Broadcast broadcast) {
+        Map<Long, Integer> remainingQuantities = calculateRemainingQuantities(broadcast, broadcast.getProducts());
         return broadcast.getProducts().stream()
-                .map(BroadcastProductResponse::fromEntity)
+                .map(bp -> BroadcastProductResponse.fromEntity(
+                        bp,
+                        remainingQuantities.getOrDefault(bp.getProduct().getId(), bp.getBpQuantity())
+                ))
                 .collect(Collectors.toList());
     }
 
@@ -1871,6 +1886,8 @@ public class BroadcastService {
 
         var productMap = broadcastProductRepository.findAllWithProductByBroadcastIdIn(liveIds).stream()
                 .collect(Collectors.groupingBy(bp -> bp.getBroadcast().getBroadcastId()));
+        var broadcastMap = broadcastRepository.findAllById(liveIds).stream()
+                .collect(Collectors.toMap(Broadcast::getBroadcastId, java.util.function.Function.identity()));
 
         list.forEach(item -> {
             if (isLiveGroup(item.getStatus())) {
@@ -1879,16 +1896,35 @@ public class BroadcastService {
                 item.setReportCount(redisService.getReportCount(item.getBroadcastId()));
 
                 List<BroadcastProduct> products = productMap.getOrDefault(item.getBroadcastId(), List.of());
+                Broadcast broadcast = broadcastMap.get(item.getBroadcastId());
+                Map<Long, Integer> remainingQuantities = calculateRemainingQuantities(broadcast, products);
                 item.setProducts(products.stream().map(bp -> {
                     Product p = bp.getProduct();
+                    int remaining = remainingQuantities.getOrDefault(p.getId(), bp.getBpQuantity());
                     return BroadcastListResponse.SimpleProductInfo.builder()
                             .name(p.getProductName())
-                            .stock(bp.getBpQuantity())
-                            .isSoldOut(bp.getBpQuantity() <= 0)
+                            .stock(remaining)
+                            .isSoldOut(remaining <= 0)
                             .build();
                 }).collect(Collectors.toList()));
             }
         });
+    }
+
+    private Map<Long, Integer> calculateRemainingQuantities(Broadcast broadcast, List<BroadcastProduct> products) {
+        if (broadcast == null || products == null || products.isEmpty()) {
+            return Map.of();
+        }
+        SalesSummary salesSummary = fetchBroadcastSalesSummary(broadcast);
+        Map<Long, SalesMetric> metrics = salesSummary.productMetrics();
+        return products.stream()
+                .collect(Collectors.toMap(
+                        bp -> bp.getProduct().getId(),
+                        bp -> Math.max(0, bp.getBpQuantity()
+                                - Optional.ofNullable(metrics.get(bp.getProduct().getId()))
+                                .map(SalesMetric::salesQuantity)
+                                .orElse(0))
+                ));
     }
 
     private void disableSslVerification() {
