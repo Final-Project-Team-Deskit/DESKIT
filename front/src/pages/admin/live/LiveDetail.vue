@@ -1138,15 +1138,14 @@ watch(streamToken, () => {
 
 .player-frame {
   position: relative;
-  width: 100%;
+  width: min(100%, calc((100vh - 120px) * (16 / 9)));
   height: auto;
-  max-width: calc((100vh - 120px) * (16 / 9));
   max-height: calc(100vh - 120px);
   min-height: clamp(360px, auto, 760px);
   aspect-ratio: 16 / 9;
   background: #0b0f1a;
   border-radius: 18px;
-  overflow: auto;
+  overflow: hidden;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1210,7 +1209,7 @@ watch(streamToken, () => {
 .player-placeholder__image {
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  object-fit: contain;
 }
 
 .player-placeholder__message {
