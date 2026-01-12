@@ -119,6 +119,8 @@ public class SecurityConfig {
                 .authorizeHttpRequests((auth) -> auth
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                         .requestMatchers(HttpMethod.PATCH, "/api/orders/**").hasAuthority("ROLE_MEMBER")
+                        .requestMatchers(HttpMethod.PATCH, "/api/seller/products/**")
+                        .hasAnyAuthority("ROLE_SELLER", "ROLE_SELLER_OWNER", "ROLE_SELLER_MANAGER")
                         .requestMatchers(HttpMethod.GET,
                                 "/api/products/**",
                                 "/api/setups/**",
