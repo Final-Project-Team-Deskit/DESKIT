@@ -70,6 +70,16 @@ public class SanctionService {
                         "actorType", request.getActorType()
                 )
         );
+        sseService.notifyTargetUser(
+                broadcastId,
+                member.getLoginId(),
+                "SANCTION_ALERT",
+                Map.of(
+                        "type", request.getStatus(),
+                        "reason", request.getReason(),
+                        "actorType", request.getActorType()
+                )
+        );
 
         sseService.notifyBroadcastUpdate(
                 broadcastId,
@@ -109,6 +119,16 @@ public class SanctionService {
         sseService.notifyTargetUser(
                 broadcastId,
                 member.getMemberId(),
+                "SANCTION_ALERT",
+                Map.of(
+                        "type", request.getStatus(),
+                        "reason", request.getReason(),
+                        "actorType", request.getActorType()
+                )
+        );
+        sseService.notifyTargetUser(
+                broadcastId,
+                member.getLoginId(),
                 "SANCTION_ALERT",
                 Map.of(
                         "type", request.getStatus(),
