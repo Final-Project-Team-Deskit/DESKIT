@@ -120,7 +120,14 @@ public class SellerProductController {
 
     Seller seller = sellerRepository.findByLoginId(loginId);
     if (seller == null || seller.getSellerId() == null) {
-      throw new ResponseStatusException(HttpStatus.FORBIDDEN, "seller not found");
+      String email = user.getEmail();
+      if (email == null || email.isBlank()) {
+        throw new ResponseStatusException(HttpStatus.FORBIDDEN, "seller not found");
+      }
+      seller = sellerRepository.findByLoginId(email);
+      if (seller == null || seller.getSellerId() == null) {
+        throw new ResponseStatusException(HttpStatus.FORBIDDEN, "seller not found");
+      }
     }
     if (seller.getStatus() != SellerStatus.ACTIVE) {
       throw new ResponseStatusException(HttpStatus.FORBIDDEN, "seller inactive");

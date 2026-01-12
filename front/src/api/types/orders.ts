@@ -28,6 +28,7 @@ export interface OrderSummaryResponse {
 
 export interface OrderItemResponse {
   product_id: number
+  product_name?: string
   quantity: number
   unit_price: number
   subtotal_price: number

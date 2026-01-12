@@ -282,7 +282,7 @@ const handleItemsToggle = async (order: OrderViewModel, event: Event) => {
     const response = await getMyOrderDetail(numericId)
     order.items = response.items.map((item, index) => ({
       productId: String(item.product_id),
-      name: resolveItemName(String(item.product_id), index),
+      name: String(item.product_name ?? resolveItemName(String(item.product_id), index)),
       quantity: item.quantity,
       price: item.unit_price,
       originalPrice: item.unit_price,
@@ -335,7 +335,7 @@ const preloadOrderItems = async (targets: OrderViewModel[]) => {
         const response = await getMyOrderDetail(Number(order.orderPk ?? order.orderId))
         order.items = response.items.map((item, index) => ({
           productId: String(item.product_id),
-          name: resolveItemName(String(item.product_id), index),
+          name: String(item.product_name ?? resolveItemName(String(item.product_id), index)),
           quantity: item.quantity,
           price: item.unit_price,
           originalPrice: item.unit_price,

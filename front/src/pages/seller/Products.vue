@@ -198,8 +198,8 @@ onMounted(() => {
       <label class="control-field">
         <span class="control-label">정렬</span>
         <select v-model="sortOption">
-          <option value="name">상품이름순</option>
-          <option value="status">상태순</option>
+          <option value="name">상품이름</option>
+          <option value="status">상태</option>
         </select>
       </label>
       <label class="control-field search">
@@ -247,13 +247,7 @@ onMounted(() => {
             </option>
           </select>
           <div class="edit-group">
-            <button
-              type="button"
-              class="btn btn-compact"
-              @click="handleEdit(product)"
-            >
-              수정
-            </button>
+            <button type="button" class="btn btn-compact" @click="handleEdit(product)">수정</button>
           </div>
         </div>
       </article>
@@ -418,8 +412,10 @@ input[type='search'] {
   color: var(--text-strong);
 }
 
-.status-select {
+.status-text {
   min-width: 120px;
+  font-weight: 800;
+  color: var(--text-strong);
 }
 
 .edit-group {

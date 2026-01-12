@@ -7,6 +7,9 @@ public record OrderItemResponse(
   @JsonProperty("product_id")
   Long productId,
 
+  @JsonProperty("product_name")
+  String productName,
+
   @JsonProperty("quantity")
   Integer quantity,
 
@@ -18,10 +21,11 @@ public record OrderItemResponse(
 ) {
   public static OrderItemResponse from(OrderItem item) {
     if (item == null) {
-      return new OrderItemResponse(null, null, null, null);
+      return new OrderItemResponse(null, null, null, null, null);
     }
     return new OrderItemResponse(
       item.getProductId(),
+      item.getProductName(),
       item.getQuantity(),
       item.getUnitPrice(),
       item.getSubtotalPrice()

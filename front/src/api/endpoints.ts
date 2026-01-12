@@ -1,5 +1,6 @@
 export const endpoints = {
   products: '/api/products',
+  sellerProducts: '/api/seller/products',
   productDetail: (id: string | number) => `/api/products/${id}`,
   setups: '/api/setups',
   setupDetail: (id: string | number) => `/api/setups/${id}`,

@@ -5,7 +5,9 @@ import com.deskit.deskit.order.enums.OrderStatus;
 import com.deskit.deskit.order.payment.dto.TossPaymentConfirmRequest;
 import com.deskit.deskit.order.payment.dto.TossPaymentConfirmResult;
 import com.deskit.deskit.order.payment.entity.TossPayment;
+import com.deskit.deskit.order.payment.entity.TossRefund;
 import com.deskit.deskit.order.payment.repository.TossPaymentRepository;
+import com.deskit.deskit.order.payment.repository.TossRefundRepository;
 import com.deskit.deskit.order.repository.OrderRepository;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -32,9 +34,11 @@ import org.springframework.web.server.ResponseStatusException;
 public class TossPaymentService {
 
   private static final String CONFIRM_URL = "https://api.tosspayments.com/v1/payments/confirm";
+  private static final String CANCEL_URL_TEMPLATE = "https://api.tosspayments.com/v1/payments/%s/cancel";
 
   private final OrderRepository orderRepository;
   private final TossPaymentRepository tossPaymentRepository;
+  private final TossRefundRepository tossRefundRepository;
   private final ObjectMapper objectMapper;
 
   @Value("${toss.payments.secret-key}")
@@ -43,10 +47,12 @@ public class TossPaymentService {
   public TossPaymentService(
     OrderRepository orderRepository,
     TossPaymentRepository tossPaymentRepository,
+    TossRefundRepository tossRefundRepository,
     ObjectMapper objectMapper
   ) {
     this.orderRepository = orderRepository;
     this.tossPaymentRepository = tossPaymentRepository;
+    this.tossRefundRepository = tossRefundRepository;
     this.objectMapper = objectMapper;
   }
 
@@ -126,6 +132,74 @@ public class TossPaymentService {
     }
   }
 
+  public void cancelPayment(Order order, String reason) {
+    if (order == null) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "order required");
+    }
+    if (tossSecretKey == null || tossSecretKey.isBlank()) {
+      throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "missing toss secret key");
+    }
+
+    TossPayment payment = findPaymentForOrder(order);
+    if (payment == null) {
+      throw new ResponseStatusException(HttpStatus.NOT_FOUND, "payment not found");
+    }
+
+    if (isAlreadyCanceled(payment)) {
+      return;
+    }
+
+    Long cancelAmount = resolveCancelAmount(order, payment);
+    if (cancelAmount == null || cancelAmount <= 0) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "invalid cancel amount");
+    }
+    Map<String, Object> body = new HashMap<>();
+    body.put("cancelReason", normalizeReason(reason));
+    body.put("cancelAmount", cancelAmount);
+
+    String idempotencyKey = generateCancelIdempotencyKey(
+      payment.getTossPaymentKey(),
+      payment.getOrderId(),
+      cancelAmount
+    );
+
+    try {
+      String cancelUrl = String.format(CANCEL_URL_TEMPLATE, payment.getTossPaymentKey());
+      HttpURLConnection connection = (HttpURLConnection) new URL(cancelUrl).openConnection();
+      connection.setRequestProperty("Authorization", basicAuthHeader(tossSecretKey));
+      connection.setRequestProperty("Content-Type", "application/json");
+      connection.setRequestProperty("Idempotency-Key", idempotencyKey);
+      connection.setRequestMethod("POST");
+      connection.setDoOutput(true);
+
+      try (OutputStream outputStream = connection.getOutputStream()) {
+        objectMapper.writeValue(outputStream, body);
+      }
+
+      int statusCode = connection.getResponseCode();
+      boolean isSuccess = statusCode == HttpURLConnection.HTTP_OK;
+      try (InputStream responseStream = isSuccess
+        ? connection.getInputStream()
+        : connection.getErrorStream()) {
+        Map<String, Object> responseBody = objectMapper.readValue(
+          responseStream,
+          new TypeReference<>() {}
+        );
+
+        if (!isSuccess) {
+          throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "toss cancel failed");
+        }
+
+        updatePaymentCanceled(payment, responseBody);
+        saveRefundIfNeeded(payment, responseBody, cancelAmount, reason);
+      }
+    } catch (ResponseStatusException ex) {
+      throw ex;
+    } catch (Exception ex) {
+      throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "toss cancel failed", ex);
+    }
+  }
+
   private void updateOrderPaid(Order order) {
     if (order.getStatus() == OrderStatus.PAID) {
       return;
@@ -150,6 +224,146 @@ public class TossPaymentService {
 
     return orderRepository.findByOrderNumberForUpdate(orderIdText)
       .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "order not found"));
+  }
+
+  private TossPayment findPaymentForOrder(Order order) {
+    String idText = order.getId() == null ? null : String.valueOf(order.getId());
+    if (idText != null) {
+      Optional<TossPayment> byOrderId = tossPaymentRepository.findByOrderId(idText);
+      if (byOrderId.isPresent()) {
+        return byOrderId.get();
+      }
+      Optional<TossPayment> byTossOrderId = tossPaymentRepository.findByTossOrderId(idText);
+      if (byTossOrderId.isPresent()) {
+        return byTossOrderId.get();
+      }
+    }
+    String orderNumber = order.getOrderNumber();
+    if (orderNumber != null && !orderNumber.isBlank()) {
+      Optional<TossPayment> byOrderNumber = tossPaymentRepository.findByOrderId(orderNumber);
+      if (byOrderNumber.isPresent()) {
+        return byOrderNumber.get();
+      }
+      Optional<TossPayment> byTossOrderNumber = tossPaymentRepository.findByTossOrderId(orderNumber);
+      if (byTossOrderNumber.isPresent()) {
+        return byTossOrderNumber.get();
+      }
+    }
+    return null;
+  }
+
+  private boolean isAlreadyCanceled(TossPayment payment) {
+    String status = payment.getStatus();
+    if (status == null) {
+      return false;
+    }
+    return status.equalsIgnoreCase("CANCELED") || status.equalsIgnoreCase("PARTIAL_CANCELED");
+  }
+
+  private Long resolveCancelAmount(Order order, TossPayment payment) {
+    Integer orderAmount = order.getOrderAmount();
+    if (orderAmount != null && orderAmount > 0) {
+      return orderAmount.longValue();
+    }
+    Long totalAmount = payment.getTotalAmount();
+    return totalAmount == null ? 0L : totalAmount;
+  }
+
+  private String normalizeReason(String reason) {
+    if (reason == null) {
+      return "customer request";
+    }
+    String trimmed = reason.trim();
+    return trimmed.isEmpty() ? "customer request" : trimmed;
+  }
+
+  private String generateCancelIdempotencyKey(String paymentKey, String orderId, Long amount) {
+    String baseOrderId = orderId == null ? "" : orderId;
+    long safeAmount = amount == null ? 0L : amount;
+    return generateIdempotencyKey(paymentKey, baseOrderId + ":cancel", safeAmount);
+  }
+
+  private void updatePaymentCanceled(TossPayment payment, Map<String, Object> responseBody) {
+    String status = asText(responseBody.get("status"));
+    if (status != null && !status.isBlank()) {
+      payment.updateStatus(status);
+      tossPaymentRepository.save(payment);
+    }
+  }
+
+  private void saveRefundIfNeeded(
+    TossPayment payment,
+    Map<String, Object> responseBody,
+    Long cancelAmount,
+    String reason
+  ) {
+    if (tossRefundRepository.findByTossPaymentKey(payment.getTossPaymentKey()).isPresent()) {
+      return;
+    }
+
+    Map<String, Object> cancelInfo = extractFirstCancel(responseBody);
+    String refundKey = cancelInfo == null ? null : asText(cancelInfo.get("cancelRequestId"));
+    if (refundKey == null || refundKey.isBlank()) {
+      refundKey = cancelInfo == null ? null : asText(cancelInfo.get("transactionKey"));
+    }
+    if (refundKey == null || refundKey.isBlank()) {
+      refundKey = payment.getTossPaymentKey() + ":" + System.currentTimeMillis();
+    }
+
+    Long refundAmount = cancelInfo == null ? null : asLong(cancelInfo.get("cancelAmount"));
+    if (refundAmount == null) {
+      refundAmount = cancelAmount == null ? 0L : cancelAmount;
+    }
+
+    String refundReason = cancelInfo == null ? null : asText(cancelInfo.get("cancelReason"));
+    if (refundReason == null || refundReason.isBlank()) {
+      refundReason = normalizeReason(reason);
+    }
+
+    String refundStatus = cancelInfo == null ? null : asText(cancelInfo.get("cancelStatus"));
+    if (refundStatus == null || refundStatus.isBlank()) {
+      refundStatus = "DONE";
+    }
+
+    LocalDateTime canceledAt = cancelInfo == null ? null : parseDate(asText(cancelInfo.get("canceledAt")));
+    LocalDateTime requestedAt = canceledAt == null ? LocalDateTime.now() : canceledAt;
+    LocalDateTime approvedAt = canceledAt;
+
+    TossRefund refund =
+      TossRefund.create(
+        refundKey,
+        refundAmount,
+        refundReason,
+        refundStatus,
+        requestedAt,
+        approvedAt,
+        payment.getId(),
+        payment.getTossPaymentKey()
+      );
+    tossRefundRepository.save(refund);
+  }
+
+  private Map<String, Object> extractFirstCancel(Map<String, Object> responseBody) {
+    if (responseBody == null) {
+      return null;
+    }
+    Object cancelsValue = responseBody.get("cancels");
+    if (!(cancelsValue instanceof Iterable<?> cancels)) {
+      return null;
+    }
+    for (Object item : cancels) {
+      if (item instanceof Map<?, ?> rawMap) {
+        Map<String, Object> result = new HashMap<>();
+        for (Map.Entry<?, ?> entry : rawMap.entrySet()) {
+          if (entry.getKey() != null) {
+            result.put(String.valueOf(entry.getKey()), entry.getValue());
+          }
+        }
+        return result;
+      }
+      break;
+    }
+    return null;
   }
 
   private TossPayment toEntity(Map<String, Object> responseBody, String orderIdText) {
