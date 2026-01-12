@@ -66,7 +66,8 @@ public class SanctionService {
                 "SANCTION_ALERT",
                 Map.of(
                         "type", request.getStatus(),
-                        "reason", request.getReason()
+                        "reason", request.getReason(),
+                        "actorType", request.getActorType()
                 )
         );
 
@@ -111,7 +112,8 @@ public class SanctionService {
                 "SANCTION_ALERT",
                 Map.of(
                         "type", request.getStatus(),
-                        "reason", request.getReason()
+                        "reason", request.getReason(),
+                        "actorType", request.getActorType()
                 )
         );
 

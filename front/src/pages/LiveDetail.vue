@@ -713,20 +713,24 @@ const handleSseEvent = (event: MessageEvent) => {
     case 'SANCTION_ALERT':
       if (typeof data === 'object' && data) {
         const sanctionType = String((data as { type?: string }).type || '').toUpperCase()
+        const actorType = String((data as { actorType?: string }).actorType || '').toUpperCase()
+        const actorLabel = actorType === 'ADMIN' ? '관리자' : actorType === 'SELLER' ? '판매자' : ''
+        const actorSuffix = actorLabel ? `${actorLabel}에 의해 ` : ''
         if (sanctionType === 'MUTE') {
           hasChatPermission.value = false
-          alert('채팅이 금지되었습니다.')
+          const message = `${actorSuffix}채팅이 금지되었습니다.`
+          alert(message)
           appendMessage({
             id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
             user: 'system',
-            text: '채팅이 금지되었습니다.',
+            text: message,
             at: new Date(),
             kind: 'system',
           })
           break
         }
         if (sanctionType === 'OUT') {
-          alert('방송에서 퇴장당했습니다.')
+          alert(`${actorSuffix}강제 퇴장되었습니다.`)
           void sendLeaveSignal()
           disconnectChat()
           disconnectOpenVidu()
