@@ -838,7 +838,12 @@ const requestJoinToken = async () => {
   try {
     streamToken.value = await joinBroadcast(broadcastId.value, viewerId.value)
     joinedBroadcastId.value = broadcastId.value
-  } catch {
+  } catch (error) {
+    const code = (error as { code?: string } | null)?.code
+    if (code === 'B007') {
+      alert('관리자(판매자)에 의해 퇴장 처리되어 방송에 입장할 수 없습니다.')
+      router.push({ name: 'live' }).catch(() => {})
+    }
     return
   } finally {
     joinInFlight.value = false
