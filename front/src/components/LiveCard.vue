@@ -121,9 +121,7 @@ const totalDurationLabel = computed(() => {
 const endedDurationLabel = computed(() => {
   const start = parseLiveDate(props.item.startAt)
   if (Number.isNaN(start.getTime())) return ''
-  const end = parseLiveDate(props.item.endAt)
-  const endMs = Number.isNaN(end.getTime()) ? now.value.getTime() : end.getTime()
-  return formatDuration(endMs - start.getTime())
+  return formatDuration(now.value.getTime() - start.getTime())
 })
 
 const timeLabel = computed(() => {
