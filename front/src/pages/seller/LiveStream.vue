@@ -17,6 +17,7 @@ import {
   fetchSellerBroadcastDetail,
   joinBroadcast,
   leaveBroadcast,
+  sanctionSellerViewer,
   startSellerBroadcast,
   startSellerRecording,
   endSellerBroadcast,
@@ -1497,6 +1498,13 @@ const openSanction = (username: string) => {
 
 const applySanction = (payload: { type: string; reason: string }) => {
   if (!sanctionTarget.value) return
+  if (!broadcastId.value) return
+  const sanctionType = payload.type === '채팅 금지' ? 'MUTE' : 'OUT'
+  void sanctionSellerViewer(broadcastId.value, {
+    memberLoginId: sanctionTarget.value,
+    status: sanctionType,
+    reason: payload.reason,
+  })
   sanctionedUsers.value = {
     ...sanctionedUsers.value,
     [sanctionTarget.value]: { type: payload.type, reason: payload.reason },

@@ -499,6 +499,28 @@ export const fetchSanctionStatistics = async (period: string): Promise<SanctionS
   return ensureSuccess(data)
 }
 
+export const sanctionSellerViewer = async (
+  broadcastId: number,
+  payload: { memberLoginId: string; status: 'MUTE' | 'OUT'; reason?: string; connectionId?: string },
+): Promise<void> => {
+  const { data } = await http.post<ApiResult<void>>(`/api/seller/broadcasts/${broadcastId}/sanctions`, {
+    ...payload,
+    actorType: 'SELLER',
+  })
+  return ensureSuccess(data)
+}
+
+export const sanctionAdminViewer = async (
+  broadcastId: number,
+  payload: { memberLoginId: string; status: 'MUTE' | 'OUT'; reason?: string; connectionId?: string },
+): Promise<void> => {
+  const { data } = await http.post<ApiResult<void>>(`/api/admin/broadcasts/${broadcastId}/sanctions`, {
+    ...payload,
+    actorType: 'ADMIN',
+  })
+  return ensureSuccess(data)
+}
+
 export const fetchRecentLiveChats = async (broadcastId: number, seconds = 60): Promise<LiveChatMessage[]> => {
   const { data } = await http.get<ApiResult<LiveChatMessage[]>>(`/livechats/${broadcastId}/recent`, { params: { seconds } })
   return ensureSuccess(data)

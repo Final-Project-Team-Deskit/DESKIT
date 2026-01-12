@@ -11,6 +11,7 @@ import {
   fetchBroadcastStats,
   joinBroadcast,
   leaveBroadcast,
+  sanctionAdminViewer,
   stopAdminBroadcast,
 } from '../../../lib/live/api'
 import { parseLiveDate } from '../../../lib/live/utils'
@@ -979,19 +980,28 @@ const closeModeration = () => {
   moderationReason.value = ''
 }
 
-const saveModeration = () => {
+const saveModeration = async () => {
   if (!moderationType.value) {
     window.alert('제재 유형을 선택해주세요.')
-    return
-  }
-  if (!moderationReason.value.trim()) {
-    window.alert('제재 사유를 입력해주세요.')
     return
   }
   const confirmModeration = window.confirm('입력한 내용으로 시청자를 제재하시겠습니까?')
   if (!confirmModeration) return
   const target = moderationTarget.value
   if (!target) return
+  if (!broadcastId.value) return
+  const sanctionType = moderationType.value === '채팅 금지' ? 'MUTE' : 'OUT'
+  try {
+    await sanctionAdminViewer(broadcastId.value, {
+      memberLoginId: target.user,
+      status: sanctionType,
+      reason: moderationReason.value.trim(),
+    })
+  } catch (error) {
+    const message = (error as { message?: string } | null)?.message ?? '제재 처리에 실패했습니다.'
+    window.alert(message)
+    return
+  }
   const now = new Date()
   const at = `${now.getHours()}시 ${String(now.getMinutes()).padStart(2, '0')}분`
   moderatedUsers.value = {
