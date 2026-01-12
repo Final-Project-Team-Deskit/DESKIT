@@ -1474,7 +1474,7 @@ public class BroadcastService {
                         openViduService.closeSession(schedule.broadcastId());
                         triggerRecordingFallback(schedule.broadcastId(), "scheduled_end");
                     }
-                    if (broadcast != null && (broadcast.getStatus() == BroadcastStatus.ENDED || broadcast.getStatus() == BroadcastStatus.STOPPED)) {
+                    if (broadcast != null && broadcast.getStatus() == BroadcastStatus.ENDED) {
                         validateTransition(broadcast.getStatus(), BroadcastStatus.VOD);
                         broadcast.changeStatus(BroadcastStatus.VOD);
                     }
