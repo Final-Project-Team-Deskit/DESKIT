@@ -1967,11 +1967,16 @@ public class BroadcastService {
         }
         SalesSummary salesSummary = fetchBroadcastSalesSummary(broadcast);
         Map<Long, SalesMetric> metrics = salesSummary.productMetrics();
-        return products.stream()
-                .collect(Collectors.toMap(
+        Map<Long, Integer> totalQuantities = products.stream()
+                .collect(Collectors.groupingBy(
                         bp -> bp.getProduct().getId(),
-                        bp -> Math.max(0, bp.getBpQuantity()
-                                - Optional.ofNullable(metrics.get(bp.getProduct().getId()))
+                        Collectors.summingInt(BroadcastProduct::getBpQuantity)
+                ));
+        return totalQuantities.entrySet().stream()
+                .collect(Collectors.toMap(
+                        Map.Entry::getKey,
+                        entry -> Math.max(0, entry.getValue()
+                                - Optional.ofNullable(metrics.get(entry.getKey()))
                                 .map(SalesMetric::salesQuantity)
                                 .orElse(0))
                 ));
