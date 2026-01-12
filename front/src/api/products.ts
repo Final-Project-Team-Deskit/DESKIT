@@ -23,6 +23,13 @@ export const listProducts = async (): Promise<DbProduct[]> => {
   return normalizeProducts(payload as DbProduct[])
 }
 
+export const listSellerProducts = async (): Promise<DbProduct[]> => {
+  const payload = await fetchListTextJsonWithRetry(http, endpoints.sellerProducts, {
+    validateStatus: (status) => (status >= 200 && status < 300) || status === 304,
+  })
+  return normalizeProducts(payload as DbProduct[])
+}
+
 export const listProductsWithAuthGuard = async (): Promise<{
   products: DbProduct[]
   authRequired: boolean

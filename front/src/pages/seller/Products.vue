@@ -1,113 +1,70 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import PageHeader from '../../components/PageHeader.vue'
 import { type DbProduct } from '../../lib/products-data'
-import { getAuthUser } from '../../lib/auth'
-import { getSellerProducts } from '../../composables/useSellerProducts'
-import { getSellerMockProducts, SELLER_PRODUCTS_EVENT } from '../../lib/mocks/sellerProducts'
-import { USE_MOCK_API } from '../../api/config'
-
-type ProductStatus = 'selling' | 'soldout' | 'hidden'
+import { isLoggedIn, isSeller } from '../../lib/auth'
+import { listSellerProducts } from '../../api/products'
+import type { ProductStatus } from '../../utils/productStatusPolicy'
 
 type StatusFilter = 'all' | ProductStatus
 
 type SortOption = 'name' | 'status'
 
-const STATUS_KEY = 'deskit_seller_product_status_v1'
-
 const router = useRouter()
-const sellerId = ref<number | null>(null)
 const statusFilter = ref<StatusFilter>('all')
 const sortOption = ref<SortOption>('name')
 const searchQuery = ref('')
-const statusMap = ref<Record<string, ProductStatus>>({})
 const baseProducts = ref<DbProduct[]>([])
+const isLoading = ref(false)
+const loadError = ref('')
+const isSellerLoggedIn = ref(false)
 
 const statusLabelMap: Record<ProductStatus, string> = {
-  selling: '판매중',
-  soldout: '품절',
-  hidden: '숨김',
+  DRAFT: '초안',
+  READY: '대기',
+  ON_SALE: '판매중',
+  LIMITED_SALE: '한정판매',
+  SOLD_OUT: '품절',
+  PAUSED: '일시중지',
+  HIDDEN: '숨김',
+  DELETED: '삭제',
 }
 
-const deriveSellerId = () => {
-  const user = getAuthUser() as any
-  const candidates = [user?.seller_id, user?.sellerId, user?.id, user?.user_id, user?.userId]
-  for (const value of candidates) {
-    if (typeof value === 'number' && Number.isFinite(value)) return value
-    if (typeof value === 'string') {
-      const parsed = Number.parseInt(value, 10)
-      if (!Number.isNaN(parsed)) return parsed
-    }
-  }
-  return null
-}
-
-const loadStatusMap = () => {
-  const raw = localStorage.getItem(STATUS_KEY)
-  if (!raw) return
-  try {
-    const parsed = JSON.parse(raw) as Record<string, string>
-    const next: Record<string, ProductStatus> = {}
-    Object.entries(parsed).forEach(([key, value]) => {
-      if (value === 'selling' || value === 'soldout' || value === 'hidden') {
-        next[key] = value
-      }
-    })
-    statusMap.value = next
-  } catch {
-    return
-  }
-}
-
-const saveStatusMap = () => {
-  localStorage.setItem(STATUS_KEY, JSON.stringify(statusMap.value))
-}
+const statusOptions: Array<{ value: ProductStatus; label: string }> = [
+  { value: 'ON_SALE', label: statusLabelMap.ON_SALE },
+  { value: 'LIMITED_SALE', label: statusLabelMap.LIMITED_SALE },
+  { value: 'SOLD_OUT', label: statusLabelMap.SOLD_OUT },
+  { value: 'PAUSED', label: statusLabelMap.PAUSED },
+  { value: 'READY', label: statusLabelMap.READY },
+  { value: 'DRAFT', label: statusLabelMap.DRAFT },
+  { value: 'HIDDEN', label: statusLabelMap.HIDDEN },
+]
 
 const getProductKey = (product: any) => {
   return String(product?.product_id ?? product?.id ?? '')
-}
-
-const getStatus = (productKey: string | number): ProductStatus => {
-  return statusMap.value[String(productKey)] || 'selling'
-}
-
-const setStatus = (productKey: string | number, status: ProductStatus) => {
-  statusMap.value = {
-    ...statusMap.value,
-    [String(productKey)]: status,
-  }
-  saveStatusMap()
 }
 
 const sellerProducts = computed(() => {
   return baseProducts.value
 })
 
-const localProducts = computed(() => {
-  if (!sellerId.value) return []
-  return getSellerProducts(sellerId.value)
-})
-
-const mergedProducts = computed(() => {
-  const map = new Map<string, any>()
-  sellerProducts.value.forEach((product) => {
-    map.set(getProductKey(product), product)
-  })
-  localProducts.value.forEach((product) => {
-    map.set(getProductKey(product), product)
-  })
-  return Array.from(map.values())
-})
+const resolveStatus = (product: any): ProductStatus => {
+  const raw = product?.status ?? product?.product_status ?? product?.productStatus
+  if (typeof raw === 'string' && raw.trim()) {
+    return raw.trim() as ProductStatus
+  }
+  return 'READY'
+}
 
 const filteredProducts = computed(() => {
   const q = searchQuery.value.trim().toLowerCase()
-  const filtered = mergedProducts.value.filter((product: any) => {
+  const filtered = sellerProducts.value.filter((product: any) => {
     const name = (product.name || '').toLowerCase()
     const desc = (product.short_desc ?? product.shortDesc ?? '').toLowerCase()
     const match = !q || name.includes(q) || desc.includes(q)
     if (!match) return false
-    const status = getStatus(getProductKey(product))
+    const status = resolveStatus(product)
     if (statusFilter.value !== 'all' && statusFilter.value !== status) return false
     return true
   })
@@ -116,8 +73,19 @@ const filteredProducts = computed(() => {
     return filtered.slice().sort((a, b) => a.name.localeCompare(b.name))
   }
   if (sortOption.value === 'status') {
-    const order: Record<ProductStatus, number> = { selling: 0, soldout: 1, hidden: 2 }
-    return filtered.slice().sort((a, b) => order[getStatus(getProductKey(a))] - order[getStatus(getProductKey(b))])
+    const order: Record<ProductStatus, number> = {
+      ON_SALE: 0,
+      LIMITED_SALE: 1,
+      SOLD_OUT: 2,
+      PAUSED: 3,
+      READY: 4,
+      DRAFT: 5,
+      HIDDEN: 6,
+      DELETED: 7,
+    }
+    return filtered
+      .slice()
+      .sort((a, b) => order[resolveStatus(a)] - order[resolveStatus(b)])
   }
   return filtered
 })
@@ -132,6 +100,8 @@ const getDiscountPercent = (product: DbProduct | any) => {
 }
 
 const getStockCount = (product: DbProduct | any) => {
+  if (typeof product.stock_qty === 'number') return product.stock_qty
+  if (typeof product.stockQty === 'number') return product.stockQty
   if (typeof product.stock === 'number') return product.stock
   const base = product.salesVolume ?? product.product_id * 7
   return Math.max(0, 200 - (base % 200))
@@ -147,27 +117,47 @@ const handleEdit = (product: any) => {
   router.push(`/seller/products/${key}/edit`).catch(() => {})
 }
 
-const refreshProducts = () => {
-  if (!sellerId.value) {
+const refreshProducts = async () => {
+  if (!isSellerLoggedIn.value) {
     baseProducts.value = []
     return
   }
-  baseProducts.value = getSellerMockProducts(sellerId.value)
+  isLoading.value = true
+  loadError.value = ''
+  try {
+    baseProducts.value = await listSellerProducts()
+  } catch (error) {
+    baseProducts.value = []
+    loadError.value = '상품 목록을 불러오지 못했습니다.'
+    console.error('failed to load seller products', error)
+  } finally {
+    isLoading.value = false
+  }
+}
+
+const updateAuthState = () => {
+  isSellerLoggedIn.value = isLoggedIn() && isSeller()
+}
+
+const handleUserUpdated = () => {
+  updateAuthState()
 }
 
 onMounted(() => {
-  sellerId.value = deriveSellerId()
-  loadStatusMap()
-  if (USE_MOCK_API) {
-    window.addEventListener(SELLER_PRODUCTS_EVENT, refreshProducts)
-  }
+  updateAuthState()
+  void refreshProducts()
+  window.addEventListener('deskit-user-updated', handleUserUpdated)
 })
 
-watch(sellerId, refreshProducts, { immediate: true })
-
 onBeforeUnmount(() => {
-  if (USE_MOCK_API) {
-    window.removeEventListener(SELLER_PRODUCTS_EVENT, refreshProducts)
+  window.removeEventListener('deskit-user-updated', handleUserUpdated)
+})
+
+watch(isSellerLoggedIn, (next) => {
+  if (next) {
+    void refreshProducts()
+  } else {
+    baseProducts.value = []
   }
 })
 </script>
@@ -190,16 +180,16 @@ onBeforeUnmount(() => {
         <span class="control-label">상태</span>
         <select v-model="statusFilter">
           <option value="all">전체</option>
-          <option value="selling">판매중</option>
-          <option value="soldout">품절</option>
-          <option value="hidden">숨김</option>
+          <option v-for="option in statusOptions" :key="option.value" :value="option.value">
+            {{ option.label }}
+          </option>
         </select>
       </label>
       <label class="control-field">
         <span class="control-label">정렬</span>
         <select v-model="sortOption">
-          <option value="name">상품이름순</option>
-          <option value="status">상태순</option>
+          <option value="name">상품이름</option>
+          <option value="status">상태</option>
         </select>
       </label>
       <label class="control-field search">
@@ -208,8 +198,14 @@ onBeforeUnmount(() => {
       </label>
     </section>
 
-    <section v-if="!sellerId" class="empty-state ds-surface">
+    <section v-if="!isSellerLoggedIn" class="empty-state ds-surface">
       <p>로그인이 필요합니다. 판매자 계정으로 로그인해주세요.</p>
+    </section>
+    <section v-else-if="isLoading" class="empty-state ds-surface">
+      <p>상품 목록을 불러오는 중입니다.</p>
+    </section>
+    <section v-else-if="loadError" class="empty-state ds-surface">
+      <p>{{ loadError }}</p>
     </section>
     <section v-else-if="filteredProducts.length === 0" class="empty-state ds-surface">
       <p>등록된 판매 상품이 없습니다.</p>
@@ -233,23 +229,11 @@ onBeforeUnmount(() => {
         </div>
         <div class="product-side">
           <div class="stock">재고: {{ getStockCount(product) }}개</div>
-          <select
-            :value="getStatus(getProductKey(product))"
-            class="status-select"
-            @change="setStatus(getProductKey(product), ($event.target as HTMLSelectElement).value as ProductStatus)"
-          >
-            <option value="selling">판매중</option>
-            <option value="soldout">품절</option>
-            <option value="hidden">숨김</option>
-          </select>
+          <div class="status-text">
+            {{ statusLabelMap[resolveStatus(product)] ?? resolveStatus(product) }}
+          </div>
           <div class="edit-group">
-            <button
-              type="button"
-              class="btn btn-compact"
-              @click="handleEdit(product)"
-            >
-              수정
-            </button>
+            <button type="button" class="btn btn-compact" @click="handleEdit(product)">수정</button>
           </div>
         </div>
       </article>
@@ -404,8 +388,10 @@ input[type='search'] {
   color: var(--text-strong);
 }
 
-.status-select {
+.status-text {
   min-width: 120px;
+  font-weight: 800;
+  color: var(--text-strong);
 }
 
 .edit-group {

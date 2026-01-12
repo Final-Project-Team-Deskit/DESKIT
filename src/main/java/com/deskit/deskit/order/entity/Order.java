@@ -85,7 +85,7 @@ public class Order extends BaseEntity {
 
   /**
    * 주문 상태
-   * - SQL ENUM('CREATED','PAID','CANCELLED','COMPLETED')
+   * - SQL ENUM('CREATED','PAID','CANCEL_REQUESTED','CANCELLED','COMPLETED','REFUND_REQUESTED','REFUND_REJECTED','REFUNDED')
    * - EnumType.STRING으로 저장하여 값이 명확하고, enum 순서 변경에 안전
    */
   @Enumerated(EnumType.STRING)

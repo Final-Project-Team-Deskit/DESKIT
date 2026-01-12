@@ -12,6 +12,7 @@ import com.deskit.deskit.order.dto.OrderSummaryResponse;
 import com.deskit.deskit.order.entity.Order;
 import com.deskit.deskit.order.entity.OrderItem;
 import com.deskit.deskit.order.enums.OrderStatus;
+import com.deskit.deskit.order.payment.service.TossPaymentService;
 import com.deskit.deskit.order.repository.OrderItemRepository;
 import com.deskit.deskit.order.repository.OrderRepository;
 import com.deskit.deskit.product.entity.Product;
@@ -23,6 +24,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.stream.Collectors;
+
+import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -30,22 +33,14 @@ import org.springframework.web.server.ResponseStatusException;
 
 @Service
 @Transactional
+@RequiredArgsConstructor
 public class OrderService {
 
   private final OrderRepository orderRepository;
   private final OrderItemRepository orderItemRepository;
   private final ProductRepository productRepository;
   private final MemberRepository memberRepository;
-
-  public OrderService(OrderRepository orderRepository,
-                      OrderItemRepository orderItemRepository,
-                      ProductRepository productRepository,
-                      MemberRepository memberRepository) {
-    this.orderRepository = orderRepository;
-    this.orderItemRepository = orderItemRepository;
-    this.productRepository = productRepository;
-    this.memberRepository = memberRepository;
-  }
+  private final TossPaymentService tossPaymentService;
 
   public CreateOrderResponse createOrder(Long memberId, CreateOrderRequest request) {
     if (memberId == null) {
@@ -196,7 +191,7 @@ public class OrderService {
       throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "reason required");
     }
 
-    Order order = orderRepository.findById(orderId)
+    Order order = orderRepository.findByIdForUpdate(orderId)
       .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "order not found"));
     if (!order.getMemberId().equals(memberId)) {
       throw new ResponseStatusException(HttpStatus.FORBIDDEN, "forbidden");
@@ -206,6 +201,11 @@ public class OrderService {
       order.requestCancel(request.reason());
     } catch (IllegalStateException ex) {
       throw new ResponseStatusException(HttpStatus.BAD_REQUEST, ex.getMessage());
+    }
+
+    if (order.getStatus() == OrderStatus.REFUND_REQUESTED) {
+      tossPaymentService.cancelPayment(order, request.reason());
+      order.approveRefund();
     }
 
     orderRepository.save(order);
