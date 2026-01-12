@@ -2476,6 +2476,11 @@ const toggleFullscreen = async () => {
   transform: scaleX(-1);
 }
 
+.stream-player__publisher :deep(canvas),
+.stream-player__publisher :deep(.OV_video-element) {
+  transform: scaleX(-1);
+}
+
 .stream-player--fullscreen {
   max-height: none;
   width: min(100vw, calc(100vh * (16 / 9)));
