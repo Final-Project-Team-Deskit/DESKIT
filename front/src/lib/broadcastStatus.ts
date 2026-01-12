@@ -1,6 +1,6 @@
 export type BroadcastStatus = 'READY' | 'ON_AIR' | 'ENDED' | 'STOPPED' | 'RESERVED' | 'CANCELED' | 'VOD'
 
-export const READY_WINDOW_MS = 10 * 60 * 1000
+export const READY_WINDOW_MS = 3 * 60 * 1000
 export const BROADCAST_DURATION_MS = 30 * 60 * 1000
 
 export const normalizeBroadcastStatus = (status?: string | null): BroadcastStatus => {
