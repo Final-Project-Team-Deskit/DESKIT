@@ -53,6 +53,7 @@ const statusLabelMap: Record<string, string> = {
   CLOSED: '종료',
 }
 const displayStatusLabel = computed(() => statusLabelMap[statusLabel.value] ?? statusLabel.value)
+const shouldShowClosedActions = computed(() => statusLabel.value === 'CLOSED')
 let stompClient: SimpleStompClient | null = null
 let statusPoller: number | null = null
 
@@ -210,8 +211,14 @@ const syncConversationStatus = async () => {
     if (response.ok) {
       const data = (await response.json()) as { chatId?: number; status?: string }
       chatId.value = typeof data.chatId === 'number' ? data.chatId : chatId.value
-      applyStatus(data.status ?? 'BOT_ACTIVE')
-      return
+      const nextStatus = data.status ?? 'BOT_ACTIVE'
+      applyStatus(nextStatus)
+      await ensureDirectChatId(nextStatus)
+      await ensureBotChatId(nextStatus)
+      await hydrateDirectChat(nextStatus)
+      if (chatId.value || nextStatus === 'BOT_ACTIVE') {
+        return
+      }
     }
   } catch (error) {
     console.error('latest conversation load failed', error)
@@ -221,9 +228,61 @@ const syncConversationStatus = async () => {
     const response = await fetchWithCredentials(`${apiBase}/chat/status/${memberId.value}`)
     if (!response.ok) return
     const data = (await response.json()) as { status?: string }
-    applyStatus(data.status ?? 'BOT_ACTIVE')
+    const nextStatus = data.status ?? 'BOT_ACTIVE'
+    applyStatus(nextStatus)
+    await ensureDirectChatId(nextStatus)
+    await ensureBotChatId(nextStatus)
+    await hydrateDirectChat(nextStatus)
   } catch (error) {
     console.error('status check failed', error)
+  }
+}
+
+const ensureDirectChatId = async (status: string) => {
+  if (!memberId.value || chatId.value) return
+  if (status !== 'ESCALATED' && status !== 'ADMIN_ACTIVE') return
+  try {
+    const response = await fetchWithCredentials(`${apiBase}/direct-chats/start/${memberId.value}`, {
+      method: 'POST',
+    })
+    if (!response.ok) return
+    const data = (await response.json()) as { chatId?: number; status?: string }
+    chatId.value = typeof data.chatId === 'number' ? data.chatId : chatId.value
+    if (data.status) {
+      applyStatus(data.status)
+    }
+  } catch (error) {
+    console.error('direct chat fallback load failed', error)
+  }
+}
+
+const ensureBotChatId = async (status: string) => {
+  if (!memberId.value || chatId.value || status !== 'BOT_ACTIVE') return
+  try {
+    const response = await fetchWithCredentials(`${apiBase}/chat/latest/${memberId.value}`)
+    if (!response.ok) return
+    const data = (await response.json()) as { chatId?: number; status?: string }
+    if (typeof data.chatId === 'number') {
+      chatId.value = data.chatId
+    }
+    if (data.status) {
+      applyStatus(data.status)
+    }
+    if (chatId.value && messages.value.length === 0) {
+      await loadChatHistory()
+    }
+  } catch (error) {
+    console.error('bot chat lookup failed', error)
+  }
+}
+
+const hydrateDirectChat = async (status: string) => {
+  if (!chatId.value) return
+  if (status === 'ESCALATED' || status === 'ADMIN_ACTIVE' || status === 'CLOSED') {
+    await loadDirectChatHistory()
+  }
+  if (status === 'ADMIN_ACTIVE') {
+    await connectDirectChat()
   }
 }
 
@@ -263,7 +322,7 @@ const checkConversationStatus = async () => {
     statusLabel.value = data.status ?? 'BOT_ACTIVE'
     if (statusLabel.value !== 'BOT_ACTIVE') {
       isLocked.value = true
-      appendMessage('system', '관리자가 문의사항을 확인하는 중입니다.')
+      appendMessage('system', '채팅이 관리자로 이관되었어요. 관리자가 곧 답변 드릴 예정이에요.')
     }
   } catch (error) {
     console.error('status check failed', error)
@@ -312,7 +371,7 @@ const sendMessage = async () => {
     if (data.escalated) {
       applyStatus('ESCALATED')
       isLocked.value = true
-      appendMessage('system', '고객님의 문의가 관리자에게 이관되었어요.')
+      appendMessage('system', '채팅이 관리자로 이관되었어요. 관리자가 곧 답변 드릴 예정이에요.')
     }
   } catch (error) {
     console.error('chat send failed', error)
@@ -336,13 +395,31 @@ onMounted(async () => {
   if (isAdminChat.value) {
     await connectDirectChat()
   }
+  document.addEventListener('visibilitychange', handleVisibilityChange)
 })
 
 onBeforeUnmount(() => {
   stompClient?.disconnect()
   stompClient = null
   stopStatusPolling()
+  document.removeEventListener('visibilitychange', handleVisibilityChange)
 })
+
+const viewPreviousChat = async () => {
+  await syncConversationStatus()
+  if (!chatId.value) {
+    appendMessage('system', '이전 채팅을 불러올 수 없습니다. 잠시 후 다시 시도해주세요.')
+    return
+  }
+  await loadDirectChatHistory()
+}
+
+const handleVisibilityChange = () => {
+  if (document.visibilityState !== 'visible') return
+  syncConversationStatus().catch((error) => {
+    console.error('visibility sync failed', error)
+  })
+}
 </script>
 
 <template>
@@ -364,9 +441,14 @@ onBeforeUnmount(() => {
         <p class="hint">
           관리자에게 대화가 이관될 경우, 입력창이 잠시 비활성화돼요.
         </p>
-      <button v-if="isClosed" type="button" class="btn primary" @click="startNewInquiry">
-        새 문의 시작
-      </button>
+      <div v-if="shouldShowClosedActions" class="chat-actions">
+        <button type="button" class="btn ghost" @click="viewPreviousChat">
+          이전 채팅 보기
+        </button>
+        <button type="button" class="btn primary" @click="startNewInquiry">
+          새 채팅
+        </button>
+      </div>
     </header>
 
       <div class="chat-body">
@@ -428,6 +510,12 @@ onBeforeUnmount(() => {
 
 .chat-head .btn {
   align-self: flex-start;
+}
+
+.chat-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 .chat-meta {
@@ -581,6 +669,13 @@ onBeforeUnmount(() => {
   background: #111827;
   color: #fff;
   box-shadow: 0 10px 24px rgba(17, 24, 39, 0.18);
+}
+
+.btn.ghost {
+  background: #fff;
+  color: #111827;
+  border: 1px solid rgba(15, 23, 42, 0.16);
+  box-shadow: none;
 }
 
 .btn.primary:disabled {

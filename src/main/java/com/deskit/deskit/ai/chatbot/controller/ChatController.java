@@ -61,7 +61,7 @@ public class ChatController {
         ChatInfo chatInfo = conversationService.getOrCreateActiveConversation(memberId);
         if (chatInfo.getStatus() != com.deskit.deskit.ai.chatbot.openai.entity.ConversationStatus.BOT_ACTIVE) {
             return ChatResponse.builder()
-                    .answer("상담 진행 중입니다. 관리자 상담은 종료 후 자동으로 시작됩니다.")
+                    .answer("채팅이 관리자로 이관되었어요. 관리자가 곧 답변 드릴 예정이에요.")
                     .escalated(true)
                     .build();
         }
@@ -118,6 +118,17 @@ public class ChatController {
         return conversationService.findLatestConversation(memberId)
                 .map(c -> Map.of("status", c.getStatus().name()))
                 .orElse(Map.of("status", "BOT_ACTIVE"));
+    }
+
+    @ResponseBody
+    @GetMapping("/chat/latest/{memberId}")
+    public Map<String, Object> getLatestChat(@PathVariable Long memberId) {
+        return conversationService.findLatestConversation(memberId)
+                .map(c -> Map.<String, Object>of(
+                        "chatId", c.getChatId(),
+                        "status", c.getStatus().name()
+                ))
+                .orElse(Map.<String, Object>of("status", "BOT_ACTIVE"));
     }
 
     private Long resolveMemberId(CustomOAuth2User user) {
