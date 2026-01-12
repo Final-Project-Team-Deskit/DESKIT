@@ -75,6 +75,7 @@ const hasReported = ref(false)
 const totalViews = ref<number | null>(null)
 const isVodUnavailable = ref(false)
 const refreshTimerId = ref<number | null>(null)
+const redirectPending = ref(false)
 
 const isLoggedIn = computed(() => Boolean(getAuthUser()))
 
@@ -191,8 +192,10 @@ const loadVodDetail = async () => {
     totalViews.value = null
     if (!isVodUnavailable.value) {
       isVodUnavailable.value = true
-      alert('VOD가 삭제되어 방송 목록으로 이동합니다.')
-      router.replace('/live').catch(() => {})
+      if (!redirectPending.value) {
+        redirectPending.value = true
+        alert('VOD가 삭제되어 방송 목록으로 이동합니다.')
+      }
     }
   }
 }
@@ -275,6 +278,16 @@ onBeforeUnmount(() => {
     window.clearInterval(refreshTimerId.value)
     refreshTimerId.value = null
   }
+})
+
+watch(redirectPending, async (next) => {
+  if (!next) return
+  if (refreshTimerId.value !== null) {
+    window.clearInterval(refreshTimerId.value)
+    refreshTimerId.value = null
+  }
+  await nextTick()
+  router.replace('/live').catch(() => {})
 })
 
 watch(showChat, (visible) => {
