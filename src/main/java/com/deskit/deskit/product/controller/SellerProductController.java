@@ -1,12 +1,15 @@
 package com.deskit.deskit.product.controller;
 
 import com.deskit.deskit.account.entity.Seller;
+import com.deskit.deskit.account.enums.SellerStatus;
 import com.deskit.deskit.account.oauth.CustomOAuth2User;
 import com.deskit.deskit.account.repository.SellerRepository;
 import com.deskit.deskit.product.dto.ProductCreateRequest;
 import com.deskit.deskit.product.dto.ProductCreateResponse;
 import com.deskit.deskit.product.dto.ProductImageResponse;
-import com.deskit.deskit.product.dto.ProductResponse;
+import com.deskit.deskit.product.dto.SellerProductListResponse;
+import com.deskit.deskit.product.dto.SellerProductStatusUpdateRequest;
+import com.deskit.deskit.product.dto.SellerProductStatusUpdateResponse;
 import com.deskit.deskit.product.dto.ProductTagUpdateRequest;
 import com.deskit.deskit.product.entity.ProductImage.ImageType;
 import com.deskit.deskit.product.service.ProductImageService;
@@ -18,6 +21,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -57,11 +61,21 @@ public class SellerProductController {
   }
 
   @GetMapping
-  public ResponseEntity<List<ProductResponse>> getSellerProducts(
+  public ResponseEntity<List<SellerProductListResponse>> getSellerProducts(
           @AuthenticationPrincipal CustomOAuth2User user
   ) {
     Long sellerId = resolveSellerId(user);
     return ResponseEntity.ok(productService.getSellerProducts(sellerId));
+  }
+
+  @PatchMapping("/{productId}/status")
+  public ResponseEntity<SellerProductStatusUpdateResponse> updateProductStatus(
+          @AuthenticationPrincipal CustomOAuth2User user,
+          @PathVariable("productId") Long productId,
+          @Valid @RequestBody SellerProductStatusUpdateRequest request
+  ) {
+    Long sellerId = resolveSellerId(user);
+    return ResponseEntity.ok(productService.updateProductStatus(sellerId, productId, request));
   }
 
   @PostMapping("/{productId}/images")
@@ -114,6 +128,9 @@ public class SellerProductController {
       if (seller == null || seller.getSellerId() == null) {
         throw new ResponseStatusException(HttpStatus.FORBIDDEN, "seller not found");
       }
+    }
+    if (seller.getStatus() != SellerStatus.ACTIVE) {
+      throw new ResponseStatusException(HttpStatus.FORBIDDEN, "seller inactive");
     }
 
     return seller.getSellerId();
