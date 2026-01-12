@@ -570,6 +570,38 @@ const parseSseData = (event: MessageEvent) => {
   }
 }
 
+const resolveProductId = (data: unknown) => {
+  if (typeof data === 'number') return String(data)
+  if (typeof data === 'string') return data
+  if (data && typeof data === 'object') {
+    const record = data as { productId?: number | string; bpId?: number | string; id?: number | string }
+    if (record.productId !== undefined) return String(record.productId)
+    if (record.bpId !== undefined) return String(record.bpId)
+    if (record.id !== undefined) return String(record.id)
+  }
+  return null
+}
+
+const applyPinnedProduct = (productId: string | null) => {
+  products.value = products.value.map((product) => ({
+    ...product,
+    isPinned: productId ? product.id === productId : false,
+  }))
+}
+
+const markProductSoldOut = (productId: string | null) => {
+  if (!productId) return
+  products.value = products.value.map((product) =>
+    product.id === productId
+      ? {
+        ...product,
+        isSoldOut: true,
+        stockQty: 0,
+      }
+      : product,
+  )
+}
+
 const buildStopConfirmMessage = () => {
   return '방송 운영 정책 위반으로 방송이 중지되었습니다.\n방송에서 나가시겠습니까?'
 }
@@ -633,8 +665,15 @@ const handleSseEvent = (event: MessageEvent) => {
       scheduleRefresh()
       break
     case 'PRODUCT_PINNED':
+      applyPinnedProduct(resolveProductId(data))
+      scheduleRefresh()
+      break
     case 'PRODUCT_UNPINNED':
+      applyPinnedProduct(null)
+      scheduleRefresh()
+      break
     case 'PRODUCT_SOLD_OUT':
+      markProductSoldOut(resolveProductId(data))
       scheduleRefresh()
       break
     case 'SANCTION_ALERT':
