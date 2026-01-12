@@ -91,4 +91,11 @@ public class TossPayment {
     payment.orderId = orderId;
     return payment;
   }
+
+  public void updateStatus(String status) {
+    if (status == null || status.isBlank()) {
+      return;
+    }
+    this.status = status;
+  }
 }

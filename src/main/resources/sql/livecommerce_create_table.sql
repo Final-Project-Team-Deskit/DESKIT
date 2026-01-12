@@ -158,7 +158,6 @@ CREATE TABLE forbidden_word
 (
     word_id     INT UNSIGNED NOT NULL AUTO_INCREMENT,
     word        VARCHAR(50)  NOT NULL COMMENT '금지어',
-    replacement VARCHAR(50)  NOT NULL COMMENT '대체어',
     created_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (word_id)
 ) ENGINE = InnoDB
@@ -433,9 +432,10 @@ CREATE TABLE live_chat
 (
     message_id    BIGINT UNSIGNED                                  NOT NULL AUTO_INCREMENT,
     broadcast_id  BIGINT UNSIGNED                                  NOT NULL,
-    member_id     BIGINT UNSIGNED                                  NOT NULL,
+    member_email VARCHAR(255)                                      NOT NULL,
     msg_type      ENUM ('TALK','ENTER','EXIT','PURCHASE','NOTICE') NOT NULL COMMENT '채팅 메시지 유형',
     content       VARCHAR(500)                                     NOT NULL,
+    raw_content   VARCHAR(500)                                     NOT NULL,
     send_nick     VARCHAR(50)                                      NOT NULL,
     is_world      BOOLEAN                                          NOT NULL DEFAULT FALSE,
     is_hidden     BOOLEAN                                          NOT NULL DEFAULT FALSE COMMENT '숨김 처리 여부',

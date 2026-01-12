@@ -2,6 +2,8 @@
 import { OpenVidu, type Publisher, type Session } from 'openvidu-browser'
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
+import { Client, type StompSubscription } from '@stomp/stompjs'
+import SockJS from 'sockjs-client/dist/sockjs'
 import BasicInfoEditModal from '../../components/BasicInfoEditModal.vue'
 import ChatSanctionModal from '../../components/ChatSanctionModal.vue'
 import ConfirmModal from '../../components/ConfirmModal.vue'
@@ -49,6 +51,7 @@ type StreamChat = {
   name: string
   message: string
   time?: string
+  senderRole?: string
 }
 
 type StreamData = {
@@ -181,6 +184,15 @@ const streamId = computed(() => {
   return typeof id === 'string' && id.trim() ? id : null
 })
 
+const broadcastId = computed(() => {
+  if (!streamId.value) {
+    return undefined
+  }
+  const raw = String(streamId.value)
+  const numeric = Number.parseInt(raw.replace(/[^0-9]/g, ''), 10)
+  return Number.isFinite(numeric) ? numeric : undefined
+})
+
 const formatElapsed = (startedAt?: string) => {
   if (!startedAt) return '00:00:00'
   const started = parseLiveDate(startedAt)
@@ -210,6 +222,186 @@ const formatChatTime = (timestamp: number = Date.now()) => {
   const displayHour = hours % 12 || 12
   const minutes = String(date.getMinutes()).padStart(2, '0')
   return `${hours >= 12 ? '오후' : '오전'} ${displayHour}:${minutes}`
+}
+
+const isChatConnected = ref(false)
+const stompClient = ref<Client | null>(null)
+let stompSubscription: StompSubscription | null = null
+
+const isLoggedIn = ref(true)
+const nickname = ref('판매자')
+const memberEmail = ref('seller@deskit.com')
+const ENTER_SENT_KEY_PREFIX = 'deskit_live_enter_sent_v1'
+
+const getAccessToken = () => localStorage.getItem('access') || sessionStorage.getItem('access')
+
+const refreshAuth = () => {
+  const user = getAuthUser()
+  isLoggedIn.value = user !== null
+  if (user?.name) {
+    nickname.value = user.name
+  }
+  memberEmail.value = user?.email || memberEmail.value || 'seller@deskit.com'
+}
+
+const handleAuthUpdate = () => {
+  refreshAuth()
+}
+
+const getEnterSentKey = () => {
+  if (!broadcastId.value) {
+    return null
+  }
+  return `${ENTER_SENT_KEY_PREFIX}:${broadcastId.value}`
+}
+
+const shouldSendEnterMessage = () => {
+  const key = getEnterSentKey()
+  if (!key) {
+    return false
+  }
+  try {
+    return localStorage.getItem(key) !== 'true'
+  } catch {
+    return true
+  }
+}
+
+const markEnterMessageSent = () => {
+  const key = getEnterSentKey()
+  if (!key) {
+    return
+  }
+  try {
+    localStorage.setItem(key, 'true')
+  } catch {
+    return
+  }
+}
+
+type LiveMessageType = 'TALK' | 'ENTER' | 'EXIT' | 'PURCHASE' | 'NOTICE'
+
+type LiveChatMessageDTO = {
+  broadcastId: number
+  memberEmail: string
+  type: LiveMessageType
+  sender: string
+  content: string
+  senderRole?: string
+  vodPlayTime: number
+  sentAt?: number
+}
+
+const appendMessage = (payload: LiveChatMessageDTO) => {
+  const isSystem = payload.type !== 'TALK'
+  chatMessages.value.push({
+    id: `chat-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+    name: isSystem ? 'SYSTEM' : payload.sender || 'unknown',
+    message: payload.content ?? '',
+    senderRole: payload.senderRole,
+    time: payload.sentAt
+      ? new Date(payload.sentAt).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })
+      : formatChatTime(),
+  })
+  scrollChatToBottom()
+}
+
+const formatChatUser = (item: StreamChat) => {
+  if (item.name === 'SYSTEM') {
+    return item.name
+  }
+  if (item.senderRole) {
+    if (item.senderRole === 'ROLE_ADMIN') {
+      return `${item.name}(관리자)`
+    }
+    if (item.senderRole.startsWith('ROLE_SELLER')) {
+      return `${item.name}(판매자)`
+    }
+    if (item.senderRole === 'ROLE_MEMBER' && item.name === nickname.value) {
+      return `${item.name}(나)`
+    }
+  }
+  return item.name === nickname.value ? `${item.name}(판매자)` : item.name
+}
+
+const sendSocketMessage = (type: LiveMessageType, content: string) => {
+  if (!stompClient.value?.connected || !broadcastId.value) return
+
+  const payload: LiveChatMessageDTO = {
+    broadcastId: broadcastId.value,
+    memberEmail: memberEmail.value,
+    type,
+    sender: nickname.value,
+    content,
+    vodPlayTime: 0,
+    sentAt: Date.now(),
+  }
+
+  stompClient.value.publish({
+    destination: '/pub/chat/message',
+    body: JSON.stringify(payload),
+  })
+}
+
+const connectChat = () => {
+  if (!broadcastId.value || stompClient.value?.active) return
+
+  const client = new Client({
+    webSocketFactory: () =>
+      new SockJS(`${apiBase}/ws`, undefined, {
+        withCredentials: true,
+      }),
+    reconnectDelay: 5000,
+    debug: (str) => console.log('[STOMP]', str),
+  })
+  const access = getAccessToken()
+  if (access) {
+    client.connectHeaders = {
+      access,
+      Authorization: `Bearer ${access}`,
+    }
+  }
+
+  client.onConnect = () => {
+    isChatConnected.value = true
+    stompSubscription?.unsubscribe()
+    stompSubscription = client.subscribe(`/sub/chat/${broadcastId.value}`, (frame) => {
+      try {
+        const payload = JSON.parse(frame.body) as LiveChatMessageDTO
+        appendMessage(payload)
+      } catch (error) {
+        console.error('메시지 수신 에러:', error)
+      }
+    })
+    if (shouldSendEnterMessage()) {
+      sendSocketMessage('ENTER', `${nickname.value}님이 입장했습니다.`)
+      markEnterMessageSent()
+    }
+  }
+
+  client.onStompError = (frame) => {
+    console.error('[livechat] stomp error', frame.headers, frame.body)
+  }
+
+  client.onWebSocketClose = () => {
+    isChatConnected.value = false
+  }
+  client.onDisconnect = () => {
+    isChatConnected.value = false
+  }
+  stompClient.value = client
+  client.activate()
+}
+
+const disconnectChat = () => {
+  if (stompClient.value?.connected) {
+    sendSocketMessage('EXIT', `${nickname.value}님이 퇴장했습니다.`)
+  }
+  stompSubscription?.unsubscribe()
+  stompSubscription = null
+  stompClient.value?.deactivate()
+  stompClient.value = null
+  isChatConnected.value = false
 }
 
 const formatPrice = (value?: number) => {
@@ -658,9 +850,10 @@ const resetRealtimeState = () => {
   statsTimer.value = null
   if (refreshTimer.value) window.clearTimeout(refreshTimer.value)
   refreshTimer.value = null
-  if (startRetryTimer.value) window.clearTimeout(startRetryTimer.value)
-  startRetryTimer.value = null
-  startRetryCount.value = 0
+    if (startRetryTimer.value) window.clearTimeout(startRetryTimer.value)
+    startRetryTimer.value = null
+    startRetryCount.value = 0
+    disconnectChat()
   clearStartTimer()
   clearEndRequestTimer()
   clearPublisherRestartTimer()
@@ -893,6 +1086,7 @@ const hydrateStream = async () => {
       id: `${item.sentAt}-${item.sender}`,
       name: item.sender || item.memberEmail || '시청자',
       message: item.content,
+      senderRole: item.senderRole,
       time: formatChatTime(item.sentAt),
     }))
     isLoadingStream.value = false
@@ -1176,6 +1370,18 @@ watch(
   { immediate: true },
 )
 
+watch(
+  () => broadcastId.value,
+  (newId) => {
+    chatMessages.value = []
+    disconnectChat()
+    if (newId) {
+      connectChat()
+    }
+  },
+  { immediate: true },
+)
+
 const handleResize = () => updateGridWidth()
 
 const handleKeydown = (event: KeyboardEvent) => {
@@ -1184,18 +1390,20 @@ const handleKeydown = (event: KeyboardEvent) => {
   }
 }
 
-onMounted(() => {
-  window.addEventListener('keydown', handleKeydown)
-  document.addEventListener('fullscreenchange', handleFullscreenChange)
-  window.addEventListener('resize', handleResize)
-  window.addEventListener('pagehide', handlePageHide)
-  window.addEventListener('beforeunload', handleBeforeUnload)
-  viewerId.value = resolveViewerId(getAuthUser())
-  monitorRef.value = streamGridRef.value
-  updateGridWidth()
-  void loadMediaDevices()
-  if (navigator.mediaDevices?.addEventListener) {
-    navigator.mediaDevices.addEventListener('devicechange', loadMediaDevices)
+  onMounted(() => {
+    window.addEventListener('keydown', handleKeydown)
+    document.addEventListener('fullscreenchange', handleFullscreenChange)
+    window.addEventListener('resize', handleResize)
+    window.addEventListener('pagehide', handlePageHide)
+    window.addEventListener('beforeunload', handleBeforeUnload)
+    window.addEventListener('deskit-user-updated', handleAuthUpdate)
+    viewerId.value = resolveViewerId(getAuthUser())
+    refreshAuth()
+    monitorRef.value = streamGridRef.value
+    updateGridWidth()
+    void loadMediaDevices()
+    if (navigator.mediaDevices?.addEventListener) {
+      navigator.mediaDevices.addEventListener('devicechange', loadMediaDevices)
   }
   if (streamGridRef.value) {
     gridObserver = new ResizeObserver((entries) => {
@@ -1208,16 +1416,18 @@ onMounted(() => {
   }
 })
 
-onBeforeUnmount(() => {
-  window.removeEventListener('keydown', handleKeydown)
-  document.removeEventListener('fullscreenchange', handleFullscreenChange)
-  window.removeEventListener('resize', handleResize)
-  window.removeEventListener('pagehide', handlePageHide)
-  window.removeEventListener('beforeunload', handleBeforeUnload)
-  void sendLeaveSignal()
-  if (navigator.mediaDevices?.removeEventListener) {
-    navigator.mediaDevices.removeEventListener('devicechange', loadMediaDevices)
-  }
+  onBeforeUnmount(() => {
+    window.removeEventListener('keydown', handleKeydown)
+    document.removeEventListener('fullscreenchange', handleFullscreenChange)
+    window.removeEventListener('resize', handleResize)
+    window.removeEventListener('pagehide', handlePageHide)
+    window.removeEventListener('beforeunload', handleBeforeUnload)
+    window.removeEventListener('deskit-user-updated', handleAuthUpdate)
+    void sendLeaveSignal()
+    disconnectChat()
+    if (navigator.mediaDevices?.removeEventListener) {
+      navigator.mediaDevices.removeEventListener('devicechange', loadMediaDevices)
+    }
   if (mediaSaveTimer) {
     window.clearTimeout(mediaSaveTimer)
     mediaSaveTimer = null
@@ -1314,19 +1524,10 @@ watch(showSanctionModal, (open) => {
 })
 
 const handleSendChat = () => {
-  if (!isInteractive.value) return
+  if (!isInteractive.value || !isLoggedIn.value || !isChatConnected.value) return
   if (!chatText.value.trim()) return
-  chatMessages.value = [
-    ...chatMessages.value,
-    {
-      id: `seller-${Date.now()}`,
-      name: '판매자',
-      message: chatText.value.trim(),
-      time: formatChatTime(),
-    },
-  ]
+  sendSocketMessage('TALK', chatText.value.trim())
   chatText.value = ''
-  scrollChatToBottom()
 }
 
 watch(showChat, (open) => {
@@ -1836,7 +2037,7 @@ const toggleFullscreen = async () => {
             @contextmenu.prevent="openSanction(item.name)"
           >
             <div class="chat-meta">
-              <span class="chat-user">{{ item.name }}</span>
+              <span class="chat-user">{{ formatChatUser(item) }}</span>
               <span class="chat-time">{{ item.time }}</span>
               <span v-if="sanctionedUsers[item.name]" class="chat-badge">{{ sanctionedUsers[item.name]?.type }}</span>
             </div>
@@ -1848,10 +2049,10 @@ const toggleFullscreen = async () => {
             v-model="chatText"
             type="text"
             placeholder="메시지를 입력하세요"
-            :disabled="!isInteractive"
+            :disabled="!isLoggedIn || !isChatConnected || isReadOnly"
             @keyup.enter="handleSendChat"
           />
-          <button type="button" class="stream-btn primary" :disabled="!isInteractive" @click="handleSendChat">전송</button>
+          <button type="button" class="stream-btn primary" :disabled="!isLoggedIn || !isChatConnected || isReadOnly" @click="handleSendChat">전송</button>
         </div>
         <p v-if="isReadOnly" class="chat-helper">방송 중에만 채팅을 이용할 수 있습니다.</p>
       </aside>

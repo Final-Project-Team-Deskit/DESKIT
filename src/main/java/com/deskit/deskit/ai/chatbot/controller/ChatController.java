@@ -1,5 +1,8 @@
 package com.deskit.deskit.ai.chatbot.controller;
 
+import com.deskit.deskit.account.entity.Member;
+import com.deskit.deskit.account.oauth.CustomOAuth2User;
+import com.deskit.deskit.account.repository.MemberRepository;
 import com.deskit.deskit.ai.chatbot.openai.entity.ChatMessage;
 import com.deskit.deskit.ai.chatbot.openai.entity.ChatInfo;
 import com.deskit.deskit.ai.chatbot.openai.service.ChatService;
@@ -13,10 +16,13 @@ import com.deskit.deskit.ai.chatbot.rag.service.RagIngestService;
 import com.deskit.deskit.ai.chatbot.rag.service.RagService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.log4j.Log4j2;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.stereotype.Controller;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
 import java.util.Map;
@@ -32,6 +38,7 @@ public class ChatController {
     private final RagService ragService;
     private final ChatRoutingService chatRoutingService;
     private final ConversationService conversationService;
+    private final MemberRepository memberRepository;
 
     // 채팅 페이지 접속
 //    @GetMapping("/chat")
@@ -42,17 +49,19 @@ public class ChatController {
     // 논 스트림
     @ResponseBody
     @PostMapping("/chat")
-    public ChatResponse chat(@RequestBody ChatRequest request) {
+    public ChatResponse chat(
+            @AuthenticationPrincipal CustomOAuth2User user,
+            @RequestBody ChatRequest request
+    ) {
 
         String question = request.getQuestion();
-        String loginId = "dyniiyeyo@naver.com";
-        Long memberId = 1L;
+        Long memberId = resolveMemberId(user);
 
         // 현재 진행 중인 대화 조회 or 생성
         ChatInfo chatInfo = conversationService.getOrCreateActiveConversation(memberId);
         if (chatInfo.getStatus() != com.deskit.deskit.ai.chatbot.openai.entity.ConversationStatus.BOT_ACTIVE) {
             return ChatResponse.builder()
-                    .answer("상담 진행 중입니다. 관리자 상담은 종료 후 자동으로 시작됩니다.")
+                    .answer("채팅이 관리자로 이관되었어요. 관리자가 곧 답변 드릴 예정이에요.")
                     .escalated(true)
                     .build();
         }
@@ -70,11 +79,11 @@ public class ChatController {
         switch (decision.route()) {
             // RAG로 판단
             case RAG -> {
-                return ragService.chat(question, 4);
+                return ragService.chat(memberId, question, 4);
             }
             // LLM 채팅으로 판단
             case GENERAL -> {
-                return openAIService.generate(request.getQuestion());
+                return openAIService.generate(memberId, request.getQuestion());
             }
         }
         return null;
@@ -111,5 +120,71 @@ public class ChatController {
                 .orElse(Map.of("status", "BOT_ACTIVE"));
     }
 
+    @ResponseBody
+    @GetMapping("/chat/latest/{memberId}")
+    public Map<String, Object> getLatestChat(@PathVariable Long memberId) {
+        return conversationService.findLatestConversation(memberId)
+                .map(c -> Map.<String, Object>of(
+                        "chatId", c.getChatId(),
+                        "status", c.getStatus().name()
+                ))
+                .orElse(Map.<String, Object>of("status", "BOT_ACTIVE"));
+    }
+
+    private Long resolveMemberId(CustomOAuth2User user) {
+        if (user == null) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "unauthorized");
+        }
+
+        Long memberId = tryExtractMemberId(user);
+        if (memberId != null) {
+            return memberId;
+        }
+
+        String loginId = user.getUsername();
+        if (loginId == null || loginId.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "member not found");
+        }
+
+        Member member = memberRepository.findByLoginId(loginId);
+        if (member == null) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "member not found");
+        }
+
+        return member.getMemberId();
+    }
+
+    private Long tryExtractMemberId(CustomOAuth2User user) {
+        Map<String, Object> attributes = user.getAttributes();
+        if (attributes == null || attributes.isEmpty()) {
+            return null;
+        }
+
+        Object value = attributes.get("memberId");
+        if (value == null) {
+            value = attributes.get("member_id");
+        }
+        if (value == null) {
+            value = attributes.get("id");
+        }
+
+        if (value instanceof Number) {
+            return ((Number) value).longValue();
+        }
+
+        if (value instanceof String) {
+            String text = ((String) value).trim();
+            if (text.isEmpty()) {
+                return null;
+            }
+            try {
+                return Long.parseLong(text);
+            } catch (NumberFormatException ex) {
+                return null;
+            }
+        }
+
+        return null;
+    }
 
 }
