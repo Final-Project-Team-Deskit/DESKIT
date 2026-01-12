@@ -746,6 +746,9 @@ const startStatsPolling = () => {
     if (document.visibilityState !== 'visible') {
       return
     }
+    if (!['READY', 'ON_AIR', 'ENDED', 'STOPPED'].includes(lifecycleStatus.value)) {
+      return
+    }
     void loadStats()
     if (!sseConnected.value) {
       void loadProducts()
