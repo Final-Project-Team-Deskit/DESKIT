@@ -118,6 +118,14 @@ const totalDurationLabel = computed(() => {
   return formatDuration(end.getTime() - start.getTime())
 })
 
+const endedDurationLabel = computed(() => {
+  const start = parseLiveDate(props.item.startAt)
+  if (Number.isNaN(start.getTime())) return ''
+  const end = parseLiveDate(props.item.endAt)
+  const endMs = Number.isNaN(end.getTime()) ? now.value.getTime() : end.getTime()
+  return formatDuration(endMs - start.getTime())
+})
+
 const timeLabel = computed(() => {
   if (status.value === 'LIVE') {
     return `방송 시간 ${elapsed.value}`
@@ -134,7 +142,7 @@ const timeLabel = computed(() => {
   if (status.value === 'VOD') {
     return totalDurationLabel.value ? `총 재생 ${totalDurationLabel.value}` : 'VOD'
   }
-  return totalDurationLabel.value ? `경과 ${totalDurationLabel.value}` : '방송 종료'
+  return endedDurationLabel.value ? `경과 ${endedDurationLabel.value}` : '방송 종료'
 })
 
 const viewerLabel = computed(() => {

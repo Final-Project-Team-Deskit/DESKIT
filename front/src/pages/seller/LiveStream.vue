@@ -2257,6 +2257,7 @@ const toggleFullscreen = async () => {
   width: 100%;
   height: 100%;
   object-fit: cover;
+  transform: scaleX(-1);
 }
 
 .stream-player--fullscreen {
