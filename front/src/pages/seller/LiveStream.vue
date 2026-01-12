@@ -53,6 +53,7 @@ type StreamChat = {
   message: string
   time?: string
   senderRole?: string
+  memberLoginId?: string
 }
 
 type StreamData = {
@@ -300,6 +301,7 @@ const appendMessage = (payload: LiveChatMessageDTO) => {
     name: isSystem ? 'SYSTEM' : payload.sender || 'unknown',
     message: payload.content ?? '',
     senderRole: payload.senderRole,
+    memberLoginId: payload.memberEmail,
     time: payload.sentAt
       ? new Date(payload.sentAt).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })
       : formatChatTime(),
@@ -1088,6 +1090,7 @@ const hydrateStream = async () => {
       name: item.sender || item.memberEmail || '시청자',
       message: item.content,
       senderRole: item.senderRole,
+      memberLoginId: item.memberEmail,
       time: formatChatTime(item.sentAt),
     }))
     isLoadingStream.value = false
@@ -1490,9 +1493,13 @@ const handlePinProduct = (productId: string) => {
   setPinnedProduct(pinnedProductId.value === productId ? null : productId)
 }
 
-const openSanction = (username: string) => {
-  if (username === 'SYSTEM') return
-  sanctionTarget.value = username
+const openSanction = (item: StreamChat) => {
+  if (item.name === 'SYSTEM') return
+  if (!item.memberLoginId) {
+    alert('로그인된 시청자만 제재할 수 있습니다.')
+    return
+  }
+  sanctionTarget.value = item.memberLoginId
   showSanctionModal.value = true
 }
 
@@ -2042,7 +2049,7 @@ const toggleFullscreen = async () => {
             :key="item.id"
             class="chat-message"
             :class="{ 'chat-message--muted': sanctionedUsers[item.name], 'chat-message--system': item.name === 'SYSTEM' }"
-            @contextmenu.prevent="openSanction(item.name)"
+            @contextmenu.prevent="openSanction(item)"
           >
             <div class="chat-meta">
               <span class="chat-user">{{ formatChatUser(item) }}</span>
