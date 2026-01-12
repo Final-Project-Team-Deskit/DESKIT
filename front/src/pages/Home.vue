@@ -92,7 +92,7 @@ const loadLiveItems = async () => {
 
 const isStatsTarget = (item: LiveItem) => {
   const status = normalizeBroadcastStatus(item.status)
-  if (status === 'ON_AIR' || status === 'READY') return true
+  if (status === 'ON_AIR' || status === 'READY' || status === 'VOD') return true
   const startAtMs = parseLiveDate(item.startAt).getTime()
   if (Number.isNaN(startAtMs)) return false
   const endAtMs = parseLiveDate(item.endAt).getTime()
