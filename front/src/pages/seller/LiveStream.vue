@@ -317,7 +317,9 @@ const hasPersistedMediaConfig = (mediaConfig?: MediaConfig | null) => {
   if (!mediaConfig) return false
   const cameraId = mediaConfig.cameraId?.trim()
   const microphoneId = mediaConfig.microphoneId?.trim()
-  return (cameraId && cameraId !== 'default') || (microphoneId && microphoneId !== 'default')
+  return Boolean(
+      (cameraId && cameraId !== 'default') || (microphoneId && microphoneId !== 'default'),
+  )
 }
 
 const toMediaId = (value: string, fallback: string) => {
@@ -435,7 +437,7 @@ const restartPublisher = async () => {
       publisherContainerRef.value,
       buildPublisherOptions(),
     )
-    await openviduSession.value.publish(openviduPublisher.value)
+    await openviduSession.value.publish(openviduPublisher.value as Publisher)
     applyPublisherVolume()
   } catch {
     disconnectOpenVidu()
@@ -458,7 +460,7 @@ const connectPublisher = async (broadcastId: number, token: string) => {
       container,
       buildPublisherOptions(),
     )
-    await openviduSession.value.publish(openviduPublisher.value)
+    await openviduSession.value.publish(openviduPublisher.value as Publisher)
     openviduConnected.value = true
     applyPublisherVolume()
     await requestStartRecording(broadcastId)
