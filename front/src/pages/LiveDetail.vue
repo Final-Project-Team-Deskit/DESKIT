@@ -9,7 +9,7 @@ import PageHeader from '../components/PageHeader.vue'
 import ConfirmModal from '../components/ConfirmModal.vue'
 import { parseLiveDate } from '../lib/live/utils'
 import { useNow } from '../lib/live/useNow'
-import { getAuthUser } from '../lib/auth'
+import { getAuthUser, hydrateSessionUser } from '../lib/auth'
 import { resolveViewerId } from '../lib/live/viewer'
 import {
   fetchBroadcastLikeStatus,
@@ -784,8 +784,8 @@ const scheduleReconnect = (id: number) => {
 const connectSse = (id: number) => {
   sseSource.value?.close()
   const user = getAuthUser()
-  const viewerId = resolveViewerId(user)
-  const query = viewerId ? `?viewerId=${encodeURIComponent(viewerId)}` : ''
+  const currentViewerId = viewerId.value ?? resolveViewerId(user)
+  const query = currentViewerId ? `?viewerId=${encodeURIComponent(currentViewerId)}` : ''
   const source = new EventSource(`${apiBase}/api/broadcasts/${id}/subscribe${query}`)
   const events = [
     'BROADCAST_READY',
@@ -1157,16 +1157,45 @@ onMounted(() => {
   window.addEventListener('pagehide', handlePageHide)
 })
 
+const reconnectSseIfNeeded = (nextViewerId: string | null, previousViewerId: string | null) => {
+  if (!broadcastId.value || !nextViewerId || nextViewerId === previousViewerId) {
+    return
+  }
+  sseSource.value?.close()
+  sseSource.value = null
+  sseConnected.value = false
+  if (sseRetryTimer.value) window.clearTimeout(sseRetryTimer.value)
+  sseRetryTimer.value = null
+  connectSse(broadcastId.value)
+}
+
+const syncViewerIdentity = () => {
+  const previousViewerId = viewerId.value
+  const nextViewerId = resolveViewerId(getAuthUser())
+  viewerId.value = nextViewerId
+  reconnectSseIfNeeded(nextViewerId, previousViewerId)
+}
+
 const handleAuthUpdate = () => {
   refreshAuth()
-  viewerId.value = resolveViewerId(getAuthUser())
+  syncViewerIdentity()
+  void refreshChatPermission()
+  void loadLikeStatus()
+}
+
+const initializeAuth = async () => {
+  const previousViewerId = viewerId.value
+  await hydrateSessionUser()
+  refreshAuth()
+  const nextViewerId = resolveViewerId(getAuthUser())
+  viewerId.value = nextViewerId
+  reconnectSseIfNeeded(nextViewerId, previousViewerId)
   void refreshChatPermission()
   void loadLikeStatus()
 }
 
 onMounted(() => {
-  refreshAuth()
-  void refreshChatPermission()
+  void initializeAuth()
   window.addEventListener('deskit-user-updated', handleAuthUpdate)
 })
 
