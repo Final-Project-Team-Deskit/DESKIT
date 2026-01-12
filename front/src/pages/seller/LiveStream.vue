@@ -645,7 +645,7 @@ const buildPublisherOptions = () => {
     publishAudio: micEnabled.value,
     publishVideo: videoEnabled.value,
     insertMode: 'append' as const,
-    mirror: true,
+    mirror: false,
   }
 }
 
