@@ -9,10 +9,16 @@ import org.jooq.DSLContext;
 import org.jooq.Field;
 import org.jooq.Record;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
+import java.time.Year;
+import java.time.YearMonth;
+import java.time.format.DateTimeFormatter;
 import java.time.temporal.TemporalAdjusters;
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 import static org.jooq.impl.DSL.*;
 
@@ -43,7 +49,7 @@ public class SanctionRepositoryImpl implements SanctionRepositoryCustom {
     public List<SanctionStatisticsResponse.ChartData> getSellerForceStopChart(String periodType) {
         Field<String> dateExpr = getDateExpression(periodType, broadcastEndedAt);
 
-        return dsl.select(dateExpr, count())
+        Map<String, Long> totals = dsl.select(dateExpr, count())
                 .from(broadcastTable)
                 .where(
                         broadcastStatus.eq(BroadcastStatus.STOPPED.name()),
@@ -51,17 +57,22 @@ public class SanctionRepositoryImpl implements SanctionRepositoryCustom {
                 )
                 .groupBy(dateExpr)
                 .orderBy(dateExpr.asc())
-                .fetch(record -> new SanctionStatisticsResponse.ChartData(
-                        record.get(dateExpr),
-                        record.get(count(), Long.class)
+                .fetch()
+                .stream()
+                .collect(Collectors.toMap(
+                        record -> record.get(dateExpr),
+                        record -> record.get(count(), Long.class) != null ? record.get(count(), Long.class) : 0L,
+                        (existing, replacement) -> replacement
                 ));
+
+        return buildChartData(periodType, totals);
     }
 
     @Override
     public List<SanctionStatisticsResponse.ChartData> getViewerSanctionChart(String periodType) {
         Field<String> dateExpr = getDateExpression(periodType, sanctionCreatedAt);
 
-        return dsl.select(dateExpr, count())
+        Map<String, Long> totals = dsl.select(dateExpr, count())
                 .from(sanctionTable)
                 .where(
                         sanctionStatus.in(SanctionType.MUTE.name(), SanctionType.OUT.name()),
@@ -69,10 +80,15 @@ public class SanctionRepositoryImpl implements SanctionRepositoryCustom {
                 )
                 .groupBy(dateExpr)
                 .orderBy(dateExpr.asc())
-                .fetch(record -> new SanctionStatisticsResponse.ChartData(
-                        record.get(dateExpr),
-                        record.get(count(), Long.class)
+                .fetch()
+                .stream()
+                .collect(Collectors.toMap(
+                        record -> record.get(dateExpr),
+                        record -> record.get(count(), Long.class) != null ? record.get(count(), Long.class) : 0L,
+                        (existing, replacement) -> replacement
                 ));
+
+        return buildChartData(periodType, totals);
     }
 
     @Override
@@ -129,6 +145,41 @@ public class SanctionRepositoryImpl implements SanctionRepositoryCustom {
         String format = "DAILY".equalsIgnoreCase(periodType) ? "%Y-%m-%d" :
                 "MONTHLY".equalsIgnoreCase(periodType) ? "%Y-%m" : "%Y";
         return field("DATE_FORMAT({0}, {1})", String.class, datePath, inline(format));
+    }
+
+    private List<SanctionStatisticsResponse.ChartData> buildChartData(String periodType, Map<String, Long> totals) {
+        if ("DAILY".equalsIgnoreCase(periodType)) {
+            LocalDate startDate = LocalDate.now().minusDays(6);
+            DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd");
+            return startDate.datesUntil(startDate.plusDays(7))
+                    .map(date -> {
+                        String label = date.format(formatter);
+                        return new SanctionStatisticsResponse.ChartData(label, totals.getOrDefault(label, 0L));
+                    })
+                    .collect(Collectors.toList());
+        }
+
+        if ("MONTHLY".equalsIgnoreCase(periodType)) {
+            YearMonth startMonth = YearMonth.now().minusMonths(11);
+            DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM");
+            return startMonth.atDay(1)
+                    .datesUntil(startMonth.plusMonths(12).atDay(1), java.time.Period.ofMonths(1))
+                    .map(date -> {
+                        String label = date.format(formatter);
+                        return new SanctionStatisticsResponse.ChartData(label, totals.getOrDefault(label, 0L));
+                    })
+                    .collect(Collectors.toList());
+        }
+
+        Year startYear = Year.now().minusYears(4);
+        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy");
+        return startYear.atDay(1)
+                .datesUntil(startYear.plusYears(5).atDay(1), java.time.Period.ofYears(1))
+                .map(date -> {
+                    String label = date.format(formatter);
+                    return new SanctionStatisticsResponse.ChartData(label, totals.getOrDefault(label, 0L));
+                })
+                .collect(Collectors.toList());
     }
 
     private Condition getChartPeriodCondition(String type, Field<LocalDateTime> path) {
