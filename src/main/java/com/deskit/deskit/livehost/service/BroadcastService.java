@@ -1745,7 +1745,10 @@ public class BroadcastService {
     }
 
     private boolean isLiveGroup(BroadcastStatus status) {
-        return status == BroadcastStatus.ON_AIR || status == BroadcastStatus.READY || status == BroadcastStatus.ENDED;
+        return status == BroadcastStatus.ON_AIR
+                || status == BroadcastStatus.READY
+                || status == BroadcastStatus.ENDED
+                || status == BroadcastStatus.STOPPED;
     }
 
     private boolean isJoinableGroup(BroadcastStatus status) {
