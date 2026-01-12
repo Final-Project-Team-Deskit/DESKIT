@@ -13,11 +13,19 @@ import {
 import { getAuthUser } from '../../lib/auth'
 
 const router = useRouter()
+const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080'
 
 const editorRef = ref<HTMLDivElement | null>(null)
 const detailHtml = ref('')
 const error = ref('')
+const success = ref('')
 const draft = ref<SellerProductDraft | null>(null)
+
+const buildAuthHeaders = (): Record<string, string> => {
+  const access = localStorage.getItem('access') || sessionStorage.getItem('access')
+  if (!access) return {}
+  return { Authorization: `Bearer ${access}` }
+}
 
 const deriveSellerId = () => {
   const user = getAuthUser() as any
@@ -78,13 +86,77 @@ const handleInput = () => {
   saveDraftOnly()
 }
 
+// Draft-only helpers: stored previews are data URLs, so we rebuild files on submit.
+const parseDataUrl = (dataUrl: string) => {
+  const match = /^data:([^;]+);base64,(.+)$/.exec(dataUrl)
+  if (!match) return null
+  return { mime: match[1], data: match[2] }
+}
+
+const dataUrlToFile = (dataUrl: string, fileName: string) => {
+  const parsed = parseDataUrl(dataUrl)
+  if (!parsed) return null
+  const binary = atob(parsed.data)
+  const bytes = new Uint8Array(binary.length)
+  for (let i = 0; i < binary.length; i += 1) {
+    bytes[i] = binary.charCodeAt(i)
+  }
+  return new File([bytes], fileName, { type: parsed.mime })
+}
+
+const buildImageUploadPayload = (images: string[]) =>
+  images
+    .map((preview, slotIndex) => {
+      if (!preview) return null
+      const file = dataUrlToFile(preview, `product-image-${slotIndex}.png`)
+      if (!file) return null
+      return {
+        file,
+        imageType: slotIndex === 0 ? 'THUMBNAIL' : 'GALLERY',
+        slotIndex,
+      }
+    })
+    .filter((item): item is { file: File; imageType: 'THUMBNAIL' | 'GALLERY'; slotIndex: number } =>
+      Boolean(item),
+    )
+    .sort((a, b) => {
+      if (a.imageType !== b.imageType) {
+        return a.imageType === 'THUMBNAIL' ? -1 : 1
+      }
+      return a.slotIndex - b.slotIndex
+    })
+
+const uploadProductImages = async (productId: number, images: string[]) => {
+  const payloads = buildImageUploadPayload(images)
+  for (const payload of payloads) {
+    // Upload sequentially to keep slot ordering stable and avoid server-side race issues.
+    const formData = new FormData()
+    formData.append('file', payload.file)
+    formData.append('imageType', payload.imageType)
+    formData.append('slotIndex', String(payload.slotIndex))
+
+    const response = await fetch(`${apiBase}/api/seller/products/${productId}/images`, {
+      method: 'POST',
+      headers: {
+        ...buildAuthHeaders(),
+      },
+      credentials: 'include',
+      body: formData,
+    })
+    if (!response.ok) {
+      throw new Error('upload failed')
+    }
+  }
+}
+
 const goBack = () => {
   saveDraftOnly()
   router.push('/seller/products/create').catch(() => {})
 }
 
-const handleSubmit = () => {
+const handleSubmit = async () => {
   error.value = ''
+  success.value = ''
   if (!draft.value) {
     error.value = '기본 정보를 먼저 입력해주세요.'
     return
@@ -116,13 +188,27 @@ const handleSubmit = () => {
     return
   }
 
+  const productId = Number(draft.value.id)
+  if (!Number.isFinite(productId)) {
+    error.value = '상품 정보를 확인할 수 없습니다.'
+    return
+  }
+
   // 마지막 동기화
   syncFromEditor()
+
+  try {
+    await uploadProductImages(productId, Array.isArray(draft.value.images) ? draft.value.images : [])
+  } catch {
+    // Image upload failure does not rollback product creation by design (no rollback yet).
+    error.value = '이미지 업로드에 실패했습니다.'
+    return
+  }
+
   const now = new Date().toISOString()
-  const id = draft.value.id || `new-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
 
   upsertProduct({
-    id,
+    id: draft.value.id || `new-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
     sellerId,
     name,
     shortDesc,
@@ -136,7 +222,10 @@ const handleSubmit = () => {
   })
 
   clearProductDraft()
-  router.push('/seller/products').catch(() => {})
+  success.value = '상품이 등록되었습니다.'
+  window.setTimeout(() => {
+    router.push('/seller/products').catch(() => {})
+  }, 300)
 }
 
 onMounted(() => {
@@ -202,6 +291,7 @@ onMounted(() => {
       </div>
 
       <p v-if="error" class="error">{{ error }}</p>
+      <p v-else-if="success" class="hint">{{ success }}</p>
 
       <div class="actions">
         <button type="button" class="btn" @click="goBack">이전</button>

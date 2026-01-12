@@ -11,11 +11,19 @@ const panelRef = ref<HTMLElement | null>(null)
 const isLoggedIn = ref(false)
 const memberCategory = ref<string | null>(null)
 
-const navLinks = [
+const navLinksBase = [
   {label: '상품', to: '/products'},
   {label: '셋업', to: '/setup'},
   {label: '라이브', to: '/live'},
 ]
+const showInquiryTab = computed(
+  () => isLoggedIn.value && !isSeller() && !isAdmin() && memberCategory.value !== 'ROLE_GUEST',
+)
+const navLinks = computed(() =>
+  showInquiryTab.value
+    ? [...navLinksBase, {label: '문의', to: '/chat'}]
+    : navLinksBase,
+)
 
 const sellerTabs = [
   {

@@ -1,4 +1,5 @@
 import { flattenTags, type DbProduct, type ProductTags } from './products-data'
+import { isSoldOut, isVisibleToUser } from '../utils/productStatusPolicy'
 
 export type UiProduct = {
   id: string
@@ -38,7 +39,7 @@ const categoryFromId = (categoryId?: number | null): 'furniture' | 'computer' | 
 
 export const mapProducts = (items: DbProduct[]): UiProduct[] =>
   items
-    .filter((product) => product.status !== 'DELETED')
+    .filter((product) => isVisibleToUser(product.status))
     .map((product, index) => {
       const productCategory = product.productCategory ?? categoryFromId(product.category_id)
       const tags: ProductTags = product.tags ?? { space: [], tone: [], situation: [], mood: [] }
@@ -57,7 +58,7 @@ export const mapProducts = (items: DbProduct[]): UiProduct[] =>
         tags,
         tagsFlat: product.tagsFlat ?? flattenTags(tags),
         status: product.status,
-        isSoldOut: product.status === 'SOLD_OUT',
+        isSoldOut: isSoldOut(product.status),
         order: index,
       }
     })

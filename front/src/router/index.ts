@@ -53,6 +53,16 @@ const routes: RouteRecordRaw[] = [
     component: () => import('../pages/Checkout.vue'),
   },
   {
+    path: '/payments/success',
+    name: 'payment-success',
+    component: () => import('../pages/PaymentSuccess.vue'),
+  },
+  {
+    path: '/payments/fail',
+    name: 'payment-fail',
+    component: () => import('../pages/PaymentFail.vue'),
+  },
+  {
     path: '/login',
     name: 'login',
     component: () => import('../pages/Login.vue'),
