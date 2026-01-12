@@ -295,9 +295,16 @@ const streamPlaceholderMessage = computed(() => {
     return '방송이 종료되었습니다.'
   }
   if (lifecycleStatus.value === 'READY') {
-    return readyCountdownLabel.value || '방송 시작 대기 중'
+    return '방송 시작 대기 중'
   }
   return '송출 화면 (WebRTC Stream)'
+})
+const showPlaceholderMessage = computed(() => {
+  if (lifecycleStatus.value === 'STOPPED') return true
+  if (['READY', 'ENDED', 'ON_AIR'].includes(lifecycleStatus.value)) {
+    return !waitingScreenUrl.value
+  }
+  return true
 })
 
 const resolveMediaSelection = (value: string, fallback: string) => {
@@ -378,7 +385,7 @@ const disconnectOpenVidu = () => {
   if (openviduSession.value) {
     try {
       if (openviduPublisher.value) {
-        openviduSession.value.unpublish(openviduPublisher.value)
+        openviduSession.value.unpublish(openviduPublisher.value as Publisher)
       }
       openviduSession.value.disconnect()
     } catch {
@@ -421,7 +428,7 @@ const restartPublisher = async () => {
   if (!openviduSession.value || !openviduInstance.value || !publisherContainerRef.value) return
   try {
     if (openviduPublisher.value) {
-      openviduSession.value.unpublish(openviduPublisher.value)
+      openviduSession.value.unpublish(openviduPublisher.value as Publisher)
     }
     publisherContainerRef.value.innerHTML = ''
     openviduPublisher.value = openviduInstance.value.initPublisher(
@@ -1491,7 +1498,10 @@ const toggleFullscreen = async () => {
     <header class="stream-header">
       <div>
         <h2 class="section-title">{{ displayTitle }}</h2>
-        <p class="ds-section-sub">{{ displayDatetime }}</p>
+        <p class="ds-section-sub">
+          {{ displayDatetime }}
+          <span v-if="readyCountdownLabel" class="stream-countdown">{{ readyCountdownLabel }}</span>
+        </p>
       </div>
       <div class="stream-actions">
         <button type="button" class="stream-btn" :disabled="!stream || isStopped" @click="showBasicInfo = true">기본정보 수정</button>
@@ -1655,7 +1665,7 @@ const toggleFullscreen = async () => {
                 :src="waitingScreenUrl"
                 alt="대기 화면"
               />
-              <p class="stream-title">{{ streamPlaceholderMessage }}</p>
+              <p v-if="showPlaceholderMessage" class="stream-title">{{ streamPlaceholderMessage }}</p>
               <p v-if="lifecycleStatus === 'ON_AIR'" class="stream-sub">현재 송출 중인 화면이 표시됩니다.</p>
               <p v-else-if="!waitingScreenUrl && lifecycleStatus !== 'STOPPED'" class="stream-sub">대기 화면 이미지가 없습니다.</p>
             </div>
@@ -2299,6 +2309,19 @@ const toggleFullscreen = async () => {
 .stream-btn.primary {
   border-color: var(--primary-color);
   color: var(--primary-color);
+}
+
+.stream-countdown {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 10px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(59, 130, 246, 0.12);
+  color: #2563eb;
+  font-weight: 800;
+  font-size: 0.85rem;
 }
 
 
