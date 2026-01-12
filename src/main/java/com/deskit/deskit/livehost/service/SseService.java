@@ -92,6 +92,22 @@ public class SseService {
         }
     }
 
+    public void notifyTargetUser(Long broadcastId, String userId, String eventName, Object data) {
+        String resolvedUserId = resolveUserId(userId);
+        String prefix = broadcastId + ":" + resolvedUserId + ":";
+        boolean delivered = false;
+        for (Map.Entry<String, SseEmitter> entry : emitters.entrySet()) {
+            String key = entry.getKey();
+            if (key.startsWith(prefix)) {
+                sendToClient(entry.getValue(), key, eventName, data);
+                delivered = true;
+            }
+        }
+        if (!delivered) {
+            log.warn("Target user not found or disconnected: keyPrefix={}", prefix);
+        }
+    }
+
     private void notifyGlobalUpdate(Long broadcastId, String eventName, Object data) {
         Map<String, Object> payload = Map.of(
                 "broadcastId", broadcastId,
