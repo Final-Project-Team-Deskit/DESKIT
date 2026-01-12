@@ -469,6 +469,7 @@ type LiveChatMessageDTO = {
   type: LiveMessageType
   sender: string
   content: string
+  senderRole?: string
   vodPlayTime: number
   sentAt?: number
 }
@@ -479,6 +480,7 @@ type ChatMessage = {
   text: string
   at: Date
   kind?: 'system' | 'user'
+  senderRole?: string
 }
 
 const messages = ref<ChatMessage[]>([])
@@ -510,6 +512,32 @@ const formatChatTime = (value: Date) => {
   const hours = String(value.getHours()).padStart(2, '0')
   const minutes = String(value.getMinutes()).padStart(2, '0')
   return `${hours}:${minutes}`
+}
+
+
+const formatChatUser = (message: ChatMessage) => {
+  if (message.kind === 'system') {
+    return message.user
+  }
+  if (message.senderRole) {
+    if (message.senderRole === 'ROLE_ADMIN') {
+      return `${message.user}(관리자)`
+    }
+    if (message.senderRole.startsWith('ROLE_SELLER')) {
+      return `${message.user}(판매자)`
+    }
+    if (message.senderRole === 'ROLE_MEMBER' && message.user === nickname.value) {
+      return `${message.user}(나)`
+    }
+    return message.user
+  }
+  if (message.user === nickname.value) {
+    return `${message.user}(나)`
+  }
+  if (liveItem.value?.sellerName && message.user === liveItem.value.sellerName) {
+    return `${message.user}(판매자)`
+  }
+  return message.user
 }
 
 const scrollToBottom = () => {
@@ -789,6 +817,7 @@ const handleIncomingMessage = (payload: LiveChatMessageDTO) => {
     text: payload.content ?? '',
     at: sentAt,
     kind,
+    senderRole: payload.senderRole,
   })
 }
 
@@ -813,6 +842,7 @@ const fetchRecentMessages = async () => {
         text: item.content ?? '',
         at: new Date(item.sentAt ?? Date.now()),
         kind: 'user' as const,
+        senderRole: item.senderRole,
       }))
     scrollToBottom()
   } catch (error) {
@@ -1348,12 +1378,12 @@ onBeforeUnmount(() => {
           <div ref="chatListRef" class="chat-messages">
             <div
               v-for="message in messages"
-              :key="message.id"
-              class="chat-message"
-              :class="{ 'chat-message--system': message.kind === 'system' }"
+                :key="message.id"
+                class="chat-message"
+                :class="{ 'chat-message--system': message.kind === 'system' }"
             >
               <div class="chat-meta">
-                <span class="chat-user">{{ message.user }}</span>
+                <span class="chat-user">{{ formatChatUser(message) }}</span>
                 <span class="chat-time">{{ formatChatTime(message.at) }}</span>
               </div>
               <p class="chat-text">{{ message.text }}</p>
