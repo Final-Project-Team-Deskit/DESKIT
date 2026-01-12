@@ -895,10 +895,6 @@ public class BroadcastService {
 
         redisService.persistVodReactionKeys(broadcastId);
         redisService.deleteBroadcastRuntimeKeys(broadcastId);
-        if (isStopped || broadcast.getStatus() == BroadcastStatus.ENDED) {
-            validateTransition(broadcast.getStatus(), BroadcastStatus.VOD);
-            broadcast.changeStatus(BroadcastStatus.VOD);
-        }
         redisService.clearRecordingRetry(broadcastId);
     }
 
