@@ -2151,7 +2151,6 @@ const toggleFullscreen = async () => {
   align-items: center;
   justify-content: center;
   overflow: hidden;
-  min-height: 320px;
   max-width: 100%;
 }
 
