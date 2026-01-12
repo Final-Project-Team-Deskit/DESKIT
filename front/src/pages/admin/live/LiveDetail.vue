@@ -1146,7 +1146,7 @@ watch(streamToken, () => {
   aspect-ratio: 16 / 9;
   background: #0b0f1a;
   border-radius: 18px;
-  overflow: auto;
+  overflow: hidden;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1210,7 +1210,7 @@ watch(streamToken, () => {
 .player-placeholder__image {
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  object-fit: contain;
 }
 
 .player-placeholder__message {
