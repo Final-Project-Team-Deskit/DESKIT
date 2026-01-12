@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { OpenVidu, type Session, type Subscriber } from 'openvidu-browser'
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Client, type StompSubscription } from '@stomp/stompjs'
 import SockJS from 'sockjs-client/dist/sockjs'
@@ -140,7 +140,7 @@ const leaveRequested = ref(false)
 const viewerContainerRef = ref<HTMLDivElement | null>(null)
 const openviduInstance = ref<OpenVidu | null>(null)
 const openviduSession = ref<Session | null>(null)
-const openviduSubscriber = ref<Subscriber | null>(null)
+const openviduSubscriber = shallowRef<Subscriber | null>(null)
 const openviduConnected = ref(false)
 const FALLBACK_IMAGE = 'data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs='
 
@@ -763,6 +763,7 @@ const scheduleRefresh = (broadcastId: number) => {
 const handleSseEvent = (event: MessageEvent) => {
   const idValue = Number(liveId.value)
   if (Number.isNaN(idValue)) return
+  const data = parseSseData(event)
   switch (event.type) {
     case 'BROADCAST_READY':
     case 'BROADCAST_UPDATED':
