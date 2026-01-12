@@ -139,7 +139,7 @@ public class BroadcastRepositoryImpl implements BroadcastRepositoryCustom {
     @Override
     public List<Long> findBroadcastIdsForReadyTransition(LocalDateTime now) {
         LocalDateTime start = now;
-        LocalDateTime end = now.plusMinutes(10);
+        LocalDateTime end = now.plusMinutes(3);
         return dsl.select(broadcastId)
                 .from(broadcastTable)
                 .where(
