@@ -339,7 +339,19 @@ export const fetchPublicBroadcastDetail = async (broadcastId: number): Promise<B
 
 export const fetchBroadcastProducts = async (broadcastId: number): Promise<BroadcastProductItem[]> => {
   const { data } = await http.get<
-    ApiResult<Array<{ productId: number; name: string; imageUrl?: string; bpPrice: number; bpQuantity: number; stockQty?: number; status: string; isPinned?: boolean }>>
+    ApiResult<
+      Array<{
+        productId: number
+        name: string
+        imageUrl?: string
+        bpPrice: number
+        bpQuantity: number
+        stockQty?: number
+        status: string
+        isPinned?: boolean
+        pinned?: boolean
+      }>
+    >
   >(`/api/broadcasts/${broadcastId}/products`)
   const payload = ensureSuccess(data)
   return payload.map((item) => ({
@@ -348,7 +360,7 @@ export const fetchBroadcastProducts = async (broadcastId: number): Promise<Broad
     imageUrl: item.imageUrl ?? '',
     price: item.bpPrice,
     totalQty: item.bpQuantity,
-    isPinned: item.isPinned ?? false,
+    isPinned: item.isPinned ?? item.pinned ?? false,
     isSoldOut: item.status === 'SOLDOUT' || item.bpQuantity <= 0,
     stockQty: item.stockQty ?? item.bpQuantity,
   }))

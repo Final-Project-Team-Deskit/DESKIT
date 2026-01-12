@@ -36,6 +36,11 @@ type StreamProduct = {
   title: string
   option: string
   status: string
+  price: string
+  sale: string
+  sold: number
+  stock: number
+  thumb: string
   pinned?: boolean
 }
 
@@ -67,6 +72,7 @@ type EditableBroadcastInfo = {
 }
 
 const defaultNotice = ''
+const FALLBACK_IMAGE = 'data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs='
 
 const route = useRoute()
 const router = useRouter()
@@ -204,6 +210,36 @@ const formatChatTime = (timestamp: number = Date.now()) => {
   const displayHour = hours % 12 || 12
   const minutes = String(date.getMinutes()).padStart(2, '0')
   return `${hours >= 12 ? '오후' : '오전'} ${displayHour}:${minutes}`
+}
+
+const formatPrice = (value?: number) => {
+  if (!value || Number.isNaN(value)) return '₩0'
+  return `₩${value.toLocaleString('ko-KR')}`
+}
+
+const handleImageError = (event: Event) => {
+  const target = event.target as HTMLImageElement | null
+  if (!target || target.dataset.fallbackApplied) return
+  target.dataset.fallbackApplied = 'true'
+  target.src = FALLBACK_IMAGE
+}
+
+const mapStreamProduct = (product: BroadcastDetailResponse['products'][number]) => {
+  const totalQty = product.bpQuantity ?? product.stockQty ?? 0
+  const stockQty = product.stockQty ?? totalQty
+  const sold = Math.max(0, totalQty - stockQty)
+  return {
+    id: String(product.bpId ?? product.productId),
+    title: product.name,
+    option: product.name,
+    status: product.status === 'SOLDOUT' ? '품절' : '판매중',
+    price: formatPrice(product.originalPrice),
+    sale: formatPrice(product.bpPrice),
+    sold,
+    stock: stockQty,
+    thumb: product.imageUrl ?? '',
+    pinned: product.pinned,
+  }
 }
 
 const productItems = computed(() => stream.value?.products ?? [])
@@ -797,13 +833,7 @@ const hydrateStream = async () => {
     scheduleEndAtMs.value = scheduleStartAtMs.value ? getScheduledEndMs(scheduleStartAtMs.value) ?? null : null
     streamStatus.value = normalizeBroadcastStatus(detail.status)
 
-    const products = (detail.products ?? []).map((product) => ({
-      id: String(product.bpId ?? product.productId),
-      title: product.name,
-      option: product.name,
-      status: product.status === 'SOLDOUT' ? '품절' : '판매중',
-      pinned: product.pinned,
-    }))
+    const products = (detail.products ?? []).map((product) => mapStreamProduct(product))
 
     stream.value = {
       title: detail.title ?? '',
@@ -888,13 +918,7 @@ const refreshStats = async (broadcastId: number) => {
 const refreshProducts = async (broadcastId: number) => {
   try {
     const detail = await fetchSellerBroadcastDetail(broadcastId)
-    const products = (detail.products ?? []).map((product) => ({
-      id: String(product.bpId ?? product.productId),
-      title: product.name,
-      option: product.name,
-      status: product.status === 'SOLDOUT' ? '품절' : '판매중',
-      pinned: product.pinned,
-    }))
+    const products = (detail.products ?? []).map((product) => mapStreamProduct(product))
     pinnedProductId.value = products.find((item) => item.pinned)?.id ?? null
     if (stream.value) {
       stream.value = { ...stream.value, products }
@@ -1546,40 +1570,47 @@ const toggleFullscreen = async () => {
           <button type="button" class="panel-close" aria-label="상품 관리 닫기" @click="showProducts = false">×</button>
         </div>
         <div class="panel-list">
-          <div
+          <article
             v-for="item in sortedProducts"
             :key="item.id"
             class="panel-item"
-            :class="{ 'is-pinned': pinnedProductId === item.id }"
+            :class="{ 'is-pinned': pinnedProductId === item.id, 'is-soldout': item.status === '품절' }"
           >
-            <div class="panel-thumb" aria-hidden="true"></div>
-            <div class="panel-meta">
-              <p class="panel-title">
-                {{ item.title }}
-                <span v-if="pinnedProductId === item.id" class="pin-badge">PIN</span>
-              </p>
-              <p class="panel-sub">{{ item.option }}</p>
-              <span class="panel-status" :class="{ 'is-soldout': item.status === '품절' }">{{ item.status }}</span>
+            <span v-if="pinnedProductId === item.id" class="pin-badge">PIN</span>
+            <div class="panel-thumb">
+              <img :src="item.thumb" :alt="item.title" loading="lazy" @error="handleImageError" />
             </div>
-            <button
-              type="button"
-              class="pin-btn"
-              :disabled="!isInteractive || item.status === '품절'"
-              :class="{ 'is-active': pinnedProductId === item.id }"
-              aria-label="고정"
-              @click="handlePinProduct(item.id)"
-            >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                <path
-                  d="M9 4h6l1 5-2 2v6l-2-1-2 1v-6l-2-2 1-5z"
-                  stroke="currentColor"
-                  stroke-width="1.7"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                />
-              </svg>
-            </button>
-          </div>
+            <div class="panel-meta">
+              <p class="panel-title">{{ item.title }}</p>
+              <p class="panel-sub">{{ item.option }}</p>
+              <p class="panel-price">
+                <span class="panel-sale">{{ item.sale }}</span>
+                <span class="panel-origin">{{ item.price }}</span>
+              </p>
+              <p class="panel-stats">판매 {{ item.sold }} · 재고 {{ item.stock }}</p>
+            </div>
+            <div class="panel-actions">
+              <span class="panel-status" :class="{ 'is-soldout': item.status === '품절' }">{{ item.status }}</span>
+              <button
+                type="button"
+                class="pin-btn"
+                :disabled="!isInteractive || item.status === '품절'"
+                :class="{ 'is-active': pinnedProductId === item.id }"
+                aria-label="고정"
+                @click="handlePinProduct(item.id)"
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                  <path
+                    d="M9 4h6l1 5-2 2v6l-2-1-2 1v-6l-2-2 1-5z"
+                    stroke="currentColor"
+                    stroke-width="1.7"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  />
+                </svg>
+              </button>
+            </div>
+          </article>
         </div>
       </aside>
 
@@ -1972,11 +2003,12 @@ const toggleFullscreen = async () => {
 }
 
 .panel-item {
+  position: relative;
   display: grid;
-  grid-template-columns: 46px minmax(0, 1fr) auto;
-  gap: 10px;
+  grid-template-columns: 64px minmax(0, 1fr) auto;
+  gap: 12px;
   align-items: center;
-  padding: 10px;
+  padding: 12px;
   border-radius: 12px;
   background: var(--surface-weak);
 }
@@ -1986,11 +2018,23 @@ const toggleFullscreen = async () => {
   background: rgba(59, 130, 246, 0.08);
 }
 
+.panel-item.is-soldout {
+  opacity: 0.72;
+}
+
 .panel-thumb {
-  width: 46px;
-  height: 46px;
-  border-radius: 10px;
+  width: 64px;
+  height: 64px;
+  border-radius: 12px;
+  overflow: hidden;
   background: linear-gradient(135deg, #1f2937, #0f172a);
+}
+
+.panel-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
 }
 
 .panel-meta {
@@ -2020,6 +2064,39 @@ const toggleFullscreen = async () => {
   text-overflow: ellipsis;
 }
 
+.panel-price {
+  margin: 6px 0 2px;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.panel-sale {
+  font-weight: 800;
+  color: var(--text-strong);
+  font-size: 0.9rem;
+}
+
+.panel-origin {
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  text-decoration: line-through;
+}
+
+.panel-stats {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.panel-actions {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+}
+
 .panel-status {
   display: inline-flex;
   padding: 3px 6px;
@@ -2044,6 +2121,9 @@ const toggleFullscreen = async () => {
   color: #fff;
   font-size: 0.7rem;
   font-weight: 900;
+  position: absolute;
+  top: 8px;
+  left: 8px;
 }
 
 .pin-btn {
