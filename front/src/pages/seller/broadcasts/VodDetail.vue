@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import PageContainer from '../../../components/PageContainer.vue'
 import ConfirmModal from '../../../components/ConfirmModal.vue'
@@ -47,7 +47,6 @@ const isLoading = ref(false)
 const isVodPlayable = computed(() => !!detail.value?.vod?.url)
 const isVodPublic = computed(() => detail.value?.vod.visibility === '공개')
 const isVodVisibilityLocked = computed(() => detail.value?.vod.adminLock === true)
-const isFullscreen = ref(false)
 const showDeleteConfirm = ref(false)
 const statusLabel = computed(() => getBroadcastStatusLabel(detail.value?.statusLabel))
 
@@ -75,10 +74,13 @@ const toggleVisibility = async () => {
   }
 }
 
-const handleDownload = () => {
+const handleDownload = async () => {
   if (!detail.value?.vod?.url) return
   window.alert('VOD 파일 다운로드를 시작합니다.')
   const fileName = buildDownloadName(detail.value.title)
+  if (await saveVodFile(detail.value.vod.url, fileName)) {
+    return
+  }
   const link = document.createElement('a')
   link.href = detail.value.vod.url
   link.download = fileName
@@ -121,30 +123,6 @@ const sendChat = () => {
   chatText.value = ''
 }
 
-const playerContainerRef = ref<HTMLElement | null>(null)
-
-const toggleFullscreen = () => {
-  const target = playerContainerRef.value
-  if (!target) return
-  if (document.fullscreenElement) {
-    document.exitFullscreen().catch(() => {})
-    return
-  }
-  target.requestFullscreen?.()
-}
-
-const handleFullscreenChange = () => {
-  isFullscreen.value = !!document.fullscreenElement
-}
-
-onMounted(() => {
-  document.addEventListener('fullscreenchange', handleFullscreenChange)
-})
-
-onUnmounted(() => {
-  document.removeEventListener('fullscreenchange', handleFullscreenChange)
-})
-
 watch(isVodPlayable, (playable) => {
   if (!playable) {
     showChat.value = false
@@ -177,6 +155,28 @@ const buildDownloadName = (title?: string) => {
   const base = title?.trim() || 'vod'
   const safe = base.replace(/[\\/:*?"<>|]/g, '_')
   return `${safe}.mp4`
+}
+
+const saveVodFile = async (url: string, fileName: string) => {
+  const picker = (window as Window & { showSaveFilePicker?: (options?: { suggestedName?: string }) => Promise<FileSystemFileHandle> })
+    .showSaveFilePicker
+  if (!picker) return false
+  try {
+    const handle = await picker({ suggestedName: fileName })
+    const response = await fetch(url)
+    if (!response.ok) return false
+    const writable = await handle.createWritable()
+    if (response.body) {
+      await response.body.pipeTo(writable)
+    } else {
+      const blob = await response.blob()
+      await writable.write(blob)
+      await writable.close()
+    }
+    return true
+  } catch {
+    return false
+  }
 }
 
 const buildDetail = (broadcast: BroadcastDetailResponse, report: BroadcastResult): SellerVodDetail => ({
@@ -339,7 +339,7 @@ watch(vodId, () => {
         </div>
       </div>
       <div class="vod-player" :class="{ 'with-chat': showChat && isVodPlayable }">
-        <div ref="playerContainerRef" class="player-shell">
+        <div class="player-shell">
           <div class="player-frame">
             <video
               v-if="isVodPlayable"
@@ -350,28 +350,6 @@ watch(vodId, () => {
               <span>재생할 VOD가 없습니다.</span>
             </div>
             <div v-if="isVodPlayable" class="player-overlay">
-              <div class="overlay-left">
-                <button
-                  type="button"
-                  class="icon-circle ghost"
-                  :class="{ active: isFullscreen }"
-                  @click="toggleFullscreen"
-                  :title="isFullscreen ? '전체화면 종료' : '전체화면'"
-                >
-                  <svg v-if="!isFullscreen" aria-hidden="true" class="icon" viewBox="0 0 24 24" focusable="false">
-                    <path d="M15 3h6v6" />
-                    <path d="M9 21H3v-6" />
-                    <path d="M21 3 14 10" />
-                    <path d="M3 21 10 14" />
-                  </svg>
-                  <svg v-else aria-hidden="true" class="icon" viewBox="0 0 24 24" focusable="false">
-                    <path d="M9 9H3V3" />
-                    <path d="m3 9 6-6" />
-                    <path d="M15 15h6v6" />
-                    <path d="m21 15-6 6" />
-                  </svg>
-                </button>
-              </div>
               <div class="overlay-right">
                 <div class="chat-pill">
                   <span class="chat-count">{{ chatMessages.length }}</span>
@@ -854,12 +832,11 @@ watch(vodId, () => {
   inset: 0;
   pointer-events: none;
   display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
+  align-items: flex-start;
+  justify-content: flex-end;
   padding: 14px;
 }
 
-.overlay-left,
 .overlay-right {
   display: flex;
   align-items: center;
