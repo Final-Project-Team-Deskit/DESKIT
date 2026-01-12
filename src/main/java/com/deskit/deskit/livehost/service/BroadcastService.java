@@ -937,6 +937,12 @@ public class BroadcastService {
                         long contentLength = conn.getContentLengthLong();
                         String s3Url = s3Service.uploadVodStream(inputStream, s3Key, contentLength);
                         log.info("VOD Upload Success: {}", s3Url);
+                        try {
+                            openViduService.deleteRecording(recordingId);
+                        } catch (OpenViduJavaClientException | OpenViduHttpException e) {
+                            log.warn("Failed to delete OpenVidu recording after upload: recordingId={}, reason={}",
+                                    recordingId, e.getMessage());
+                        }
                         return s3Url;
                     }
                 } else {
