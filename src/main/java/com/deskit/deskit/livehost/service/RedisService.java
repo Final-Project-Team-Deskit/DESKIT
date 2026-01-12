@@ -256,6 +256,12 @@ public class RedisService {
         return true;
     }
 
+    public boolean isMemberLiked(Long broadcastId, Long memberId) {
+        String key = getLikeUsersKey(broadcastId);
+        Boolean isMember = redisTemplate.opsForSet().isMember(key, String.valueOf(memberId));
+        return Boolean.TRUE.equals(isMember);
+    }
+
     public int getLikeCount(Long broadcastId) {
         Long size = redisTemplate.opsForSet().size(getLikeUsersKey(broadcastId));
         return size != null ? size.intValue() : 0;
@@ -312,6 +318,10 @@ public class RedisService {
 
     public int getVodLikeDelta(Long broadcastId) {
         return getInt(getVodLikeDeltaKey(broadcastId));
+    }
+
+    public int getVodViewDelta(Long broadcastId) {
+        return getInt(getVodViewDeltaKey(broadcastId));
     }
 
     public boolean reportVod(Long broadcastId, Long memberId) {

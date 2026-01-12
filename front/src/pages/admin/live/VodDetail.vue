@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import PageContainer from '../../../components/PageContainer.vue'
 import ConfirmModal from '../../../components/ConfirmModal.vue'
@@ -48,7 +48,6 @@ const isLoading = ref(false)
 const statusLabel = computed(() => getBroadcastStatusLabel(detail.value?.statusLabel))
 const isVodPlayable = computed(() => !!detail.value?.vod?.url)
 const isVodPublic = computed(() => detail.value?.vod.visibility === '공개')
-const isPlaying = ref(false)
 const isFullscreen = ref(false)
 const showDeleteConfirm = ref(false)
 
@@ -56,7 +55,6 @@ const showChat = ref(false)
 const chatText = ref('')
 const chatMessages = ref<{ id: string; user: string; text: string; time: string }[]>([])
 
-const videoRef = ref<HTMLVideoElement | null>(null)
 const playerContainerRef = ref<HTMLElement | null>(null)
 
 const goBack = () => {
@@ -82,7 +80,15 @@ const toggleVisibility = async () => {
 const handleDownload = () => {
   if (!detail.value?.vod?.url) return
   window.alert('VOD 파일 다운로드를 시작합니다.')
-  window.open(detail.value.vod.url, '_blank')
+  const fileName = buildDownloadName(detail.value.title)
+  const link = document.createElement('a')
+  link.href = detail.value.vod.url
+  link.download = fileName
+  link.rel = 'noopener'
+  link.target = '_blank'
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
 }
 
 const handleDelete = () => {
@@ -113,14 +119,6 @@ const sendChat = () => {
   chatText.value = ''
 }
 
-const startPlayback = () => {
-  if (!isVodPlayable.value) return
-  isPlaying.value = true
-  nextTick(() => {
-    videoRef.value?.play?.()
-  })
-}
-
 const toggleFullscreen = () => {
   const target = playerContainerRef.value
   if (!target) return
@@ -146,7 +144,6 @@ onUnmounted(() => {
 watch(isVodPlayable, (playable) => {
   if (!playable) {
     showChat.value = false
-    isPlaying.value = false
   }
 })
 
@@ -170,6 +167,12 @@ const formatChatTime = (timestamp?: number) => {
   const displayHour = hours % 12 || 12
   const minutes = String(date.getMinutes()).padStart(2, '0')
   return `${hours >= 12 ? '오후' : '오전'} ${displayHour}:${minutes}`
+}
+
+const buildDownloadName = (title?: string) => {
+  const base = title?.trim() || 'vod'
+  const safe = base.replace(/[\\/:*?"<>|]/g, '_')
+  return `${safe}.mp4`
 }
 
 const buildDetail = (broadcast: BroadcastDetailResponse, report: BroadcastResult): AdminVodDetail => ({
@@ -336,22 +339,11 @@ watch(vodId, () => {
           <div class="player-frame">
             <video
               v-if="isVodPlayable"
-              v-show="isPlaying"
-              ref="videoRef"
               :src="detail.vod.url"
               controls
-              :poster="detail.thumb"
             ></video>
             <div v-else class="vod-placeholder">
               <span>재생할 VOD가 없습니다.</span>
-            </div>
-            <div v-if="isVodPlayable && !isPlaying" class="player-poster">
-              <img :src="detail.thumb" :alt="detail.title" @error="handleImageError" />
-              <button type="button" class="play-toggle" @click="startPlayback" title="재생">
-                <svg aria-hidden="true" class="icon" viewBox="0 0 24 24" focusable="false">
-                  <polygon points="8 5 19 12 8 19 8 5" fill="currentColor" />
-                </svg>
-              </button>
             </div>
             <div v-if="isVodPlayable" class="player-overlay">
               <div class="overlay-left">

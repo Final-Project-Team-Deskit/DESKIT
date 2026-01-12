@@ -12,6 +12,7 @@ import { useNow } from '../lib/live/useNow'
 import { getAuthUser } from '../lib/auth'
 import { resolveViewerId } from '../lib/live/viewer'
 import {
+  fetchBroadcastLikeStatus,
   fetchBroadcastProducts,
   fetchBroadcastStats,
   fetchChatPermission,
@@ -217,8 +218,24 @@ const loadDetail = async () => {
     const detail = await fetchPublicBroadcastDetail(broadcastId.value)
     liveItem.value = buildLiveItem(detail)
     likeCount.value = detail.totalLikes ?? 0
+    if (isLoggedIn.value) {
+      await loadLikeStatus()
+    } else {
+      isLiked.value = false
+    }
   } catch {
     liveItem.value = null
+  }
+}
+
+const loadLikeStatus = async () => {
+  if (!broadcastId.value || !isLoggedIn.value) return
+  try {
+    const result = await fetchBroadcastLikeStatus(broadcastId.value)
+    isLiked.value = result.liked
+    likeCount.value = result.likeCount ?? likeCount.value
+  } catch {
+    return
   }
 }
 
@@ -1033,6 +1050,7 @@ const handleAuthUpdate = () => {
   refreshAuth()
   viewerId.value = resolveViewerId(getAuthUser())
   void refreshChatPermission()
+  void loadLikeStatus()
 }
 
 onMounted(() => {

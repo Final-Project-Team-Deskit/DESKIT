@@ -396,6 +396,11 @@ export const toggleBroadcastLike = async (broadcastId: number): Promise<Broadcas
   return ensureSuccess(data)
 }
 
+export const fetchBroadcastLikeStatus = async (broadcastId: number): Promise<BroadcastLikeResponse> => {
+  const { data } = await http.get<ApiResult<BroadcastLikeResponse>>(`/api/member/broadcasts/${broadcastId}/like-status`)
+  return ensureSuccess(data)
+}
+
 export const reportBroadcast = async (broadcastId: number): Promise<BroadcastReportResponse> => {
   const { data } = await http.post<ApiResult<BroadcastReportResponse>>(`/api/member/broadcasts/${broadcastId}/report`)
   return ensureSuccess(data)
