@@ -1061,6 +1061,7 @@ public class BroadcastService {
         long avgTime = 0;
         BigDecimal sales = BigDecimal.ZERO;
         LocalDateTime maxTime = null;
+        int pendingViewDelta = 0;
 
         if (result != null) {
             views = result.getTotalViews();
@@ -1070,6 +1071,9 @@ public class BroadcastService {
             maxTime = result.getPickViewsAt();
             avgTime = result.getAvgWatchTime();
             reports = result.getTotalReports();
+        }
+        if (broadcast.getStatus() == BroadcastStatus.VOD) {
+            pendingViewDelta = redisService.getVodViewDelta(broadcastId);
         }
         sanctions = sanctionRepository.countByBroadcast(broadcast);
 
@@ -1105,7 +1109,7 @@ public class BroadcastService {
                 .durationMinutes(duration)
                 .status(broadcast.getStatus())
                 .stoppedReason(broadcast.getBroadcastStoppedReason())
-                .totalViews(views)
+                .totalViews(Math.max(0, views + pendingViewDelta))
                 .totalLikes(likes)
                 .totalSales(sales)
                 .totalChats(chats)

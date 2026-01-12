@@ -314,6 +314,10 @@ public class RedisService {
         return getInt(getVodLikeDeltaKey(broadcastId));
     }
 
+    public int getVodViewDelta(Long broadcastId) {
+        return getInt(getVodViewDeltaKey(broadcastId));
+    }
+
     public boolean reportVod(Long broadcastId, Long memberId) {
         String userKey = getReportUsersKey(broadcastId);
         String memberKey = String.valueOf(memberId);
