@@ -12,6 +12,7 @@ import {
   type BroadcastResult,
   updateAdminVodVisibility,
 } from '../../../lib/live/api'
+import { getBroadcastStatusLabel } from '../../../lib/broadcastStatus'
 
 const route = useRoute()
 const router = useRouter()
@@ -30,7 +31,9 @@ type AdminVodDetail = {
   sellerName: string
   thumb: string
   metrics: {
+    totalViews: number
     maxViewers: number
+    maxViewerTime?: string
     reports: number
     sanctions: number
     likes: number
@@ -42,6 +45,7 @@ type AdminVodDetail = {
 
 const detail = ref<AdminVodDetail | null>(null)
 const isLoading = ref(false)
+const statusLabel = computed(() => getBroadcastStatusLabel(detail.value?.statusLabel))
 const isVodPlayable = computed(() => !!detail.value?.vod?.url)
 const isVodPublic = computed(() => detail.value?.vod.visibility === '공개')
 const isPlaying = ref(false)
@@ -178,7 +182,9 @@ const buildDetail = (broadcast: BroadcastDetailResponse, report: BroadcastResult
   sellerName: broadcast.sellerName ?? '',
   thumb: broadcast.thumbnailUrl ?? '',
   metrics: {
+    totalViews: report.totalViews ?? 0,
     maxViewers: report.maxViewers ?? 0,
+    maxViewerTime: formatDateTime(report.maxViewerTime),
     reports: report.reportCount ?? 0,
     sanctions: report.sanctionCount ?? 0,
     likes: report.totalLikes ?? 0,
@@ -248,7 +254,7 @@ watch(vodId, () => {
           <h3>{{ detail.title }}</h3>
           <p><span>방송 시작 시간</span>{{ detail.startedAt }}</p>
           <p><span>방송 종료 시간</span>{{ detail.endedAt }}</p>
-          <p><span>상태</span>{{ detail.statusLabel }}</p>
+          <p><span>상태</span>{{ statusLabel }}</p>
           <p v-if="detail.statusLabel === 'STOPPED' && detail.stopReason"><span>중지 사유</span>{{ detail.stopReason }}</p>
           <p><span>판매자</span>{{ detail.sellerName }}</p>
         </div>
@@ -257,8 +263,13 @@ watch(vodId, () => {
 
     <section class="kpi-grid">
       <article class="kpi-card ds-surface">
-        <p class="kpi-label">최대 시청자 수</p>
+        <p class="kpi-label">누적 조회수</p>
+        <p class="kpi-value">{{ detail.metrics.totalViews.toLocaleString('ko-KR') }}회</p>
+      </article>
+      <article class="kpi-card ds-surface">
+        <p class="kpi-label">방송 중 최대 시청자 수</p>
         <p class="kpi-value">{{ detail.metrics.maxViewers.toLocaleString('ko-KR') }}명</p>
+        <p v-if="detail.metrics.maxViewerTime" class="kpi-sub">{{ detail.metrics.maxViewerTime }} 기준</p>
       </article>
       <article class="kpi-card ds-surface">
         <p class="kpi-label">신고 건수</p>
@@ -560,7 +571,7 @@ watch(vodId, () => {
 
 .kpi-grid {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(6, minmax(0, 1fr));
   gap: 16px;
   margin-bottom: 16px;
 }
@@ -582,6 +593,12 @@ watch(vodId, () => {
   font-size: 1.2rem;
   font-weight: 900;
   color: var(--text-strong);
+}
+
+.kpi-sub {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  font-weight: 600;
 }
 
 .card-head {
@@ -665,7 +682,7 @@ watch(vodId, () => {
 }
 
 .icon-pill.danger {
-  color: var(--danger-color);
+  color: var(--danger-color, #dc2626);
   border-color: rgba(220, 38, 38, 0.4);
 }
 

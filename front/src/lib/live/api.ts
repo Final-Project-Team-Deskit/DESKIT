@@ -19,6 +19,7 @@ export type SellerProduct = {
   broadcastPrice: number
   stock: number
   safetyStock: number
+  reservedBroadcastQty?: number
   quantity: number
   thumb?: string
 }
@@ -53,6 +54,8 @@ export type BroadcastDetail = {
   scheduledAt?: string
   startedAt?: string
   thumbnailUrl?: string
+  waitScreenUrl?: string
+  stoppedReason?: string
   vodUrl?: string
   totalViews?: number
   totalLikes?: number
@@ -76,6 +79,16 @@ export type BroadcastStats = {
   reportCount: number
 }
 
+export type BroadcastLikeResponse = {
+  liked: boolean
+  likeCount: number
+}
+
+export type BroadcastReportResponse = {
+  reported: boolean
+  reportCount: number
+}
+
 export type BroadcastResult = {
   broadcastId: number
   title: string
@@ -95,6 +108,7 @@ export type BroadcastResult = {
   sanctionCount: number
   vodUrl?: string
   vodStatus?: string
+  vodAdminLock?: boolean
   encoding?: boolean
   productStats?: Array<{
     productId: number
@@ -186,15 +200,24 @@ type ApiResult<T> = {
   error?: { code: string; message: string }
 }
 
+export type ImageUploadResponse = {
+  originalFileName: string
+  storedFileName: string
+  fileUrl: string
+  fileSize: number
+}
+
+export type UploadImageType = 'THUMBNAIL' | 'WAIT_SCREEN'
+
 type BroadcastPayload = {
   title: string
   notice: string
   categoryId: number
-  scheduledAt: string
+  scheduledAt: string | null
   thumbnailUrl: string
   waitScreenUrl: string | null
   broadcastLayout: string
-  products: Array<{ productId: number; salePrice: number; quantity: number }>
+  products: Array<{ productId: number; bpPrice: number; bpQuantity: number }>
   qcards: Array<{ question: string }>
 }
 
@@ -264,7 +287,7 @@ export const fetchCategories = async (): Promise<BroadcastCategory[]> => {
 
 export const fetchSellerProducts = async (): Promise<SellerProduct[]> => {
   const { data } = await http.get<
-    ApiResult<Array<{ productId: number; productName: string; price: number; stockQty: number; safetyStock?: number; imageUrl?: string }>>
+    ApiResult<Array<{ productId: number; productName: string; price: number; stockQty: number; safetyStock?: number; reservedBroadcastQty?: number; imageUrl?: string }>>
   >(
     '/api/seller/broadcasts/products',
   )
@@ -277,6 +300,7 @@ export const fetchSellerProducts = async (): Promise<SellerProduct[]> => {
     broadcastPrice: item.price,
     stock: item.stockQty,
     safetyStock: item.safetyStock ?? 0,
+    reservedBroadcastQty: item.reservedBroadcastQty ?? 0,
     quantity: 1,
     thumb: item.imageUrl ?? '',
   }))
@@ -330,11 +354,51 @@ export const fetchBroadcastProducts = async (broadcastId: number): Promise<Broad
   }))
 }
 
+export const fetchChatPermission = async (broadcastId: number, memberId?: number): Promise<boolean> => {
+  const params = memberId ? { memberId } : undefined
+  const { data } = await http.get<ApiResult<boolean>>(`/api/broadcasts/${broadcastId}/chat-permission`, { params })
+  return ensureSuccess(data)
+}
+
 export const fetchBroadcastStats = async (broadcastId: number): Promise<BroadcastStats> => {
   return withInFlight(`broadcast-stats-${broadcastId}`, async () => {
     const { data } = await http.get<ApiResult<BroadcastStats>>(`/api/broadcasts/${broadcastId}/stats`)
     return ensureSuccess(data)
   })
+}
+
+export const joinBroadcast = async (broadcastId: number, viewerId?: string | null): Promise<string> => {
+  const headers = viewerId ? { 'X-Viewer-Id': viewerId } : undefined
+  const { data } = await http.post<ApiResult<string>>(`/api/broadcasts/${broadcastId}/join`, null, { headers })
+  return ensureSuccess(data)
+}
+
+export const leaveBroadcast = async (broadcastId: number, viewerId?: string | null): Promise<void> => {
+  const headers = viewerId ? { 'X-Viewer-Id': viewerId } : undefined
+  const { data } = await http.post<ApiResult<void>>(`/api/broadcasts/${broadcastId}/leave`, null, {
+    headers,
+    params: viewerId ? { viewerId } : undefined,
+  })
+  ensureSuccess(data)
+}
+
+export const recordVodView = async (broadcastId: number, viewerId?: string | null): Promise<void> => {
+  const headers = viewerId ? { 'X-Viewer-Id': viewerId } : undefined
+  const { data } = await http.post<ApiResult<void>>(`/api/broadcasts/${broadcastId}/vod/view`, null, {
+    headers,
+    params: viewerId ? { viewerId } : undefined,
+  })
+  ensureSuccess(data)
+}
+
+export const toggleBroadcastLike = async (broadcastId: number): Promise<BroadcastLikeResponse> => {
+  const { data } = await http.post<ApiResult<BroadcastLikeResponse>>(`/api/member/broadcasts/${broadcastId}/like`)
+  return ensureSuccess(data)
+}
+
+export const reportBroadcast = async (broadcastId: number): Promise<BroadcastReportResponse> => {
+  const { data } = await http.post<ApiResult<BroadcastReportResponse>>(`/api/member/broadcasts/${broadcastId}/report`)
+  return ensureSuccess(data)
 }
 
 export const fetchSellerBroadcastReport = async (broadcastId: number): Promise<BroadcastResult> => {
@@ -357,6 +421,11 @@ export const fetchSellerBroadcastDetail = async (broadcastId: number): Promise<B
 export const startSellerBroadcast = async (broadcastId: number): Promise<string> => {
   const { data } = await http.post<ApiResult<string>>(`/api/seller/broadcasts/${broadcastId}/start`)
   return ensureSuccess(data)
+}
+
+export const startSellerRecording = async (broadcastId: number): Promise<void> => {
+  const { data } = await http.post<ApiResult<void>>(`/api/seller/broadcasts/${broadcastId}/recording/start`)
+  ensureSuccess(data)
 }
 
 export const endSellerBroadcast = async (broadcastId: number): Promise<void> => {
@@ -391,6 +460,11 @@ export const pinSellerBroadcastProduct = async (broadcastId: number, productId: 
   return ensureSuccess(data)
 }
 
+export const unpinSellerBroadcastProduct = async (broadcastId: number) => {
+  const { data } = await http.delete<ApiResult<void>>(`/api/seller/broadcasts/${broadcastId}/pin`)
+  return ensureSuccess(data)
+}
+
 export const fetchSellerStatistics = async (period: string): Promise<StatisticsResponse> => {
   const { data } = await http.get<ApiResult<StatisticsResponse>>('/api/seller/broadcasts/statistics', { params: { period } })
   return ensureSuccess(data)
@@ -413,6 +487,11 @@ export const fetchRecentLiveChats = async (broadcastId: number, seconds = 60): P
 
 export const fetchMediaConfig = async (broadcastId: number): Promise<MediaConfig> => {
   const { data } = await http.get<ApiResult<MediaConfig>>(`/api/seller/broadcasts/${broadcastId}/media-config`)
+  return ensureSuccess(data)
+}
+
+export const saveMediaConfig = async (broadcastId: number, payload: MediaConfig): Promise<void> => {
+  const { data } = await http.put<ApiResult<void>>(`/api/seller/broadcasts/${broadcastId}/media-config`, payload)
   return ensureSuccess(data)
 }
 
@@ -475,5 +554,20 @@ export const updateAdminVodVisibility = async (broadcastId: number, status: 'PUB
 
 export const deleteAdminVod = async (broadcastId: number) => {
   const { data } = await http.delete<ApiResult<void>>(`/api/admin/broadcasts/${broadcastId}/vod`)
+  return ensureSuccess(data)
+}
+
+export const uploadSellerImage = async (type: UploadImageType, file: File) => {
+  const formData = new FormData()
+  formData.append('file', file)
+  const { data } = await http.post<ApiResult<ImageUploadResponse>>(`/api/seller/uploads/${type}`, formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  })
+  return ensureSuccess(data)
+}
+
+export const deleteSellerImage = async (fileName: string) => {
+  if (!fileName) return
+  const { data } = await http.delete<ApiResult<string>>('/api/seller/uploads', { params: { fileName } })
   return ensureSuccess(data)
 }

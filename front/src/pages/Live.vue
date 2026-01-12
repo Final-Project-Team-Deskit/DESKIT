@@ -7,14 +7,13 @@ import PageHeader from '../components/PageHeader.vue'
 import {
   filterLivesByDay,
   getDayWindow,
-  getLiveStatus,
   parseLiveDate,
   sortLivesByStartAt,
 } from '../lib/live/utils'
 import { computeLifecycleStatus, getScheduledEndMs, normalizeBroadcastStatus, type BroadcastStatus } from '../lib/broadcastStatus'
 import type { LiveItem } from '../lib/live/types'
 import { useNow } from '../lib/live/useNow'
-import { fetchPublicBroadcastOverview } from '../lib/live/api'
+import { fetchBroadcastStats, fetchPublicBroadcastOverview } from '../lib/live/api'
 import { getAuthUser } from '../lib/auth'
 import { resolveViewerId } from '../lib/live/viewer'
 
@@ -39,6 +38,7 @@ const sseConnected = ref(false)
 const sseRetryCount = ref(0)
 const sseRetryTimer = ref<number | null>(null)
 const refreshTimer = ref<number | null>(null)
+const statsTimer = ref<number | null>(null)
 
 const hasWatchHistoryConsent = () => {
   try {
@@ -102,7 +102,15 @@ const getLifecycleStatus = (item: LiveItem): BroadcastStatus => {
   })
 }
 
-const getStatus = (item: LiveItem) => getLiveStatus(item, now.value)
+const getStatus = (item: LiveItem) => {
+  const status = getLifecycleStatus(item)
+  if (status === 'ON_AIR') return 'LIVE'
+  if (status === 'READY') return 'READY'
+  if (status === 'RESERVED') return 'UPCOMING'
+  if (status === 'STOPPED') return 'STOPPED'
+  if (status === 'VOD') return 'VOD'
+  return 'ENDED'
+}
 const getSectionStatus = (item: LiveItem) => {
   const status = getLifecycleStatus(item)
   if (status === 'RESERVED') return 'UPCOMING'
@@ -112,19 +120,52 @@ const getSectionStatus = (item: LiveItem) => {
 const isPastScheduledEnd = (item: LiveItem): boolean => {
   const startAtMs = parseLiveDate(item.startAt).getTime()
   const normalizedStart = Number.isNaN(startAtMs) ? undefined : startAtMs
-  const endAtMs = parseLiveDate(item.endAt).getTime()
-  const normalizedEnd = Number.isNaN(endAtMs) ? getScheduledEndMs(normalizedStart) : endAtMs
-  if (!normalizedEnd) return false
-  return Date.now() > normalizedEnd
+  const scheduledEndMs = getScheduledEndMs(normalizedStart)
+  if (!scheduledEndMs) return false
+  return Date.now() > scheduledEndMs
 }
 const isRowDisabled = (item: LiveItem) => getLifecycleStatus(item) === 'RESERVED'
+const getElapsedLabel = (item: LiveItem) => {
+  if (getStatus(item) !== 'LIVE') return ''
+  const started = parseLiveDate(item.startAt)
+  if (Number.isNaN(started.getTime())) return ''
+  const diffMs = Math.max(0, now.value.getTime() - started.getTime())
+  const totalSeconds = Math.floor(diffMs / 1000)
+  const minutes = Math.floor((totalSeconds % 3600) / 60)
+  const seconds = totalSeconds % 60
+  const hours = Math.floor(totalSeconds / 3600)
+  const pad = (value: number) => String(value).padStart(2, '0')
+  return hours > 0 ? `${pad(hours)}:${pad(minutes)}:${pad(seconds)}` : `${pad(minutes)}:${pad(seconds)}`
+}
 const getCountdownLabel = (item: LiveItem) => {
-  if (getSectionStatus(item) !== 'UPCOMING') {
+  const lifecycleStatus = getLifecycleStatus(item)
+  if (lifecycleStatus !== 'RESERVED' && lifecycleStatus !== 'READY' && lifecycleStatus !== 'ENDED') {
     return ''
   }
   const start = parseLiveDate(item.startAt)
   const nowValue = now.value
   const diffMs = start.getTime() - nowValue.getTime()
+  if (lifecycleStatus === 'READY') {
+    if (diffMs <= 0) {
+      return '방송 대기 중'
+    }
+    const totalSeconds = Math.ceil(diffMs / 1000)
+    const minutes = Math.floor(totalSeconds / 60)
+    const seconds = totalSeconds % 60
+    return `${minutes}분 ${String(seconds).padStart(2, '0')}초 뒤 방송 시작`
+  }
+  if (lifecycleStatus === 'ENDED') {
+    const startAtMs = Number.isNaN(start.getTime()) ? undefined : start.getTime()
+    const rawEndAt = parseLiveDate(item.endAt).getTime()
+    const endAtMs = Number.isNaN(rawEndAt) ? getScheduledEndMs(startAtMs) : rawEndAt
+    if (!endAtMs) return '방송 종료'
+    const remainingMs = endAtMs - nowValue.getTime()
+    if (remainingMs <= 0) return '방송 종료'
+    const totalSeconds = Math.ceil(remainingMs / 1000)
+    const minutes = Math.floor(totalSeconds / 60)
+    const seconds = totalSeconds % 60
+    return `종료까지 ${minutes}분 ${String(seconds).padStart(2, '0')}초`
+  }
   if (diffMs <= 0) {
     return '시작 예정'
   }
@@ -156,10 +197,16 @@ const getCountdownLabel = (item: LiveItem) => {
 const itemsForDay = computed(() => {
   const filtered = filterLivesByDay(liveItems.value, selectedDay.value)
   const visible = filtered.filter((item) => {
+    const rawStatus = (item.status ?? '').toUpperCase()
+    if (rawStatus === 'DELETED') return false
     const status = getLifecycleStatus(item)
-    if (status === 'VOD') return false
     if (status === 'CANCELED') return false
+    if (!['RESERVED', 'READY', 'ON_AIR', 'STOPPED', 'ENDED', 'VOD'].includes(status)) return false
     if (status === 'STOPPED' && isPastScheduledEnd(item)) return false
+    if (status === 'VOD') {
+      const visibility = (item as { isPublic?: boolean; public?: boolean }).isPublic ?? (item as { public?: boolean }).public
+      if (typeof visibility === 'boolean' && !visibility) return false
+    }
     return true
   })
   return sortLivesByStartAt(visible)
@@ -302,20 +349,39 @@ onMounted(() => {
   }
 })
 
-const mapToLiveItems = (items: Array<{ broadcastId: number; title: string; notice?: string; thumbnailUrl?: string; startAt?: string; endAt?: string; liveViewerCount?: number; viewerCount?: number; sellerName?: string; status?: string }>) =>
+type BroadcastOverviewItem = {
+  broadcastId: number
+  title: string
+  notice?: string
+  thumbnailUrl?: string
+  startAt?: string
+  scheduledAt?: string
+  endAt?: string
+  liveViewerCount?: number
+  viewerCount?: number
+  sellerName?: string
+  status?: string
+}
+
+const mapToLiveItems = (items: BroadcastOverviewItem[]) =>
   items
-    .filter((item) => item.startAt)
-    .map((item) => ({
-      id: String(item.broadcastId),
-      title: item.title,
-      description: item.notice ?? '',
-      thumbnailUrl: item.thumbnailUrl ?? '',
-      startAt: item.startAt ?? '',
-      endAt: item.endAt ?? item.startAt ?? '',
-      viewerCount: item.liveViewerCount ?? item.viewerCount ?? 0,
-      status: item.status,
-      sellerName: item.sellerName ?? '',
-    }))
+    .map((item) => {
+      const startAt = item.startAt ?? item.scheduledAt ?? ''
+      if (!startAt) return null
+      const liveItem: LiveItem = {
+        id: String(item.broadcastId),
+        title: item.title,
+        description: item.notice ?? '',
+        thumbnailUrl: item.thumbnailUrl ?? '',
+        startAt,
+        endAt: item.endAt ?? startAt,
+        viewerCount: item.liveViewerCount ?? item.viewerCount ?? 0,
+        status: item.status,
+        sellerName: item.sellerName ?? '',
+      }
+      return liveItem
+    })
+    .filter((item): item is LiveItem => item !== null)
 
 const loadBroadcasts = async () => {
   try {
@@ -406,6 +472,59 @@ const connectSse = () => {
   sseSource.value = source
 }
 
+const isStatsTarget = (item: LiveItem) => {
+  const status = normalizeBroadcastStatus(item.status)
+  if (status === 'ON_AIR' || status === 'READY') return true
+  const startAtMs = parseLiveDate(item.startAt).getTime()
+  if (Number.isNaN(startAtMs)) return false
+  const endAtMs = parseLiveDate(item.endAt).getTime()
+  const normalizedEnd = Number.isNaN(endAtMs) ? getScheduledEndMs(startAtMs) : endAtMs
+  if (!normalizedEnd) return false
+  const now = Date.now()
+  return now >= startAtMs && now <= normalizedEnd
+}
+
+const updateLiveViewerCounts = async () => {
+  const targets = liveItems.value.filter((item) => isStatsTarget(item))
+  if (!targets.length) return
+  const updates = await Promise.allSettled(
+    targets.map(async (item) => ({
+      id: item.id,
+      stats: await fetchBroadcastStats(Number(item.id)),
+    })),
+  )
+  const statsMap = new Map<string, { viewerCount: number; likeCount: number; reportCount: number }>()
+  updates.forEach((result) => {
+    if (result.status === 'fulfilled') {
+      statsMap.set(result.value.id, {
+        viewerCount: result.value.stats.viewerCount ?? 0,
+        likeCount: result.value.stats.likeCount ?? 0,
+        reportCount: result.value.stats.reportCount ?? 0,
+      })
+    }
+  })
+  if (!statsMap.size) return
+  liveItems.value = liveItems.value.map((item) => {
+    const stats = statsMap.get(item.id)
+    if (!stats) return item
+    return {
+      ...item,
+      viewerCount: stats.viewerCount ?? item.viewerCount ?? 0,
+      likeCount: stats.likeCount ?? item.likeCount ?? 0,
+      reportCount: stats.reportCount ?? item.reportCount ?? 0,
+    }
+  })
+}
+
+const startStatsPolling = () => {
+  if (statsTimer.value) window.clearInterval(statsTimer.value)
+  statsTimer.value = window.setInterval(() => {
+    if (document.visibilityState === 'visible') {
+      void updateLiveViewerCounts()
+    }
+  }, 5000)
+}
+
 watchEffect(() => {
   localStorage.setItem(NOTIFY_KEY, JSON.stringify(Array.from(notifiedIds.value)))
 })
@@ -418,12 +537,15 @@ onBeforeUnmount(() => {
   sseRetryTimer.value = null
   if (refreshTimer.value) window.clearTimeout(refreshTimer.value)
   refreshTimer.value = null
+  if (statsTimer.value) window.clearInterval(statsTimer.value)
+  statsTimer.value = null
   sseSource.value?.close()
 })
 
 onMounted(() => {
   void loadBroadcasts()
   connectSse()
+  startStatsPolling()
 })
 </script>
 
@@ -492,9 +614,28 @@ onMounted(() => {
                     {{ item.viewerCount.toLocaleString() }}명
                   </span>
                 </span>
+                <span v-else-if="getStatus(item) === 'READY'" class="status-pill">대기</span>
                 <span v-else-if="getStatus(item) === 'UPCOMING'" class="status-pill">예정</span>
-                <span v-else class="status-pill status-pill--ended">종료</span>
-                <span v-if="getStatus(item) === 'UPCOMING'" class="status-pill status-pill--sub">
+                <span v-else-if="getStatus(item) === 'STOPPED'" class="status-pill status-pill--ended">중지됨</span>
+                <span v-else-if="getStatus(item) === 'VOD'" class="status-pill status-pill--ended">
+                  VOD
+                  <span v-if="item.viewerCount" class="status-viewers">
+                    누적 {{ item.viewerCount.toLocaleString() }}명
+                  </span>
+                </span>
+                <span v-else class="status-pill status-pill--ended">
+                  종료
+                  <span v-if="item.viewerCount" class="status-viewers">
+                    시청자 {{ item.viewerCount.toLocaleString() }}명
+                  </span>
+                </span>
+                <span
+                  v-if="getStatus(item) === 'LIVE'"
+                  class="status-pill status-pill--sub"
+                >
+                  경과 {{ getElapsedLabel(item) }}
+                </span>
+                <span v-else-if="['UPCOMING', 'READY', 'ENDED'].includes(getStatus(item))" class="status-pill status-pill--sub">
                   {{ getCountdownLabel(item) }}
                 </span>
               </div>

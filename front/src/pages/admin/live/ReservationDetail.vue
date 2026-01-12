@@ -7,7 +7,7 @@ import {
   fetchAdminBroadcastDetail,
   type BroadcastDetailResponse,
 } from '../../../lib/live/api'
-import { normalizeBroadcastStatus } from '../../../lib/broadcastStatus'
+import { getBroadcastStatusLabel, normalizeBroadcastStatus } from '../../../lib/broadcastStatus'
 
 const route = useRoute()
 const router = useRouter()
@@ -39,7 +39,7 @@ const cancelDetail = ref('')
 const showCancelModal = ref(false)
 const cancelError = ref('')
 
-const cancelReasonOptions = ['판매자 요청', '방송 기획 변경', '상품 준비 지연', '기타']
+const cancelReasonOptions = ['운영 정책 위반', '상품 준비 지연', '기타']
 
 const formatScheduledAt = (scheduledAt?: string) => {
   if (!scheduledAt) return ''
@@ -149,6 +149,7 @@ const saveCancel = () => {
 
 const isCancelled = computed(() => normalizeBroadcastStatus(detail.value?.status) === 'CANCELED')
 const standbyImage = computed(() => detail.value?.standbyThumb || detail.value?.thumb)
+const statusLabel = computed(() => getBroadcastStatusLabel(detail.value?.status))
 const scheduledWindow = computed(() => {
   if (!detail.value) return ''
   const raw = detail.value.datetime
@@ -182,7 +183,7 @@ watch(reservationId, loadDetail, { immediate: true })
     <section class="detail-card ds-surface">
       <div class="detail-title">
         <h3>{{ detail.title }}</h3>
-        <span class="status-pill" :class="{ cancelled: isCancelled }">{{ detail.status }}</span>
+        <span class="status-pill" :class="{ cancelled: isCancelled }">{{ statusLabel }}</span>
       </div>
       <div class="detail-meta">
         <p><span>방송 예정 시간</span>{{ scheduledWindow }}</p>

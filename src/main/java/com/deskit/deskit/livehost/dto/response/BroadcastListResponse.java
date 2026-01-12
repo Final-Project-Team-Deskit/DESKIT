@@ -84,6 +84,13 @@ public class BroadcastListResponse {
         } else if (status == BroadcastStatus.READY) {
             this.startAt = scheduledAt;
             this.endAt = (scheduledAt != null) ? scheduledAt.plusMinutes(30) : null;
+        } else if (status == BroadcastStatus.STOPPED) {
+            this.startAt = (startedAt != null) ? startedAt : scheduledAt;
+            if (scheduledAt != null) {
+                this.endAt = scheduledAt.plusMinutes(30);
+            } else {
+                this.endAt = endedAt;
+            }
         } else {
             this.startAt = startedAt;
             this.endAt = endedAt;

@@ -1,9 +1,11 @@
 <script setup lang="ts">
+import { OpenVidu, type Publisher, type Session } from 'openvidu-browser'
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
 import BasicInfoEditModal from '../../components/BasicInfoEditModal.vue'
 import ChatSanctionModal from '../../components/ChatSanctionModal.vue'
 import ConfirmModal from '../../components/ConfirmModal.vue'
+import DeviceSetupModal from '../../components/DeviceSetupModal.vue'
 import PageContainer from '../../components/PageContainer.vue'
 import QCardModal from '../../components/QCardModal.vue'
 import {
@@ -11,11 +13,20 @@ import {
   fetchMediaConfig,
   fetchRecentLiveChats,
   fetchSellerBroadcastDetail,
+  joinBroadcast,
+  leaveBroadcast,
   startSellerBroadcast,
+  startSellerRecording,
   endSellerBroadcast,
   pinSellerBroadcastProduct,
+  unpinSellerBroadcastProduct,
+  saveMediaConfig,
+  updateBroadcast,
+  type MediaConfig,
+  type BroadcastDetailResponse,
 } from '../../lib/live/api'
 import { parseLiveDate } from '../../lib/live/utils'
+import { useNow } from '../../lib/live/useNow'
 import { getAuthUser } from '../../lib/auth'
 import { resolveViewerId } from '../../lib/live/viewer'
 import { computeLifecycleStatus, getScheduledEndMs, normalizeBroadcastStatus, type BroadcastStatus } from '../../lib/broadcastStatus'
@@ -62,13 +73,15 @@ const router = useRouter()
 
 const showProducts = ref(true)
 const showChat = ref(true)
+const stopEntryPrompted = ref(false)
+const isStopRestricted = ref(false)
 const showSettings = ref(false)
 const viewerCount = ref(0)
 const likeCount = ref(0)
-const elapsed = ref('00:00:00')
 const monitorRef = ref<HTMLElement | null>(null)
 const streamGridRef = ref<HTMLElement | null>(null)
 const streamCenterRef = ref<HTMLElement | null>(null)
+const publisherContainerRef = ref<HTMLElement | null>(null)
 const isFullscreen = ref(false)
 const modalHostTarget = computed(() => (isFullscreen.value && monitorRef.value ? monitorRef.value : 'body'))
 const micEnabled = ref(true)
@@ -76,14 +89,22 @@ const videoEnabled = ref(true)
 const volume = ref(43)
 const selectedMic = ref('기본 마이크')
 const selectedCamera = ref('기본 카메라')
-const micInputLevel = ref<number>(70)
+const micInputLevel = ref<number>(0)
+const micStream = ref<MediaStream | null>(null)
+const micAudioContext = ref<AudioContext | null>(null)
+const micAnalyser = ref<AnalyserNode | null>(null)
+const micMeterFrame = ref<number | null>(null)
 const chatText = ref('')
 const chatListRef = ref<HTMLElement | null>(null)
 let gridObserver: ResizeObserver | null = null
+const availableMics = ref<Array<{ id: string; label: string }>>([])
+const availableCameras = ref<Array<{ id: string; label: string }>>([])
 
 const showQCards = ref(false)
 const showBasicInfo = ref(false)
 const showSanctionModal = ref(false)
+const showDeviceModal = ref(false)
+const hasOpenedDeviceModal = ref(false)
 const isLoadingStream = ref(true)
 const qCardIndex = ref(0)
 const handleFullscreenChange = () => {
@@ -102,14 +123,17 @@ const confirmState = reactive({
   cancelText: '취소',
 })
 const confirmAction = ref<() => void>(() => {})
+const confirmCancelAction = ref<() => void>(() => {})
 
 const pinnedProductId = ref<string | null>(null)
 const sanctionTarget = ref<string | null>(null)
 const sanctionedUsers = ref<Record<string, { type: string; reason: string }>>({})
 const broadcastInfo = ref<(EditableBroadcastInfo & { qCards: string[] }) | null>(null)
+const latestDetail = ref<BroadcastDetailResponse | null>(null)
 const stream = ref<StreamData | null>(null)
 const chatMessages = ref<StreamChat[]>([])
 const streamStatus = ref<BroadcastStatus>('RESERVED')
+const { now } = useNow(1000)
 const scheduleStartAtMs = ref<number | null>(null)
 const scheduleEndAtMs = ref<number | null>(null)
 const sseSource = ref<EventSource | null>(null)
@@ -119,10 +143,32 @@ const sseRetryTimer = ref<number | null>(null)
 const statsTimer = ref<number | null>(null)
 const refreshTimer = ref<number | null>(null)
 const startTimer = ref<number | null>(null)
+const startRetryTimer = ref<number | null>(null)
+const startRetryCount = ref(0)
+const MAX_START_RETRIES = 3
+const START_RETRY_DELAY_MS = 1500
+const publisherToken = ref<string | null>(null)
+const publisherTokenInFlight = ref(false)
+const openviduInstance = ref<OpenVidu | null>(null)
+const openviduSession = ref<Session | null>(null)
+const openviduPublisher = ref<Publisher | null>(null)
+const openviduConnected = ref(false)
+let publisherRestartTimer: number | null = null
+const joinInFlight = ref(false)
 const startRequested = ref(false)
+const recordingStartRequested = ref(false)
 const endRequested = ref(false)
 const endRequestTimer = ref<number | null>(null)
 const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080'
+const viewerId = ref<string | null>(resolveViewerId(getAuthUser()))
+const joinedBroadcastId = ref<number | null>(null)
+const joinedViewerId = ref<string | null>(null)
+const leaveRequested = ref(false)
+const mediaConfigReady = ref(false)
+const hasSavedMediaConfig = ref(false)
+let mediaSaveTimer: number | null = null
+const stopConfirmOpen = ref(false)
+const stopConfirmMessage = ref('')
 
 const streamId = computed(() => {
   const id = route.params.id
@@ -178,7 +224,13 @@ const sortedProducts = computed(() => {
 
 const chatItems = computed(() => chatMessages.value)
 
-const hasSidePanels = computed(() => showProducts.value || showChat.value)
+const elapsedLabel = computed(() => {
+  if (!latestDetail.value?.startedAt) return '00:00:00'
+  now.value
+  return formatElapsed(latestDetail.value.startedAt)
+})
+
+const hasSidePanels = computed(() => !isStopRestricted.value && (showProducts.value || showChat.value))
 const gridStyles = computed(() => ({
   '--grid-template-columns': monitorColumns.value,
   '--stream-pane-height': streamPaneHeight.value,
@@ -189,11 +241,13 @@ const stackedOrders = computed(() =>
 )
 
 const monitorColumns = computed(() => {
+  if (isStopRestricted.value) return 'minmax(0, 1fr)'
   if (showProducts.value && showChat.value) return '320px minmax(0, 1fr) 320px'
   if (showProducts.value) return '320px minmax(0, 1fr)'
   if (showChat.value) return 'minmax(0, 1fr) 320px'
   return 'minmax(0, 1fr)'
 })
+const hasPublisherStream = computed(() => openviduConnected.value && !!openviduPublisher.value)
 
 const streamPaneHeight = computed(() => {
   const dynamic = gridHeight.value
@@ -202,6 +256,7 @@ const streamPaneHeight = computed(() => {
     const max = 675
     return `${Math.min(Math.max(dynamic, min), max)}px`
   }
+  if (isStopRestricted.value) return 'clamp(620px, 72vh, 820px)'
   if (showProducts.value && showChat.value) return 'clamp(460px, 62vh, 680px)'
   if (showProducts.value || showChat.value) return 'clamp(520px, 68vh, 760px)'
   return 'clamp(560px, 74vh, 880px)'
@@ -220,6 +275,222 @@ const lifecycleStatus = computed(() =>
   }),
 )
 const isInteractive = computed(() => lifecycleStatus.value === 'ON_AIR')
+const isReadOnly = computed(() => lifecycleStatus.value !== 'ON_AIR')
+const isStopped = computed(() => lifecycleStatus.value === 'STOPPED')
+const waitingScreenUrl = computed(() => stream.value?.waitingScreen ?? '')
+const readyCountdownLabel = computed(() => {
+  if (lifecycleStatus.value !== 'READY' || !scheduleStartAtMs.value) return ''
+  const diffMs = scheduleStartAtMs.value - now.value.getTime()
+  if (diffMs <= 0) return '방송 시작 대기 중'
+  const totalSeconds = Math.ceil(diffMs / 1000)
+  const minutes = Math.floor(totalSeconds / 60)
+  const seconds = totalSeconds % 60
+  return `${minutes}분 ${String(seconds).padStart(2, '0')}초 뒤 방송 시작`
+})
+const streamPlaceholderMessage = computed(() => {
+  if (lifecycleStatus.value === 'STOPPED') {
+    return '방송 운영 정책 위반으로 송출 중지되었습니다.'
+  }
+  if (lifecycleStatus.value === 'ENDED') {
+    return '방송이 종료되었습니다.'
+  }
+  if (lifecycleStatus.value === 'READY') {
+    return readyCountdownLabel.value || '방송 시작 대기 중'
+  }
+  return '송출 화면 (WebRTC Stream)'
+})
+
+const resolveMediaSelection = (value: string, fallback: string) => {
+  const trimmed = value?.trim()
+  if (!trimmed || trimmed === 'default') return fallback
+  return trimmed
+}
+
+const hasPersistedMediaConfig = (mediaConfig?: MediaConfig | null) => {
+  if (!mediaConfig) return false
+  const cameraId = mediaConfig.cameraId?.trim()
+  const microphoneId = mediaConfig.microphoneId?.trim()
+  return (cameraId && cameraId !== 'default') || (microphoneId && microphoneId !== 'default')
+}
+
+const toMediaId = (value: string, fallback: string) => {
+  if (!value || value === fallback) return 'default'
+  return value
+}
+
+const loadMediaDevices = async () => {
+  if (!navigator.mediaDevices?.enumerateDevices) {
+    availableMics.value = []
+    availableCameras.value = []
+    return
+  }
+  try {
+    const devices = await navigator.mediaDevices.enumerateDevices()
+    availableMics.value = devices
+      .filter((device) => device.kind === 'audioinput')
+      .map((device, idx) => ({
+        id: device.deviceId,
+        label: device.label || `마이크 ${idx + 1}`,
+      }))
+    availableCameras.value = devices
+      .filter((device) => device.kind === 'videoinput')
+      .map((device, idx) => ({
+        id: device.deviceId,
+        label: device.label || `카메라 ${idx + 1}`,
+      }))
+  } catch {
+    availableMics.value = []
+    availableCameras.value = []
+  }
+}
+
+const ensureLocalMediaAccess = async () => {
+  if (!navigator.mediaDevices?.getUserMedia) {
+    return
+  }
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: true })
+    stream.getTracks().forEach((track) => track.stop())
+  } catch {
+    return
+  }
+}
+
+const clearPublisherRestartTimer = () => {
+  if (publisherRestartTimer) {
+    window.clearTimeout(publisherRestartTimer)
+    publisherRestartTimer = null
+  }
+}
+
+const resetOpenViduState = () => {
+  openviduConnected.value = false
+  publisherToken.value = null
+  openviduPublisher.value = null
+  openviduSession.value = null
+  openviduInstance.value = null
+  if (publisherContainerRef.value) {
+    publisherContainerRef.value.innerHTML = ''
+  }
+}
+
+const disconnectOpenVidu = () => {
+  if (openviduSession.value) {
+    try {
+      if (openviduPublisher.value) {
+        openviduSession.value.unpublish(openviduPublisher.value)
+      }
+      openviduSession.value.disconnect()
+    } catch {
+      // noop
+    }
+  }
+  resetOpenViduState()
+}
+
+const buildPublisherOptions = () => {
+  const audioSource = toMediaId(selectedMic.value, '기본 마이크')
+  const videoSource = toMediaId(selectedCamera.value, '기본 카메라')
+  return {
+    audioSource: audioSource === 'default' ? undefined : audioSource,
+    videoSource: videoSource === 'default' ? undefined : videoSource,
+    publishAudio: micEnabled.value,
+    publishVideo: videoEnabled.value,
+    insertMode: 'append' as const,
+    mirror: true,
+  }
+}
+
+const applyPublisherVolume = () => {
+  if (!publisherContainerRef.value) return
+  const video = publisherContainerRef.value.querySelector('video') as HTMLVideoElement | null
+  if (!video) return
+  video.muted = false
+  video.volume = Math.min(1, Math.max(0, volume.value / 100))
+}
+
+const waitForPublisherContainer = async () => {
+  if (publisherContainerRef.value) return publisherContainerRef.value
+  await nextTick()
+  if (publisherContainerRef.value) return publisherContainerRef.value
+  await new Promise((resolve) => window.setTimeout(resolve, 50))
+  return publisherContainerRef.value
+}
+
+const restartPublisher = async () => {
+  if (!openviduSession.value || !openviduInstance.value || !publisherContainerRef.value) return
+  try {
+    if (openviduPublisher.value) {
+      openviduSession.value.unpublish(openviduPublisher.value)
+    }
+    publisherContainerRef.value.innerHTML = ''
+    openviduPublisher.value = openviduInstance.value.initPublisher(
+      publisherContainerRef.value,
+      buildPublisherOptions(),
+    )
+    await openviduSession.value.publish(openviduPublisher.value)
+    applyPublisherVolume()
+  } catch {
+    disconnectOpenVidu()
+  }
+}
+
+const connectPublisher = async (broadcastId: number, token: string) => {
+  if (openviduConnected.value) return
+  const container = await waitForPublisherContainer()
+  if (!container) {
+    scheduleStartRetry(broadcastId, '방송 화면 준비 중입니다. 잠시 후 다시 시도합니다.')
+    return
+  }
+  try {
+    disconnectOpenVidu()
+    openviduInstance.value = new OpenVidu()
+    openviduSession.value = openviduInstance.value.initSession()
+    await openviduSession.value.connect(token)
+    openviduPublisher.value = openviduInstance.value.initPublisher(
+      container,
+      buildPublisherOptions(),
+    )
+    await openviduSession.value.publish(openviduPublisher.value)
+    openviduConnected.value = true
+    applyPublisherVolume()
+    await requestStartRecording(broadcastId)
+    startRetryCount.value = 0
+    if (startRetryTimer.value) window.clearTimeout(startRetryTimer.value)
+    startRetryTimer.value = null
+  } catch {
+    disconnectOpenVidu()
+    if (['READY', 'ON_AIR'].includes(lifecycleStatus.value)) {
+      scheduleStartRetry(broadcastId, '방송 송출 연결에 실패했습니다. 다시 연결을 시도합니다.')
+    }
+  }
+}
+
+const requestPublisherToken = async (broadcastId: number) => {
+  if (publisherTokenInFlight.value) return null
+  publisherTokenInFlight.value = true
+  try {
+    const token = await startSellerBroadcast(broadcastId)
+    publisherToken.value = token
+    return token
+  } catch {
+    publisherToken.value = null
+    return null
+  } finally {
+    publisherTokenInFlight.value = false
+  }
+}
+
+const ensurePublisherConnected = async (broadcastId: number) => {
+  if (openviduConnected.value) return
+  await ensureLocalMediaAccess()
+  if (!publisherToken.value) {
+    const token = await requestPublisherToken(broadcastId)
+    if (!token) return
+  }
+  if (!publisherToken.value) return
+  await connectPublisher(broadcastId, publisherToken.value)
+}
 
 const clearStartTimer = () => {
   if (startTimer.value) {
@@ -235,6 +506,90 @@ const clearEndRequestTimer = () => {
   }
 }
 
+const stopMicMeter = () => {
+  if (micMeterFrame.value !== null) {
+    cancelAnimationFrame(micMeterFrame.value)
+    micMeterFrame.value = null
+  }
+  if (micAudioContext.value) {
+    micAudioContext.value.close()
+    micAudioContext.value = null
+  }
+  micAnalyser.value = null
+  if (micStream.value) {
+    micStream.value.getTracks().forEach((track) => track.stop())
+    micStream.value = null
+  }
+}
+
+const startMicMeter = async () => {
+  if (!navigator.mediaDevices?.getUserMedia) {
+    micInputLevel.value = 0
+    return
+  }
+  if (!micEnabled.value) {
+    micInputLevel.value = 0
+    stopMicMeter()
+    return
+  }
+  stopMicMeter()
+  try {
+    const constraints: MediaStreamConstraints = {
+      audio: selectedMic.value !== '기본 마이크' ? { deviceId: { exact: selectedMic.value } } : true,
+    }
+    const stream = await navigator.mediaDevices.getUserMedia(constraints)
+    micStream.value = stream
+    const [track] = stream.getAudioTracks()
+    if (!track) {
+      micInputLevel.value = 0
+      return
+    }
+    const context = new AudioContext()
+    const analyserNode = context.createAnalyser()
+    analyserNode.fftSize = 512
+    const source = context.createMediaStreamSource(stream)
+    source.connect(analyserNode)
+    micAudioContext.value = context
+    micAnalyser.value = analyserNode
+    const buffer = new Uint8Array(analyserNode.fftSize)
+    const update = () => {
+      analyserNode.getByteTimeDomainData(buffer)
+      let sum = 0
+      for (const sample of buffer) {
+        const normalized = (sample - 128) / 128
+        sum += normalized * normalized
+      }
+      const rms = Math.sqrt(sum / buffer.length)
+      micInputLevel.value = Math.min(100, Math.round(rms * 140))
+      micMeterFrame.value = requestAnimationFrame(update)
+    }
+    update()
+  } catch {
+    micInputLevel.value = 0
+  }
+}
+
+const scheduleMediaConfigSave = () => {
+  if (!mediaConfigReady.value) return
+  const idValue = streamId.value ? Number(streamId.value) : NaN
+  if (Number.isNaN(idValue)) return
+  if (mediaSaveTimer) window.clearTimeout(mediaSaveTimer)
+  mediaSaveTimer = window.setTimeout(async () => {
+    const payload = {
+      cameraId: toMediaId(selectedCamera.value, '기본 카메라'),
+      microphoneId: toMediaId(selectedMic.value, '기본 마이크'),
+      cameraOn: videoEnabled.value,
+      microphoneOn: micEnabled.value,
+      volume: volume.value,
+    }
+    try {
+      await saveMediaConfig(idValue, payload)
+    } catch {
+      return
+    }
+  }, 400)
+}
+
 const resetRealtimeState = () => {
   sseSource.value?.close()
   sseSource.value = null
@@ -245,9 +600,15 @@ const resetRealtimeState = () => {
   statsTimer.value = null
   if (refreshTimer.value) window.clearTimeout(refreshTimer.value)
   refreshTimer.value = null
+  if (startRetryTimer.value) window.clearTimeout(startRetryTimer.value)
+  startRetryTimer.value = null
+  startRetryCount.value = 0
   clearStartTimer()
   clearEndRequestTimer()
+  clearPublisherRestartTimer()
+  disconnectOpenVidu()
   startRequested.value = false
+  recordingStartRequested.value = false
   endRequested.value = false
 }
 
@@ -255,11 +616,85 @@ const requestStartBroadcast = async (broadcastId: number) => {
   if (startRequested.value) return
   startRequested.value = true
   try {
-    await startSellerBroadcast(broadcastId)
+    await ensureLocalMediaAccess()
+    const token = await startSellerBroadcast(broadcastId)
+    publisherToken.value = token
+    await connectPublisher(broadcastId, token)
+    startRetryCount.value = 0
+    if (startRetryTimer.value) window.clearTimeout(startRetryTimer.value)
+    startRetryTimer.value = null
     scheduleRefresh(broadcastId)
   } catch {
+    scheduleStartRetry(broadcastId, '방송 시작에 실패했습니다. 잠시 후 다시 시도합니다.')
     startRequested.value = false
   }
+}
+
+const scheduleStartRetry = (broadcastId: number, message?: string) => {
+  if (!['READY', 'ON_AIR'].includes(lifecycleStatus.value)) return
+  if (startRetryCount.value >= MAX_START_RETRIES) {
+    if (message) {
+      alert(message)
+    }
+    return
+  }
+  startRetryCount.value += 1
+  if (startRetryTimer.value) window.clearTimeout(startRetryTimer.value)
+  startRetryTimer.value = window.setTimeout(() => {
+    void requestStartBroadcast(broadcastId)
+  }, START_RETRY_DELAY_MS)
+}
+
+const requestStartRecording = async (broadcastId: number) => {
+  if (recordingStartRequested.value) return
+  recordingStartRequested.value = true
+  try {
+    await startSellerRecording(broadcastId)
+  } catch {
+    recordingStartRequested.value = false
+  }
+}
+
+const requestJoinToken = async (broadcastId: number) => {
+  if (!['READY', 'ON_AIR'].includes(lifecycleStatus.value)) return
+  if (joinInFlight.value) return
+  if (joinedBroadcastId.value === broadcastId) return
+  if (!viewerId.value) {
+    viewerId.value = resolveViewerId(getAuthUser())
+  }
+  if (!viewerId.value) return
+  joinInFlight.value = true
+  try {
+    await joinBroadcast(broadcastId, viewerId.value)
+    joinedBroadcastId.value = broadcastId
+    joinedViewerId.value = viewerId.value
+  } catch {
+    return
+  } finally {
+    joinInFlight.value = false
+  }
+}
+
+const sendLeaveSignal = async (useBeacon = false) => {
+  const leavingViewerId = joinedViewerId.value ?? viewerId.value
+  if (!joinedBroadcastId.value || !leavingViewerId || leaveRequested.value) return
+  leaveRequested.value = true
+  const url = `${apiBase}/api/broadcasts/${joinedBroadcastId.value}/leave?viewerId=${encodeURIComponent(leavingViewerId)}`
+  if (useBeacon && navigator.sendBeacon) {
+    navigator.sendBeacon(url)
+    return
+  }
+  await leaveBroadcast(joinedBroadcastId.value, leavingViewerId).catch(() => {})
+}
+
+const handlePageHide = () => {
+  void sendLeaveSignal(true)
+}
+
+const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+  if (!isInteractive.value) return
+  event.preventDefault()
+  event.returnValue = ''
 }
 
 const scheduleAutoStart = (broadcastId: number, scheduledAtMs: number | null, status: BroadcastStatus) => {
@@ -306,7 +741,6 @@ const hydrateStream = async () => {
     chatMessages.value = []
     viewerCount.value = 0
     likeCount.value = 0
-    elapsed.value = '00:00:00'
     streamStatus.value = 'RESERVED'
     scheduleStartAtMs.value = null
     scheduleEndAtMs.value = null
@@ -323,7 +757,6 @@ const hydrateStream = async () => {
     stream.value = null
     viewerCount.value = 0
     likeCount.value = 0
-    elapsed.value = '00:00:00'
     streamStatus.value = 'RESERVED'
     scheduleStartAtMs.value = null
     scheduleEndAtMs.value = null
@@ -336,6 +769,7 @@ const hydrateStream = async () => {
   }
 
   try {
+    mediaConfigReady.value = false
     const [detail, stats, chats, mediaConfig] = await Promise.all([
       fetchSellerBroadcastDetail(idValue),
       fetchBroadcastStats(idValue).catch(() => null),
@@ -369,6 +803,7 @@ const hydrateStream = async () => {
     }
 
     pinnedProductId.value = products.find((item) => item.pinned)?.id ?? null
+    latestDetail.value = detail
     broadcastInfo.value = {
       title: detail.title ?? '',
       category: detail.categoryName ?? '',
@@ -380,15 +815,23 @@ const hydrateStream = async () => {
 
     viewerCount.value = stats?.viewerCount ?? detail.totalViews ?? 0
     likeCount.value = stats?.likeCount ?? detail.totalLikes ?? 0
-    elapsed.value = formatElapsed(detail.startedAt)
 
     if (mediaConfig) {
-      selectedMic.value = mediaConfig.microphoneId?.trim() ? mediaConfig.microphoneId : '기본 마이크'
-      selectedCamera.value = mediaConfig.cameraId?.trim() ? mediaConfig.cameraId : '기본 카메라'
+      selectedMic.value = resolveMediaSelection(mediaConfig.microphoneId, '기본 마이크')
+      selectedCamera.value = resolveMediaSelection(mediaConfig.cameraId, '기본 카메라')
       micEnabled.value = mediaConfig.microphoneOn
       videoEnabled.value = mediaConfig.cameraOn
       volume.value = mediaConfig.volume
+      hasSavedMediaConfig.value = hasPersistedMediaConfig(mediaConfig)
+    } else {
+      selectedMic.value = '기본 마이크'
+      selectedCamera.value = '기본 카메라'
+      micEnabled.value = true
+      videoEnabled.value = true
+      volume.value = 50
+      hasSavedMediaConfig.value = false
     }
+    mediaConfigReady.value = true
 
     chatMessages.value = chats.map((item) => ({
       id: `${item.sentAt}-${item.sender}`,
@@ -404,11 +847,12 @@ const hydrateStream = async () => {
     chatMessages.value = []
     viewerCount.value = 0
     likeCount.value = 0
-    elapsed.value = '00:00:00'
     streamStatus.value = 'RESERVED'
     scheduleStartAtMs.value = null
     scheduleEndAtMs.value = null
     isLoadingStream.value = false
+    mediaConfigReady.value = false
+    hasSavedMediaConfig.value = false
     clearStartTimer()
     clearEndRequestTimer()
     startRequested.value = false
@@ -476,6 +920,7 @@ const refreshInfo = async (broadcastId: number) => {
         qCards: (detail.qcards ?? []).map((card) => card.question),
       }
     }
+    latestDetail.value = detail
     scheduleAutoStart(broadcastId, scheduleStartAtMs.value, streamStatus.value)
   } catch {
     return
@@ -489,6 +934,32 @@ const parseSseData = (event: MessageEvent) => {
   } catch {
     return event.data
   }
+}
+
+const buildStopConfirmMessage = () => {
+  return '방송 운영 정책 위반으로 방송이 중지되었습니다.\n방송에서 나가겠습니까?'
+}
+
+const handleStopConfirm = () => {
+  handleGoToList()
+}
+
+const handleStopCancel = () => {
+  isStopRestricted.value = true
+  showChat.value = false
+  showProducts.value = false
+  showSettings.value = false
+}
+
+const handleStopDecision = (message: string) => {
+  stopConfirmMessage.value = message
+  stopConfirmOpen.value = true
+}
+
+const promptStoppedEntry = () => {
+  if (stopEntryPrompted.value) return
+  stopEntryPrompted.value = true
+  handleStopDecision('해당 방송은 운영정책 위반으로 송출 중지되었습니다. 방송을 나가겠습니까?')
 }
 
 const scheduleRefresh = (broadcastId: number) => {
@@ -512,6 +983,10 @@ const handleSseEvent = (event: MessageEvent) => {
       break
     case 'PRODUCT_PINNED':
       pinnedProductId.value = typeof data === 'number' ? String(data) : pinnedProductId.value
+      scheduleRefresh(id)
+      break
+    case 'PRODUCT_UNPINNED':
+      pinnedProductId.value = null
       scheduleRefresh(id)
       break
     case 'PRODUCT_SOLD_OUT':
@@ -538,16 +1013,14 @@ const handleSseEvent = (event: MessageEvent) => {
       scheduleRefresh(id)
       break
     case 'BROADCAST_SCHEDULED_END':
-      if (window.confirm('방송이 종료되었습니다.')) {
-        handleGoToList()
-      }
+      alert('방송이 종료되었습니다.')
+      handleGoToList()
       break
     case 'BROADCAST_STOPPED':
       streamStatus.value = 'STOPPED'
       scheduleRefresh(id)
-      if (window.confirm(typeof data === 'string' ? data : '관리자에 의해 방송이 중지되었습니다.')) {
-        handleGoToList()
-      }
+      stopEntryPrompted.value = true
+      handleStopDecision(buildStopConfirmMessage())
       break
     default:
       break
@@ -577,6 +1050,7 @@ const connectSse = (broadcastId: number) => {
     'BROADCAST_UPDATED',
     'BROADCAST_STARTED',
     'PRODUCT_PINNED',
+    'PRODUCT_UNPINNED',
     'PRODUCT_SOLD_OUT',
     'SANCTION_UPDATED',
     'BROADCAST_ENDING_SOON',
@@ -606,13 +1080,14 @@ const connectSse = (broadcastId: number) => {
 const startStatsPolling = (broadcastId: number) => {
   if (statsTimer.value) window.clearInterval(statsTimer.value)
   statsTimer.value = window.setInterval(() => {
-    if (lifecycleStatus.value === 'ON_AIR' || !sseConnected.value) {
-      void refreshStats(broadcastId)
-      if (!sseConnected.value) {
-        void refreshProducts(broadcastId)
-      }
+    if (document.visibilityState !== 'visible') {
+      return
     }
-  }, 30000)
+    void refreshStats(broadcastId)
+    if (!sseConnected.value) {
+      void refreshProducts(broadcastId)
+    }
+  }, 5000)
 }
 
 watch(
@@ -627,6 +1102,13 @@ watch(
   () => streamId.value,
   (value) => {
     resetRealtimeState()
+    hasOpenedDeviceModal.value = false
+    if (joinedBroadcastId.value) {
+      void sendLeaveSignal()
+    }
+    leaveRequested.value = false
+    joinedBroadcastId.value = null
+    joinedViewerId.value = null
     if (!value) {
       return
     }
@@ -636,6 +1118,7 @@ watch(
     }
     connectSse(idValue)
     startStatsPolling(idValue)
+    void requestJoinToken(idValue)
   },
   { immediate: true },
 )
@@ -652,8 +1135,15 @@ onMounted(() => {
   window.addEventListener('keydown', handleKeydown)
   document.addEventListener('fullscreenchange', handleFullscreenChange)
   window.addEventListener('resize', handleResize)
+  window.addEventListener('pagehide', handlePageHide)
+  window.addEventListener('beforeunload', handleBeforeUnload)
+  viewerId.value = resolveViewerId(getAuthUser())
   monitorRef.value = streamGridRef.value
   updateGridWidth()
+  void loadMediaDevices()
+  if (navigator.mediaDevices?.addEventListener) {
+    navigator.mediaDevices.addEventListener('devicechange', loadMediaDevices)
+  }
   if (streamGridRef.value) {
     gridObserver = new ResizeObserver((entries) => {
       const entry = entries[0]
@@ -669,16 +1159,28 @@ onBeforeUnmount(() => {
   window.removeEventListener('keydown', handleKeydown)
   document.removeEventListener('fullscreenchange', handleFullscreenChange)
   window.removeEventListener('resize', handleResize)
+  window.removeEventListener('pagehide', handlePageHide)
+  window.removeEventListener('beforeunload', handleBeforeUnload)
+  void sendLeaveSignal()
+  if (navigator.mediaDevices?.removeEventListener) {
+    navigator.mediaDevices.removeEventListener('devicechange', loadMediaDevices)
+  }
+  if (mediaSaveTimer) {
+    window.clearTimeout(mediaSaveTimer)
+    mediaSaveTimer = null
+  }
   gridObserver?.disconnect()
+  stopMicMeter()
   resetRealtimeState()
 })
 
-const openConfirm = (options: Partial<typeof confirmState>, onConfirm: () => void) => {
+const openConfirm = (options: Partial<typeof confirmState>, onConfirm: () => void, onCancel: () => void = () => {}) => {
   confirmState.title = options.title ?? ''
   confirmState.description = options.description ?? ''
   confirmState.confirmText = options.confirmText ?? '확인'
   confirmState.cancelText = options.cancelText ?? '취소'
   confirmAction.value = onConfirm
+  confirmCancelAction.value = onCancel
   confirmState.open = true
 }
 
@@ -687,13 +1189,24 @@ const handleConfirmAction = () => {
   confirmAction.value = () => {}
 }
 
+const handleConfirmCancel = () => {
+  confirmCancelAction.value?.()
+  confirmCancelAction.value = () => {}
+}
+
 const setPinnedProduct = async (productId: string | null) => {
   if (!isInteractive.value) return
+  const previousPinned = pinnedProductId.value
   pinnedProductId.value = productId
-  if (!productId) return
   const broadcastValue = streamId.value ? Number(streamId.value) : NaN
+  if (Number.isNaN(broadcastValue)) return
+  if (!productId) {
+    if (!previousPinned) return
+    await unpinSellerBroadcastProduct(broadcastValue).catch(() => {})
+    return
+  }
   const productValue = Number(productId)
-  if (Number.isNaN(broadcastValue) || Number.isNaN(productValue)) return
+  if (Number.isNaN(productValue)) return
   await pinSellerBroadcastProduct(broadcastValue, productValue).catch(() => {})
 }
 
@@ -769,9 +1282,138 @@ watch(showChat, (open) => {
   }
 })
 
-const handleBasicInfoSave = (payload: EditableBroadcastInfo) => {
+watch(showSettings, async (open) => {
+  if (open) {
+    await ensureLocalMediaAccess()
+    await loadMediaDevices()
+    await startMicMeter()
+    return
+  }
+  stopMicMeter()
+})
+
+watch(lifecycleStatus, () => {
+  const idValue = streamId.value ? Number(streamId.value) : NaN
+  if (Number.isNaN(idValue)) return
+  if (lifecycleStatus.value === 'STOPPED') {
+    promptStoppedEntry()
+  } else {
+    isStopRestricted.value = false
+    stopEntryPrompted.value = false
+  }
+  void requestJoinToken(idValue)
+  if (lifecycleStatus.value === 'ON_AIR') {
+    void ensurePublisherConnected(idValue)
+    return
+  }
+  disconnectOpenVidu()
+})
+
+watch([lifecycleStatus, publisherContainerRef], ([status, container]) => {
+  if (status !== 'ON_AIR') return
+  if (!container) return
+  const idValue = streamId.value ? Number(streamId.value) : NaN
+  if (Number.isNaN(idValue)) return
+  void ensurePublisherConnected(idValue)
+})
+
+onBeforeRouteLeave(async () => {
+  if (!isInteractive.value) return true
+  return await confirmLeaveBroadcast()
+})
+
+watch([selectedMic, micEnabled], () => {
+  if (showSettings.value) {
+    void startMicMeter()
+  }
+})
+
+watch([selectedMic, selectedCamera, micEnabled, videoEnabled, volume], () => {
+  scheduleMediaConfigSave()
+})
+
+watch([selectedMic, selectedCamera], () => {
+  if (!openviduConnected.value) return
+  clearPublisherRestartTimer()
+  publisherRestartTimer = window.setTimeout(() => {
+    void restartPublisher()
+  }, 200)
+})
+
+watch([micEnabled, videoEnabled], ([micOn, videoOn]) => {
+  if (!openviduPublisher.value) return
+  openviduPublisher.value.publishAudio(micOn)
+  openviduPublisher.value.publishVideo(videoOn)
+})
+
+watch(volume, () => {
+  applyPublisherVolume()
+})
+
+watch([stream, lifecycleStatus, hasSavedMediaConfig], ([value, status, hasConfig]) => {
+  if (!value || hasOpenedDeviceModal.value || hasConfig) return
+  if (status !== 'READY') return
+  showDeviceModal.value = true
+  hasOpenedDeviceModal.value = true
+})
+
+type UpdateBroadcastPayload = Parameters<typeof updateBroadcast>[1]
+
+const buildUpdatePayload = (detail: BroadcastDetailResponse, info: EditableBroadcastInfo): UpdateBroadcastPayload => {
+  const products = (detail.products ?? []).map((product) => ({
+    productId: product.productId,
+    bpPrice: product.bpPrice,
+    bpQuantity: product.bpQuantity,
+  }))
+  const status = normalizeBroadcastStatus(detail.status)
+  const scheduledAt = status === 'RESERVED' || status === 'CANCELED' ? detail.scheduledAt ?? null : null
+
+  return {
+    title: info.title.trim() || detail.title,
+    notice: info.notice?.trim() ?? detail.notice ?? '',
+    categoryId: detail.categoryId ?? 0,
+    scheduledAt,
+    thumbnailUrl: info.thumbnail ?? detail.thumbnailUrl ?? '',
+    waitScreenUrl: info.waitingScreen ?? detail.waitScreenUrl ?? null,
+    broadcastLayout: detail.layout ?? 'FULL',
+    products,
+    qcards: (detail.qcards ?? []).map((card) => ({ question: card.question })),
+  }
+}
+
+const handleBasicInfoSave = async (payload: EditableBroadcastInfo) => {
   if (!broadcastInfo.value) return
-  broadcastInfo.value = { ...broadcastInfo.value, ...payload }
+  const idValue = streamId.value ? Number(streamId.value) : NaN
+  const detail = latestDetail.value
+  if (Number.isNaN(idValue) || !detail) {
+    broadcastInfo.value = { ...broadcastInfo.value, ...payload }
+    return
+  }
+  if (!detail.categoryId) {
+    alert('카테고리 정보를 불러올 수 없습니다.')
+    return
+  }
+  if (!detail.products || detail.products.length === 0) {
+    alert('판매 상품 정보를 불러올 수 없습니다.')
+    return
+  }
+  try {
+    await updateBroadcast(idValue, buildUpdatePayload(detail, payload))
+    await refreshInfo(idValue)
+  } catch {
+    alert('기본정보 수정에 실패했습니다.')
+  }
+}
+
+const handleDeviceSetupApply = (payload: { cameraId: string; microphoneId: string }) => {
+  if (payload.cameraId) {
+    selectedCamera.value = payload.cameraId
+  }
+  if (payload.microphoneId) {
+    selectedMic.value = payload.microphoneId
+  }
+  mediaConfigReady.value = true
+  scheduleMediaConfigSave()
 }
 
 const handleGoToList = () => {
@@ -811,6 +1453,23 @@ const requestEndBroadcast = () => {
   )
 }
 
+const confirmLeaveBroadcast = () =>
+  new Promise<boolean>((resolve) => {
+    openConfirm(
+      {
+        title: '방송 종료',
+        description: '방송 페이지를 나가면 방송이 종료됩니다. 계속 진행하시겠습니까?',
+        confirmText: '종료 후 이동',
+        cancelText: '취소',
+      },
+      () => {
+        handleEndBroadcast()
+        resolve(true)
+      },
+      () => resolve(false),
+    )
+  })
+
 const toggleFullscreen = async () => {
   const el = monitorRef.value
   if (!el) return
@@ -828,15 +1487,16 @@ const toggleFullscreen = async () => {
 
 <template>
   <PageContainer>
+    <div v-if="stopConfirmOpen" class="stop-blocker" aria-hidden="true"></div>
     <header class="stream-header">
       <div>
         <h2 class="section-title">{{ displayTitle }}</h2>
         <p class="ds-section-sub">{{ displayDatetime }}</p>
       </div>
       <div class="stream-actions">
-        <button type="button" class="stream-btn" :disabled="!stream" @click="showBasicInfo = true">기본정보 수정</button>
-        <button type="button" class="stream-btn" :disabled="!stream || !qCards.length" @click="showQCards = true">큐카드 보기</button>
-        <button type="button" class="stream-btn stream-btn--danger" :disabled="!stream" @click="requestEndBroadcast">
+        <button type="button" class="stream-btn" :disabled="!stream || isStopped" @click="showBasicInfo = true">기본정보 수정</button>
+        <button type="button" class="stream-btn" :disabled="!stream || !qCards.length || isStopped" @click="showQCards = true">큐카드 보기</button>
+        <button type="button" class="stream-btn stream-btn--danger" :disabled="!stream || isStopped" @click="requestEndBroadcast">
           방송 종료
         </button>
       </div>
@@ -853,8 +1513,9 @@ const toggleFullscreen = async () => {
       :style="gridStyles"
     >
       <aside
-        v-if="showProducts"
+        v-if="showProducts && !isStopRestricted"
         class="stream-panel stream-panel--products ds-surface"
+        :class="{ 'stream-panel--readonly': isReadOnly }"
         :style="stackedOrders ? { order: stackedOrders.products } : undefined"
       >
         <div class="panel-head">
@@ -882,7 +1543,7 @@ const toggleFullscreen = async () => {
             <button
               type="button"
               class="pin-btn"
-              :disabled="item.status === '품절'"
+              :disabled="!isInteractive || item.status === '품절'"
               :class="{ 'is-active': pinnedProductId === item.id }"
               aria-label="고정"
               @click="handlePinProduct(item.id)"
@@ -914,12 +1575,17 @@ const toggleFullscreen = async () => {
               'stream-player--constrained': hasSidePanels,
             }"
           >
+            <div
+              v-show="hasPublisherStream"
+              ref="publisherContainerRef"
+              class="stream-player__publisher"
+            ></div>
             <div class="stream-overlay stream-overlay--stack">
-              <div class="stream-overlay__row">⏱ 경과 {{ elapsed }}</div>
+              <div class="stream-overlay__row">⏱ 경과 {{ elapsedLabel }}</div>
               <div class="stream-overlay__row">👥 {{ viewerCount.toLocaleString('ko-KR') }}명</div>
               <div class="stream-overlay__row">❤ {{ likeCount.toLocaleString('ko-KR') }}</div>
             </div>
-            <div class="stream-fab">
+            <div v-if="!isStopRestricted" class="stream-fab">
               <button
                 type="button"
                 class="fab-btn"
@@ -977,13 +1643,25 @@ const toggleFullscreen = async () => {
                 <button type="button" class="stream-btn" @click="handleGoToList">목록으로 이동</button>
               </div>
             </div>
-            <div v-else class="stream-placeholder">
-              <p class="stream-title">송출 화면 (WebRTC Stream)</p>
-              <p class="stream-sub">현재 송출 중인 화면이 표시됩니다.</p>
+            <div
+              v-else
+              v-show="!hasPublisherStream"
+              class="stream-placeholder"
+              :class="{ 'stream-placeholder--waiting': lifecycleStatus !== 'ON_AIR' }"
+            >
+              <img
+                v-if="waitingScreenUrl && lifecycleStatus !== 'ON_AIR' && lifecycleStatus !== 'STOPPED'"
+                class="stream-placeholder__image"
+                :src="waitingScreenUrl"
+                alt="대기 화면"
+              />
+              <p class="stream-title">{{ streamPlaceholderMessage }}</p>
+              <p v-if="lifecycleStatus === 'ON_AIR'" class="stream-sub">현재 송출 중인 화면이 표시됩니다.</p>
+              <p v-else-if="!waitingScreenUrl && lifecycleStatus !== 'STOPPED'" class="stream-sub">대기 화면 이미지가 없습니다.</p>
             </div>
           </div>
         </div>
-        <div v-if="showSettings" class="stream-settings ds-surface" role="dialog" aria-label="방송 설정">
+        <div v-if="showSettings && !isStopRestricted" class="stream-settings ds-surface" role="dialog" aria-label="방송 설정">
           <div class="stream-settings__grid">
             <div class="stream-settings__group">
               <div class="stream-settings__toggles">
@@ -1049,16 +1727,19 @@ const toggleFullscreen = async () => {
             <div class="stream-settings__group">
               <label class="stream-settings__label">마이크</label>
               <select v-model="selectedMic" class="stream-settings__select" aria-label="마이크 선택">
-                <option>기본 마이크</option>
-                <option>USB 마이크</option>
-                <option>블루투스 마이크</option>
+                <option value="기본 마이크">기본 마이크</option>
+                <option v-for="device in availableMics" :key="device.id" :value="device.id">
+                  {{ device.label }}
+                </option>
               </select>
             </div>
             <div class="stream-settings__group">
               <label class="stream-settings__label">카메라</label>
               <select v-model="selectedCamera" class="stream-settings__select" aria-label="카메라 선택">
-                <option>기본 카메라</option>
-                <option>외장 카메라</option>
+                <option value="기본 카메라">기본 카메라</option>
+                <option v-for="device in availableCameras" :key="device.id" :value="device.id">
+                  {{ device.label }}
+                </option>
               </select>
             </div>
             <div class="stream-settings__group">
@@ -1072,8 +1753,9 @@ const toggleFullscreen = async () => {
       </div>
 
       <aside
-        v-if="showChat"
+        v-if="showChat && !isStopRestricted"
         class="stream-panel stream-chat stream-panel--chat ds-surface"
+        :class="{ 'stream-panel--readonly': isReadOnly }"
         :style="stackedOrders ? { order: stackedOrders.chat } : undefined"
       >
         <div class="panel-head">
@@ -1099,12 +1781,28 @@ const toggleFullscreen = async () => {
           </div>
         </div>
         <div class="chat-input">
-          <input v-model="chatText" type="text" placeholder="메시지를 입력하세요" @keyup.enter="handleSendChat" />
-          <button type="button" class="stream-btn primary" @click="handleSendChat">전송</button>
+          <input
+            v-model="chatText"
+            type="text"
+            placeholder="메시지를 입력하세요"
+            :disabled="!isInteractive"
+            @keyup.enter="handleSendChat"
+          />
+          <button type="button" class="stream-btn primary" :disabled="!isInteractive" @click="handleSendChat">전송</button>
         </div>
+        <p v-if="isReadOnly" class="chat-helper">방송 중에만 채팅을 이용할 수 있습니다.</p>
       </aside>
     </section>
     <Teleport :to="modalHostTarget">
+      <ConfirmModal
+        v-model="stopConfirmOpen"
+        title="방송 송출 중지"
+        :description="stopConfirmMessage"
+        confirm-text="나가기"
+        cancel-text="계속 보기"
+        @confirm="handleStopConfirm"
+        @cancel="handleStopCancel"
+      />
       <ConfirmModal
         v-model="confirmState.open"
         :title="confirmState.title"
@@ -1112,15 +1810,30 @@ const toggleFullscreen = async () => {
         :confirm-text="confirmState.confirmText"
         :cancel-text="confirmState.cancelText"
         @confirm="handleConfirmAction"
+        @cancel="handleConfirmCancel"
       />
       <QCardModal v-model="showQCards" :q-cards="qCards" :initial-index="qCardIndex" @update:initialIndex="qCardIndex = $event" />
       <BasicInfoEditModal v-if="broadcastInfo" v-model="showBasicInfo" :broadcast="broadcastInfo" @save="handleBasicInfoSave" />
       <ChatSanctionModal v-model="showSanctionModal" :username="sanctionTarget" @save="applySanction" />
     </Teleport>
+    <DeviceSetupModal
+      v-model="showDeviceModal"
+      :broadcast-title="displayTitle"
+      :initial-camera-id="selectedCamera === '기본 카메라' ? '' : selectedCamera"
+      :initial-mic-id="selectedMic === '기본 마이크' ? '' : selectedMic"
+      @apply="handleDeviceSetupApply"
+    />
   </PageContainer>
 </template>
 
 <style scoped>
+.stop-blocker {
+  position: fixed;
+  inset: 0;
+  background: var(--surface);
+  z-index: 1300;
+}
+
 .stream-header {
   display: flex;
   align-items: flex-start;
@@ -1173,6 +1886,17 @@ const toggleFullscreen = async () => {
   flex-direction: column;
   min-width: 0;
   min-height: 0;
+}
+
+.stream-panel--readonly {
+  opacity: 0.6;
+}
+
+.chat-helper {
+  margin: 4px 0 0;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  font-weight: 700;
 }
 
 .panel-head {
@@ -1405,8 +2129,23 @@ const toggleFullscreen = async () => {
   display: flex;
   align-items: center;
   justify-content: center;
-  overflow: auto;
+  overflow: hidden;
   min-height: 320px;
+  max-width: 100%;
+}
+
+.stream-player__publisher {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: #000;
+}
+
+.stream-player__publisher :deep(video) {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 .stream-player--fullscreen {
@@ -1428,6 +2167,22 @@ const toggleFullscreen = async () => {
   text-align: center;
 }
 
+.stream-placeholder--waiting {
+  gap: 12px;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  place-items: center;
+}
+
+.stream-placeholder__image {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  border-radius: 12px;
+  background: #000;
+}
+
 .stream-empty {
   display: grid;
   gap: 6px;
@@ -1440,6 +2195,12 @@ const toggleFullscreen = async () => {
   font-weight: 900;
   color: var(--text-strong);
   font-size: 1.1rem;
+}
+
+.stream-placeholder--waiting .stream-title {
+  color: #ffffff;
+  font-size: 1.35rem;
+  text-shadow: 0 3px 12px rgba(0, 0, 0, 0.45);
 }
 
 .stream-sub {

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { OpenVidu, type Session, type Subscriber } from 'openvidu-browser'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
@@ -6,10 +7,15 @@ import {
   fetchBroadcastProducts,
   fetchBroadcastStats,
   fetchRecentLiveChats,
+  joinBroadcast,
+  leaveBroadcast,
   stopAdminBroadcast,
 } from '../../../lib/live/api'
 import { parseLiveDate } from '../../../lib/live/utils'
-import { computeLifecycleStatus, getScheduledEndMs, normalizeBroadcastStatus } from '../../../lib/broadcastStatus'
+import { useNow } from '../../../lib/live/useNow'
+import { computeLifecycleStatus, getBroadcastStatusLabel, getScheduledEndMs, normalizeBroadcastStatus } from '../../../lib/broadcastStatus'
+import { getAuthUser } from '../../../lib/auth'
+import { resolveViewerId } from '../../../lib/live/viewer'
 
 const route = useRoute()
 const router = useRouter()
@@ -23,6 +29,8 @@ type AdminDetail = {
   startedAt: string
   scheduledAt?: string
   status: string
+  waitScreenUrl?: string
+  stoppedReason?: string
   viewers: number
   reports: number
   likes: number
@@ -30,6 +38,7 @@ type AdminDetail = {
 }
 
 const detail = ref<AdminDetail | null>(null)
+const { now } = useNow(1000)
 
 const stageRef = ref<HTMLDivElement | null>(null)
 const isFullscreen = ref(false)
@@ -38,6 +47,8 @@ const stopReason = ref('')
 const stopDetail = ref('')
 const error = ref('')
 const showChat = ref(true)
+const stopEntryPrompted = ref(false)
+const isStopRestricted = ref(false)
 const chatText = ref('')
 const chatMessages = ref<{ id: string; user: string; text: string; time: string }[]>([])
 const chatListRef = ref<HTMLDivElement | null>(null)
@@ -58,6 +69,7 @@ const liveProducts = ref<
     thumb: string
     sold: number
     stock: number
+    isPinned: boolean
   }>
 >([])
 const sseSource = ref<EventSource | null>(null)
@@ -66,6 +78,17 @@ const sseRetryCount = ref(0)
 const sseRetryTimer = ref<number | null>(null)
 const statsTimer = ref<number | null>(null)
 const refreshTimer = ref<number | null>(null)
+const joinInFlight = ref(false)
+const streamToken = ref<string | null>(null)
+const viewerId = ref<string | null>(resolveViewerId(getAuthUser()))
+const joinedBroadcastId = ref<number | null>(null)
+const joinedViewerId = ref<string | null>(null)
+const leaveRequested = ref(false)
+const viewerContainerRef = ref<HTMLDivElement | null>(null)
+const openviduInstance = ref<OpenVidu | null>(null)
+const openviduSession = ref<Session | null>(null)
+const openviduSubscriber = ref<Subscriber | null>(null)
+const openviduConnected = ref(false)
 const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080'
 const FALLBACK_IMAGE = 'data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs='
 
@@ -121,6 +144,7 @@ const mapLiveProduct = (item: {
   name: string
   price: number
   isSoldOut: boolean
+  isPinned?: boolean
   imageUrl?: string
   totalQty?: number
   stockQty?: number
@@ -138,15 +162,19 @@ const mapLiveProduct = (item: {
     thumb: item.imageUrl ?? '',
     sold,
     stock: stockQty,
+    isPinned: item.isPinned ?? false,
   }
 }
 
 const sortedLiveProducts = computed(() => {
-  return [...liveProducts.value].sort((a, b) => {
+  const list = [...liveProducts.value]
+  const orderMap = new Map(list.map((product, index) => [product.id, index]))
+  return list.sort((a, b) => {
     const aSoldOut = a.status === '품절'
     const bSoldOut = b.status === '품절'
     if (aSoldOut !== bSoldOut) return aSoldOut ? 1 : -1
-    return 0
+    if (a.isPinned !== b.isPinned) return a.isPinned ? -1 : 1
+    return (orderMap.get(a.id) ?? 0) - (orderMap.get(b.id) ?? 0)
   })
 })
 
@@ -184,6 +212,8 @@ const loadDetail = async () => {
       startedAt,
       scheduledAt,
       status: detailResponse.status ?? '',
+      waitScreenUrl: detailResponse.waitScreenUrl ?? '',
+      stoppedReason: detailResponse.stoppedReason ?? '',
       viewers,
       reports,
       likes,
@@ -247,6 +277,8 @@ const refreshDetail = async (broadcastId: number) => {
       startedAt,
       scheduledAt,
       status: detailResponse.status ?? detail.value.status,
+      waitScreenUrl: detailResponse.waitScreenUrl ?? detail.value.waitScreenUrl,
+      stoppedReason: detailResponse.stoppedReason ?? detail.value.stoppedReason,
       elapsed: formatElapsed(startedAt),
     }
   } catch {
@@ -266,7 +298,156 @@ const lifecycleStatus = computed(() => {
   })
 })
 
+const statusLabel = computed(() => getBroadcastStatusLabel(lifecycleStatus.value))
 const isInteractive = computed(() => lifecycleStatus.value === 'ON_AIR')
+const canForceStop = computed(() => ['READY', 'ON_AIR', 'ENDED'].includes(lifecycleStatus.value))
+const isReadOnly = computed(() => lifecycleStatus.value !== 'ON_AIR')
+const waitingScreenUrl = computed(() => detail.value?.waitScreenUrl ?? '')
+const readyCountdownLabel = computed(() => {
+  if (lifecycleStatus.value !== 'READY') return ''
+  const baseTime = detail.value?.scheduledAt ?? detail.value?.startedAt
+  if (!baseTime) return '방송 시작 대기 중'
+  const startAtMs = parseLiveDate(baseTime).getTime()
+  if (Number.isNaN(startAtMs)) return '방송 시작 대기 중'
+  const diffMs = startAtMs - now.value.getTime()
+  if (diffMs <= 0) return '방송 시작 대기 중'
+  const totalSeconds = Math.ceil(diffMs / 1000)
+  const minutes = Math.floor(totalSeconds / 60)
+  const seconds = totalSeconds % 60
+  return `${minutes}분 ${String(seconds).padStart(2, '0')}초 뒤 방송 시작`
+})
+const endedCountdownLabel = computed(() => {
+  if (lifecycleStatus.value !== 'ENDED') return ''
+  const baseTime = detail.value?.scheduledAt ?? detail.value?.startedAt
+  if (!baseTime) return '방송 종료'
+  const startAtMs = parseLiveDate(baseTime).getTime()
+  if (Number.isNaN(startAtMs)) return '방송 종료'
+  const scheduledEndMs = getScheduledEndMs(startAtMs)
+  if (!scheduledEndMs) return '방송 종료'
+  const diffMs = scheduledEndMs - now.value.getTime()
+  if (diffMs <= 0) return '방송 종료'
+  const totalSeconds = Math.ceil(diffMs / 1000)
+  const minutes = Math.floor(totalSeconds / 60)
+  const seconds = totalSeconds % 60
+  return `종료까지 ${minutes}분 ${String(seconds).padStart(2, '0')}초`
+})
+const elapsedLabel = computed(() => {
+  if (!detail.value?.startedAt) return '00:00:00'
+  now.value
+  return formatElapsed(detail.value.startedAt)
+})
+const playerMessage = computed(() => {
+  if (lifecycleStatus.value === 'STOPPED') {
+    return '방송 운영 정책 위반으로 송출 중지되었습니다.'
+  }
+  if (lifecycleStatus.value === 'ENDED') {
+    return '방송이 종료되었습니다.'
+  }
+  if (lifecycleStatus.value === 'READY') {
+    return readyCountdownLabel.value || '방송 시작 대기 중'
+  }
+  return ''
+})
+const hasSubscriberStream = computed(() => openviduConnected.value && !!openviduSubscriber.value)
+
+const clearViewerContainer = () => {
+  if (viewerContainerRef.value) {
+    viewerContainerRef.value.innerHTML = ''
+  }
+}
+
+const resetOpenViduState = () => {
+  openviduConnected.value = false
+  openviduSubscriber.value = null
+  openviduSession.value = null
+  openviduInstance.value = null
+  clearViewerContainer()
+}
+
+const disconnectOpenVidu = () => {
+  if (openviduSession.value) {
+    try {
+      if (openviduSubscriber.value) {
+        openviduSession.value.unsubscribe(openviduSubscriber.value)
+      }
+      openviduSession.value.disconnect()
+    } catch {
+      // noop
+    }
+  }
+  resetOpenViduState()
+}
+
+const connectSubscriber = async (token: string) => {
+  if (!viewerContainerRef.value) return
+  try {
+    disconnectOpenVidu()
+    openviduInstance.value = new OpenVidu()
+    openviduSession.value = openviduInstance.value.initSession()
+    openviduSession.value.on('streamCreated', (event) => {
+      if (!viewerContainerRef.value || !openviduSession.value) return
+      if (openviduSubscriber.value) {
+        openviduSession.value.unsubscribe(openviduSubscriber.value)
+        openviduSubscriber.value = null
+        clearViewerContainer()
+      }
+      openviduSubscriber.value = openviduSession.value.subscribe(event.stream, viewerContainerRef.value, {
+        insertMode: 'append',
+      })
+    })
+    openviduSession.value.on('streamDestroyed', () => {
+      openviduSubscriber.value = null
+      clearViewerContainer()
+    })
+    await openviduSession.value.connect(token)
+    openviduConnected.value = true
+  } catch {
+    disconnectOpenVidu()
+  }
+}
+
+const ensureSubscriberConnected = async () => {
+  if (!streamToken.value || lifecycleStatus.value !== 'ON_AIR') return
+  if (openviduConnected.value) return
+  await connectSubscriber(streamToken.value)
+}
+
+const requestJoinToken = async () => {
+  if (!detail.value) return
+  if (!['READY', 'ON_AIR'].includes(lifecycleStatus.value)) return
+  if (joinInFlight.value) return
+  if (joinedBroadcastId.value === Number(detail.value.id)) return
+  if (!viewerId.value) {
+    viewerId.value = resolveViewerId(getAuthUser())
+  }
+  if (!viewerId.value) return
+  joinInFlight.value = true
+  try {
+    streamToken.value = await joinBroadcast(Number(detail.value.id), viewerId.value)
+    joinedBroadcastId.value = Number(detail.value.id)
+    joinedViewerId.value = viewerId.value
+  } catch {
+    return
+  } finally {
+    joinInFlight.value = false
+  }
+}
+
+const sendLeaveSignal = async (useBeacon = false) => {
+  const leavingViewerId = joinedViewerId.value ?? viewerId.value
+  if (!joinedBroadcastId.value || !leavingViewerId || leaveRequested.value) return
+  leaveRequested.value = true
+  const url = `${apiBase}/api/broadcasts/${joinedBroadcastId.value}/leave?viewerId=${encodeURIComponent(leavingViewerId)}`
+  if (useBeacon && navigator.sendBeacon) {
+    navigator.sendBeacon(url)
+    return
+  }
+  await leaveBroadcast(joinedBroadcastId.value, leavingViewerId).catch(() => {})
+}
+
+const handlePageHide = () => {
+  void sendLeaveSignal(true)
+}
 
 const parseSseData = (event: MessageEvent) => {
   if (!event.data) return null
@@ -275,6 +456,27 @@ const parseSseData = (event: MessageEvent) => {
   } catch {
     return event.data
   }
+}
+
+const buildStopConfirmMessage = () => {
+  return '방송 운영 정책 위반으로 방송이 중지되었습니다.\n방송에서 나가겠습니까?'
+}
+
+const handleStopDecision = (message: string) => {
+  const ok = window.confirm(message)
+  if (ok) {
+    goToList()
+    return
+  }
+  isStopRestricted.value = true
+  showChat.value = false
+  activePane.value = 'monitor'
+}
+
+const promptStoppedEntry = () => {
+  if (stopEntryPrompted.value) return
+  stopEntryPrompted.value = true
+  handleStopDecision('해당 방송은 운영정책 위반으로 송출 중지되었습니다. 방송을 나가겠습니까?')
 }
 
 const scheduleRefresh = (broadcastId: number) => {
@@ -297,6 +499,7 @@ const handleSseEvent = (event: MessageEvent) => {
       scheduleRefresh(idValue)
       break
     case 'PRODUCT_PINNED':
+    case 'PRODUCT_UNPINNED':
     case 'PRODUCT_SOLD_OUT':
       scheduleRefresh(idValue)
       break
@@ -312,18 +515,16 @@ const handleSseEvent = (event: MessageEvent) => {
       void refreshDetail(idValue)
       break
     case 'BROADCAST_SCHEDULED_END':
-      if (window.confirm('방송이 종료되었습니다.')) {
-        goToList()
-      }
+      alert('방송이 종료되었습니다.')
+      goToList()
       break
     case 'BROADCAST_STOPPED':
       if (detail.value) {
         detail.value.status = 'STOPPED'
       }
       scheduleRefresh(idValue)
-      if (window.confirm(typeof data === 'string' ? data : '관리자에 의해 방송이 중지되었습니다.')) {
-        goToList()
-      }
+      stopEntryPrompted.value = true
+      handleStopDecision(buildStopConfirmMessage())
       break
     default:
       break
@@ -350,6 +551,7 @@ const connectSse = (broadcastId: number) => {
     'BROADCAST_UPDATED',
     'BROADCAST_STARTED',
     'PRODUCT_PINNED',
+    'PRODUCT_UNPINNED',
     'PRODUCT_SOLD_OUT',
     'SANCTION_UPDATED',
     'BROADCAST_ENDING_SOON',
@@ -377,13 +579,18 @@ const connectSse = (broadcastId: number) => {
 const startStatsPolling = (broadcastId: number) => {
   if (statsTimer.value) window.clearInterval(statsTimer.value)
   statsTimer.value = window.setInterval(() => {
+    if (document.visibilityState !== 'visible') {
+      return
+    }
     void refreshStats(broadcastId)
-    void refreshProducts(broadcastId)
-  }, 30000)
+    if (!sseConnected.value) {
+      void refreshProducts(broadcastId)
+    }
+  }, 5000)
 }
 
 const openStopConfirm = () => {
-  if (!detail.value || detail.value.status === 'STOPPED' || !isInteractive.value) return
+  if (!detail.value || detail.value.status === 'STOPPED' || !canForceStop.value) return
   showStopModal.value = true
   error.value = ''
 }
@@ -412,7 +619,9 @@ const handleStopSave = () => {
     .then(() => {
       if (detail.value) {
         detail.value.status = 'STOPPED'
+        detail.value.stoppedReason = reason
       }
+      goToList()
     })
     .catch(() => {})
     .finally(() => {
@@ -443,6 +652,7 @@ const toggleFullscreen = async () => {
 }
 
 const toggleChat = () => {
+  if (isStopRestricted.value) return
   showChat.value = !showChat.value
 }
 
@@ -526,6 +736,8 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   document.removeEventListener('fullscreenchange', syncFullscreen)
+  window.removeEventListener('pagehide', handlePageHide)
+  void sendLeaveSignal()
   sseSource.value?.close()
   sseSource.value = null
   sseConnected.value = false
@@ -535,16 +747,31 @@ onBeforeUnmount(() => {
   statsTimer.value = null
   if (refreshTimer.value) window.clearTimeout(refreshTimer.value)
   refreshTimer.value = null
+  disconnectOpenVidu()
+})
+
+onMounted(() => {
+  viewerId.value = resolveViewerId(getAuthUser())
+  window.addEventListener('pagehide', handlePageHide)
 })
 
 watch(
   liveId,
   (value) => {
+    if (joinedBroadcastId.value) {
+      void sendLeaveSignal()
+    }
+    leaveRequested.value = false
+    joinedBroadcastId.value = null
+    joinedViewerId.value = null
+    streamToken.value = null
+    disconnectOpenVidu()
     loadDetail()
     const idValue = Number(value)
     if (!Number.isNaN(idValue)) {
       connectSse(idValue)
       startStatsPolling(idValue)
+      void requestJoinToken()
     } else {
       sseSource.value?.close()
       sseSource.value = null
@@ -559,6 +786,30 @@ watch(
   },
   { immediate: true },
 )
+
+watch(
+  lifecycleStatus,
+  () => {
+    if (lifecycleStatus.value === 'STOPPED') {
+      promptStoppedEntry()
+    } else {
+      isStopRestricted.value = false
+      stopEntryPrompted.value = false
+    }
+    void requestJoinToken()
+    if (lifecycleStatus.value === 'ON_AIR') {
+      void ensureSubscriberConnected()
+      return
+    }
+    disconnectOpenVidu()
+  },
+)
+
+watch(streamToken, () => {
+  if (lifecycleStatus.value === 'ON_AIR') {
+    void ensureSubscriberConnected()
+  }
+})
 </script>
 
 <template>
@@ -567,7 +818,12 @@ watch(
       <button type="button" class="back-link" @click="goBack">← 뒤로 가기</button>
       <div class="header-actions">
         <button type="button" class="btn" @click="goToList">목록으로</button>
-        <button type="button" class="btn danger" :disabled="detail.status === 'STOPPED'" @click="openStopConfirm">
+        <button
+          type="button"
+          class="btn danger"
+          :disabled="detail.status === 'STOPPED' || !canForceStop"
+          @click="openStopConfirm"
+        >
           {{ detail.status === 'STOPPED' ? '송출 중지됨' : '방송 송출 중지' }}
         </button>
       </div>
@@ -580,9 +836,12 @@ watch(
         <h3>{{ detail.title }}</h3>
         <p><span>판매자</span>{{ detail.sellerName }}</p>
         <p><span>방송 시작</span>{{ detail.startedAt }}</p>
+        <p v-if="detail.scheduledAt"><span>예약 시간</span>{{ detail.scheduledAt }}</p>
         <p><span>시청자 수</span>{{ detail.viewers }}명</p>
         <p><span>신고 건수</span>{{ detail.reports ?? 0 }}건</p>
-        <p><span>상태</span>{{ detail.status }}</p>
+        <p><span>상태</span>{{ statusLabel }}</p>
+        <p v-if="lifecycleStatus === 'READY'"><span>카운트다운</span>{{ readyCountdownLabel }}</p>
+        <p v-if="lifecycleStatus === 'ENDED'"><span>종료까지</span>{{ endedCountdownLabel }}</p>
       </div>
     </section>
 
@@ -601,6 +860,7 @@ watch(
             모니터링
           </button>
           <button
+              v-if="!isStopRestricted"
               type="button"
               class="tab"
               :class="{ 'tab--active': activePane === 'products' }"
@@ -614,16 +874,17 @@ watch(
         </div>
 
         <div v-show="activePane === 'monitor'" id="monitor-pane">
-          <div ref="stageRef" class="monitor-stage" :class="{ 'monitor-stage--chat': showChat }">
+          <div ref="stageRef" class="monitor-stage" :class="{ 'monitor-stage--chat': showChat && !isStopRestricted }">
             <div class="player-wrap">
               <div class="player-frame" :class="{ 'player-frame--fullscreen': isFullscreen }">
+                <div v-show="hasSubscriberStream" ref="viewerContainerRef" class="player-frame__viewer"></div>
                 <div class="player-overlay">
-                  <div class="overlay-item">⏱ {{ detail.elapsed }}</div>
+                  <div class="overlay-item">⏱ {{ elapsedLabel }}</div>
                   <div class="overlay-item">👥 {{ detail.viewers }}명</div>
                   <div class="overlay-item">❤ {{ detail.likes }}</div>
                   <div class="overlay-item">🚩 {{ detail.reports ?? 0 }}건</div>
                 </div>
-                <div class="overlay-actions">
+                <div v-if="!isStopRestricted" class="overlay-actions">
                   <button type="button" class="icon-circle" :class="{ active: showChat }" @click="toggleChat" :title="showChat ? '채팅 닫기' : '채팅 보기'">
                     <svg aria-hidden="true" class="icon" viewBox="0 0 24 24" focusable="false">
                       <path d="M3 20l1.62-3.24A2 2 0 0 1 6.42 16H20a1 1 0 0 0 1-1V5a1 1 0 0 0-1-1H4a1 1 0 0 0-1 1v15z" stroke="currentColor" stroke-width="1.7" />
@@ -645,11 +906,21 @@ watch(
                     </svg>
                   </button>
                 </div>
-                <div class="player-label">송출 화면</div>
+                <div v-if="isReadOnly" class="player-placeholder">
+                  <img
+                    v-if="waitingScreenUrl && lifecycleStatus !== 'STOPPED'"
+                    class="player-placeholder__image"
+                    :src="waitingScreenUrl"
+                    alt="대기 화면"
+                    @error="handleImageError"
+                  />
+                  <p v-if="playerMessage" class="player-placeholder__message">{{ playerMessage }}</p>
+                </div>
+                <div v-else-if="!hasSubscriberStream" class="player-label">송출 화면</div>
               </div>
             </div>
 
-            <aside v-if="showChat" class="chat-panel ds-surface">
+            <aside v-if="showChat && !isStopRestricted" class="chat-panel ds-surface">
               <header class="chat-head">
                 <h4>실시간 채팅</h4>
                 <button type="button" class="chat-close" @click="closeChat">×</button>
@@ -671,14 +942,15 @@ watch(
                 </div>
               </div>
               <div class="chat-input">
-                <input v-model="chatText" type="text" placeholder="메시지를 입력하세요" />
-                <button type="button" class="btn primary" @click="sendChat">전송</button>
+                <input v-model="chatText" type="text" placeholder="메시지를 입력하세요" :disabled="isReadOnly" />
+                <button type="button" class="btn primary" :disabled="isReadOnly" @click="sendChat">전송</button>
               </div>
+              <p v-if="isReadOnly" class="chat-helper">방송 중에만 채팅을 이용할 수 있습니다.</p>
             </aside>
           </div>
         </div>
 
-        <div v-show="activePane === 'products'" id="products-pane" class="products-pane ds-surface">
+        <div v-if="!isStopRestricted" v-show="activePane === 'products'" id="products-pane" class="products-pane ds-surface" :class="{ 'products-pane--readonly': isReadOnly }">
           <header class="products-head">
             <div>
               <h4>상품 정보</h4>
@@ -687,7 +959,13 @@ watch(
             <span class="pill">총 {{ liveProducts.length }}개</span>
           </header>
           <div class="product-list">
-            <article v-for="product in sortedLiveProducts" :key="product.id" class="product-row">
+            <article
+              v-for="product in sortedLiveProducts"
+              :key="product.id"
+              class="product-row"
+              :class="{ 'product-row--pinned': product.isPinned, 'product-row--soldout': product.status === '품절' }"
+            >
+              <span v-if="product.isPinned" class="product-pin">PIN</span>
               <div class="product-thumb">
                 <img :src="product.thumb" :alt="product.name" loading="lazy" @error="handleImageError" />
               </div>
@@ -874,6 +1152,20 @@ watch(
   justify-content: center;
 }
 
+.player-frame__viewer {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: #000;
+}
+
+.player-frame__viewer :deep(video) {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
 .player-frame--fullscreen {
   max-height: none;
   max-width: none;
@@ -901,6 +1193,34 @@ watch(
   letter-spacing: 0.08em;
 }
 
+.player-placeholder {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  text-align: center;
+  background: rgba(6, 10, 18, 0.92);
+  z-index: 1;
+}
+
+.player-placeholder__image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.player-placeholder__message {
+  color: #ffffff;
+  font-weight: 900;
+  text-shadow: 0 3px 12px rgba(0, 0, 0, 0.45);
+  max-width: min(520px, 100%);
+  font-size: 1.35rem;
+}
+
 .player-overlay {
   position: absolute;
   top: 14px;
@@ -913,6 +1233,7 @@ watch(
   border-radius: 12px;
   font-weight: 800;
   font-size: 0.9rem;
+  z-index: 2;
 }
 
 .overlay-item {
@@ -942,6 +1263,7 @@ watch(
   flex-direction: column;
   gap: 10px;
   align-items: flex-end;
+  z-index: 2;
 }
 
 .icon-circle {
@@ -1337,6 +1659,17 @@ watch(
   border: 1px solid var(--border-color);
 }
 
+.products-pane--readonly {
+  opacity: 0.6;
+}
+
+.chat-helper {
+  margin: 8px 0 0;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
 .products-head {
   display: flex;
   align-items: center;
@@ -1376,6 +1709,28 @@ watch(
   padding: 12px;
   border-radius: 12px;
   border: 1px solid var(--border-color);
+  position: relative;
+}
+
+.product-row--pinned {
+  border-color: var(--primary-color);
+  box-shadow: 0 0 0 1px rgba(var(--primary-rgb), 0.2);
+}
+
+.product-row--soldout {
+  opacity: 0.65;
+}
+
+.product-pin {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(var(--primary-rgb), 0.12);
+  color: var(--primary-color);
+  font-size: 0.7rem;
+  font-weight: 700;
 }
 
 .product-thumb img {

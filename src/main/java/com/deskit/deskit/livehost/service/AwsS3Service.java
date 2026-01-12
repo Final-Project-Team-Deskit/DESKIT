@@ -143,6 +143,21 @@ public class AwsS3Service {
         }
     }
 
+    public void deleteObjectByUrl(String fileUrl) {
+        String key = extractKeyFromUrl(fileUrl);
+        if (key == null) {
+            return;
+        }
+        try {
+            if (amazonS3.doesObjectExist(bucket, key)) {
+                amazonS3.deleteObject(bucket, key);
+            }
+        } catch (Exception e) {
+            log.error("Failed to delete S3 object: {}", fileUrl, e);
+            throw new BusinessException(ErrorCode.FILE_DELETE_FAILED);
+        }
+    }
+
     private String extractKeyFromUrl(String fileUrl) {
         if (fileUrl == null || fileUrl.isBlank()) {
             return null;

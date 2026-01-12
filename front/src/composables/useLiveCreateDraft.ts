@@ -10,6 +10,7 @@ export type LiveCreateProduct = {
   broadcastPrice: number
   stock: number
   safetyStock: number
+  reservedBroadcastQty?: number
   quantity: number
   thumb?: string
 }

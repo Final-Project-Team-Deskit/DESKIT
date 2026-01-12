@@ -12,6 +12,7 @@ import {
   type BroadcastResult,
   updateSellerVodVisibility,
 } from '../../../lib/live/api'
+import { getBroadcastStatusLabel } from '../../../lib/broadcastStatus'
 
 const route = useRoute()
 const router = useRouter()
@@ -29,13 +30,15 @@ type SellerVodDetail = {
   stopReason?: string
   thumb: string
   metrics: {
+    totalViews: number
     maxViewers: number
+    maxViewerTime?: string
     reports: number
     sanctions: number
     likes: number
     totalRevenue: number
   }
-  vod: { url?: string; visibility: string }
+  vod: { url?: string; visibility: string; adminLock?: boolean }
   productResults: Array<{ id: string; name: string; price: number; soldQty: number; revenue: number }>
 }
 
@@ -43,9 +46,11 @@ const detail = ref<SellerVodDetail | null>(null)
 const isLoading = ref(false)
 const isVodPlayable = computed(() => !!detail.value?.vod?.url)
 const isVodPublic = computed(() => detail.value?.vod.visibility === '공개')
+const isVodVisibilityLocked = computed(() => detail.value?.vod.adminLock === true)
 const isPlaying = ref(false)
 const isFullscreen = ref(false)
 const showDeleteConfirm = ref(false)
+const statusLabel = computed(() => getBroadcastStatusLabel(detail.value?.statusLabel))
 
 const goBack = () => {
   router.back()
@@ -58,6 +63,10 @@ const goToList = () => {
 const toggleVisibility = async () => {
   if (!detail.value) return
   const nextStatus = detail.value.vod.visibility === '공개' ? 'PRIVATE' : 'PUBLIC'
+  if (isVodVisibilityLocked.value && nextStatus === 'PUBLIC') {
+    window.alert('관리자에 의해 비공개 처리된 VOD는 공개로 전환할 수 없습니다.')
+    return
+  }
   try {
     await updateSellerVodVisibility(Number(detail.value.id), nextStatus)
     const nextLabel = nextStatus === 'PUBLIC' ? '공개' : '비공개'
@@ -176,7 +185,9 @@ const buildDetail = (broadcast: BroadcastDetailResponse, report: BroadcastResult
   stopReason: report.stoppedReason ?? broadcast.stoppedReason ?? undefined,
   thumb: broadcast.thumbnailUrl ?? '',
   metrics: {
+    totalViews: report.totalViews ?? 0,
     maxViewers: report.maxViewers ?? 0,
+    maxViewerTime: formatDateTime(report.maxViewerTime),
     reports: report.reportCount ?? 0,
     sanctions: report.sanctionCount ?? 0,
     likes: report.totalLikes ?? 0,
@@ -185,6 +196,7 @@ const buildDetail = (broadcast: BroadcastDetailResponse, report: BroadcastResult
   vod: {
     url: report.vodUrl ?? undefined,
     visibility: formatVisibility(report.vodStatus),
+    adminLock: report.vodAdminLock ?? false,
   },
   productResults: (report.productStats ?? []).map((item) => ({
     id: String(item.productId),
@@ -246,7 +258,7 @@ watch(vodId, () => {
           <h3>{{ detail.title }}</h3>
           <p><span>방송 시작 시간</span>{{ detail.startedAt }}</p>
           <p><span>방송 종료 시간</span>{{ detail.endedAt }}</p>
-          <p><span>상태</span>{{ detail.statusLabel }}</p>
+          <p><span>상태</span>{{ statusLabel }}</p>
           <p v-if="detail.statusLabel === 'STOPPED' && detail.stopReason"><span>중지 사유</span>{{ detail.stopReason }}</p>
         </div>
       </div>
@@ -254,8 +266,13 @@ watch(vodId, () => {
 
     <section class="kpi-grid">
       <article class="kpi-card ds-surface">
-        <p class="kpi-label">최대 시청자 수</p>
+        <p class="kpi-label">누적 조회수</p>
+        <p class="kpi-value">{{ detail.metrics.totalViews.toLocaleString('ko-KR') }}회</p>
+      </article>
+      <article class="kpi-card ds-surface">
+        <p class="kpi-label">방송 중 최대 시청자 수</p>
         <p class="kpi-value">{{ detail.metrics.maxViewers.toLocaleString('ko-KR') }}</p>
+        <p v-if="detail.metrics.maxViewerTime" class="kpi-sub">{{ detail.metrics.maxViewerTime }} 기준</p>
       </article>
       <article class="kpi-card ds-surface">
         <p class="kpi-label">신고 건수</p>
@@ -288,7 +305,7 @@ watch(vodId, () => {
             </svg>
             <span class="visibility-label">비공개</span>
             <label class="vod-switch">
-              <input type="checkbox" :checked="isVodPublic" @change="toggleVisibility" />
+              <input type="checkbox" :checked="isVodPublic" :disabled="isVodVisibilityLocked" @change="toggleVisibility" />
               <span class="switch-track"><span class="switch-thumb"></span></span>
             </label>
             <span class="visibility-label">공개</span>
@@ -297,6 +314,7 @@ watch(vodId, () => {
               <circle cx="12" cy="12" r="3.5" />
             </svg>
           </div>
+          <p v-if="isVodVisibilityLocked" class="vod-lock-note">관리자에 의해 비공개 처리된 VOD는 공개로 전환할 수 없습니다.</p>
           <div class="vod-icon-actions">
             <button type="button" class="icon-pill" @click="handleDownload" title="다운로드">
               <svg aria-hidden="true" class="icon" viewBox="0 0 24 24" focusable="false">
@@ -551,7 +569,7 @@ watch(vodId, () => {
 
 .kpi-grid {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(6, minmax(0, 1fr));
   gap: 16px;
   margin-bottom: 16px;
 }
@@ -576,6 +594,13 @@ watch(vodId, () => {
   color: var(--text-strong);
   font-weight: 900;
   font-size: 1.2rem;
+}
+
+.kpi-sub {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  font-weight: 600;
 }
 
 .card-head {
@@ -608,6 +633,13 @@ watch(vodId, () => {
   border: 1px solid var(--border-color);
   border-radius: 999px;
   background: linear-gradient(135deg, rgba(15, 23, 42, 0.08), rgba(15, 23, 42, 0.02));
+}
+
+.vod-lock-note {
+  margin: 4px 0 0;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  font-weight: 600;
 }
 
 .vod-switch input {
@@ -645,6 +677,10 @@ watch(vodId, () => {
 
 .vod-switch input:checked + .switch-track .switch-thumb {
   transform: translateX(22px);
+}
+
+.vod-switch input:disabled + .switch-track {
+  opacity: 0.5;
 }
 
 .visibility-label {

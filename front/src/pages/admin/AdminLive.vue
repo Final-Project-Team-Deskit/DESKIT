@@ -5,12 +5,13 @@ import PageHeader from '../../components/PageHeader.vue'
 import {
   type BroadcastStatus,
   computeLifecycleStatus,
+  getBroadcastStatusLabel,
   getScheduledEndMs,
   normalizeBroadcastStatus,
 } from '../../lib/broadcastStatus'
 import {useInfiniteScroll} from '../../composables/useInfiniteScroll'
 import {parseLiveDate} from '../../lib/live/utils'
-import {type BroadcastCategory, fetchAdminBroadcasts, fetchCategories} from '../../lib/live/api'
+import {type BroadcastCategory, fetchAdminBroadcasts, fetchBroadcastStats, fetchCategories} from '../../lib/live/api'
 import { getAuthUser } from '../../lib/auth'
 import { resolveViewerId } from '../../lib/live/viewer'
 
@@ -23,6 +24,7 @@ type LiveItem = {
   subtitle?: string
   thumb: string
   datetime?: string
+  scheduledAt?: string
   statusBadge?: string
   viewerBadge?: string
   ctaLabel?: string
@@ -127,9 +129,9 @@ const slideWidths = ref<Record<LoopKind, number>>({
   vod: 0,
 })
 const loopIndex = ref<Record<LoopKind, number>>({
-  live: 1,
-  scheduled: 1,
-  vod: 1,
+  live: 0,
+  scheduled: 0,
+  vod: 0,
 })
 const loopTransition = ref<Record<LoopKind, boolean>>({
   live: true,
@@ -141,9 +143,15 @@ const autoTimers = ref<Record<LoopKind, number | null>>({
   scheduled: null,
   vod: null,
 })
+const loopEnabled = ref<Record<LoopKind, boolean>>({
+  live: false,
+  scheduled: false,
+  vod: false,
+})
 const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080'
 const sseSource = ref<EventSource | null>(null)
 const sseConnected = ref(false)
+const statsTimer = ref<number | null>(null)
 const sseRetryCount = ref(0)
 const sseRetryTimer = ref<number | null>(null)
 const refreshTimer = ref<number | null>(null)
@@ -152,8 +160,15 @@ const visibleLive = computed(() => activeTab.value === 'all' || activeTab.value 
 const visibleScheduled = computed(() => activeTab.value === 'all' || activeTab.value === 'scheduled')
 const visibleVod = computed(() => activeTab.value === 'all' || activeTab.value === 'vod')
 
-const setTab = (tab: LiveTab) => {
+const updateTabQuery = (tab: LiveTab, replace = true) => {
+  const query = { ...route.query, tab }
+  const action = replace ? router.replace : router.push
+  action({ query }).catch(() => {})
+}
+
+const setTab = (tab: LiveTab, replace = false) => {
   activeTab.value = tab
+  updateTabQuery(tab, replace)
 }
 
 const toDateMs = (raw: string | undefined) => {
@@ -207,8 +222,9 @@ const mapScheduledSortType = () => {
 }
 
 const mapScheduledStatusFilter = () => {
+  if (scheduledStatus.value === 'reserved') return 'RESERVED'
   if (scheduledStatus.value === 'canceled') return 'CANCELED'
-  return 'RESERVED'
+  return undefined
 }
 
 const mapVodSortType = () => {
@@ -231,12 +247,13 @@ const mapVodVisibility = () => {
 }
 
 const mapLiveItem = (item: any, kind: 'live' | 'scheduled' | 'vod'): LiveItem => {
-  const startAtMs = item.startAt ? toDateMs(item.startAt) : undefined
+  const startAtValue = item.startAt ?? item.scheduledAt
+  const startAtMs = startAtValue ? toDateMs(startAtValue) : undefined
   const endAtMs = item.endAt ? toDateMs(item.endAt) : getScheduledEndMs(startAtMs)
   const status = normalizeBroadcastStatus(item.status)
   const rawPublic = item.isPublic ?? item.public
   const visibility = typeof rawPublic === 'boolean' ? (rawPublic ? 'public' : 'private') : 'public'
-  const dateLabel = formatDateTime(item.startAt)
+  const dateLabel = formatDateTime(startAtValue)
   const datetime = kind === 'vod' ? (dateLabel ? `업로드: ${dateLabel}` : '') : dateLabel
   const liveViewerCount = typeof item.liveViewerCount === 'number' ? item.liveViewerCount : undefined
   const viewerBadge = liveViewerCount ? `${liveViewerCount}명 시청 중` : undefined
@@ -251,6 +268,7 @@ const mapLiveItem = (item: any, kind: 'live' | 'scheduled' | 'vod'): LiveItem =>
     sellerName: item.sellerName ?? '',
     status,
     startedAt: item.startAt,
+    scheduledAt: item.scheduledAt ?? item.startAt,
     viewers: toNumber(liveViewerCount ?? item.viewerCount),
     likes: toNumber(item.totalLikes),
     reports: toNumber(item.reportCount),
@@ -293,7 +311,7 @@ const mapVodItem = (item: any): AdminVodItem => {
 }
 
 const withLifecycleStatus = <T extends LiveItem>(item: T): T & { startAtMs?: number; endAtMs?: number; lifecycleStatus?: BroadcastStatus } => {
-  const startAtMs = item.startAtMs ?? item.startedAtMs ?? toDateMs(item.startedAt ?? item.datetime)
+  const startAtMs = item.startAtMs ?? item.startedAtMs ?? toDateMs(item.scheduledAt ?? item.startedAt ?? item.datetime)
   const endAtMs = getScheduledEndMs(startAtMs, item.endAtMs)
   const lifecycleStatus = computeLifecycleStatus({
     status: item.lifecycleStatus ?? item.status,
@@ -309,6 +327,7 @@ const withLifecycleStatus = <T extends LiveItem>(item: T): T & { startAtMs?: num
 }
 
 const getLifecycleStatus = (item: LiveItem): BroadcastStatus => normalizeBroadcastStatus(item.lifecycleStatus ?? item.status)
+const formatStatusLabel = (status?: BroadcastStatus | string | null) => getBroadcastStatusLabel(status)
 
 const isPastScheduledEnd = (item: LiveItem): boolean => {
   const endAtMs = getScheduledEndMs(item.startAtMs, item.endAtMs)
@@ -378,6 +397,7 @@ const handleSseEvent = (event: MessageEvent) => {
     case 'BROADCAST_UPDATED':
     case 'BROADCAST_STARTED':
     case 'PRODUCT_PINNED':
+    case 'PRODUCT_UNPINNED':
     case 'PRODUCT_SOLD_OUT':
     case 'SANCTION_UPDATED':
     case 'BROADCAST_CANCELED':
@@ -412,6 +432,7 @@ const connectSse = () => {
     'BROADCAST_UPDATED',
     'BROADCAST_STARTED',
     'PRODUCT_PINNED',
+    'PRODUCT_UNPINNED',
     'PRODUCT_SOLD_OUT',
     'SANCTION_UPDATED',
     'BROADCAST_CANCELED',
@@ -435,6 +456,64 @@ const connectSse = () => {
   sseSource.value = source
 }
 
+const startStatsPolling = () => {
+  if (statsTimer.value) window.clearInterval(statsTimer.value)
+  statsTimer.value = window.setInterval(() => {
+    if (document.visibilityState === 'visible') {
+      void updateLiveViewerCounts()
+    }
+  }, 5000)
+}
+
+const isStatsTarget = (item: LiveItem) => {
+  const status = normalizeBroadcastStatus(item.status)
+  if (status === 'ON_AIR' || status === 'READY') return true
+  const startAtMs = item.startAtMs
+  const endAtMs = item.endAtMs ?? getScheduledEndMs(startAtMs)
+  if (!startAtMs || !endAtMs) return false
+  const now = Date.now()
+  return now >= startAtMs && now <= endAtMs
+}
+
+const updateLiveViewerCounts = async () => {
+  const targets = [...liveItems.value, ...scheduledItems.value]
+    .filter((item) => isStatsTarget(item))
+    .filter((item, index, list) => list.findIndex((candidate) => candidate.id === item.id) === index)
+  if (!targets.length) return
+  const updates = await Promise.allSettled(
+    targets.map(async (item) => ({
+      id: item.id,
+      stats: await fetchBroadcastStats(Number(item.id)),
+    })),
+  )
+  const statsMap = new Map<string, { viewerCount: number; likeCount: number; reportCount: number }>()
+  updates.forEach((result) => {
+    if (result.status === 'fulfilled') {
+      statsMap.set(result.value.id, {
+        viewerCount: result.value.stats.viewerCount ?? 0,
+        likeCount: result.value.stats.likeCount ?? 0,
+        reportCount: result.value.stats.reportCount ?? 0,
+      })
+    }
+  })
+  if (!statsMap.size) return
+  const applyStats = (items: LiveItem[]) =>
+    items.map((item) => {
+      const stats = statsMap.get(item.id)
+      if (!stats) return item
+      const viewers = stats.viewerCount ?? item.viewers ?? 0
+      return {
+        ...item,
+        viewers,
+        viewerBadge: `${viewers}명 시청 중`,
+        likes: stats.likeCount ?? item.likes ?? 0,
+        reports: stats.reportCount ?? item.reports ?? 0,
+      }
+    })
+  liveItems.value = applyStats(liveItems.value)
+  scheduledItems.value = applyStats(scheduledItems.value)
+}
+
 const loadCategories = async () => {
   try {
     categories.value = await fetchCategories()
@@ -449,7 +528,7 @@ const vodItemsWithStatus = computed(() => vodItems.value.map(withLifecycleStatus
 
 const liveDisplayItems = computed(() => {
   const byId = new Map<string, LiveItem>()
-  ;[...liveItemsWithStatus.value, ...scheduledItemsWithStatus.value].forEach((item) => {
+  ;[...scheduledItemsWithStatus.value, ...liveItemsWithStatus.value].forEach((item) => {
     const status = getLifecycleStatus(item)
     if (!LIVE_SECTION_STATUSES.includes(status)) return
     if (status === 'STOPPED' && isPastScheduledEnd(item)) return
@@ -521,7 +600,8 @@ const filteredScheduled = computed(() => {
     })
 
   if (scheduledStatus.value === 'canceled') return sortScheduled(canceled)
-  return sortScheduled(reserved)
+  if (scheduledStatus.value === 'reserved') return sortScheduled(reserved)
+  return [...sortScheduled(reserved), ...sortScheduled(canceled)]
 })
 
 const filteredVods = computed(() => {
@@ -610,34 +690,29 @@ const vodSummary = computed<AdminVodItem[]>(() =>
     .slice(0, 5),
 )
 
-const buildLoopItems = <T>(items: T[]): T[] => {
+const buildLoopItems = <T>(items: T[], enableLoop: boolean): T[] => {
   if (!items.length) return []
-  if (items.length === 1) {
-    const single = items[0]!
-    return [single, single, single]
-  }
-  const first = items[0]!
-  const last = items[items.length - 1]!
-  return [last, ...items, first]
+  if (!enableLoop || items.length === 1) return items
+  return items
 }
 
-const liveLoopItems = computed<LiveItem[]>(() => buildLoopItems(liveSummary.value))
-const scheduledLoopItems = computed<ReservationItem[]>(() => buildLoopItems(scheduledSummary.value))
-const vodLoopItems = computed<AdminVodItem[]>(() => buildLoopItems(vodSummary.value))
+const liveLoopItems = computed<LiveItem[]>(() => buildLoopItems(liveSummary.value, loopEnabled.value.live))
+const scheduledLoopItems = computed<ReservationItem[]>(() => buildLoopItems(scheduledSummary.value, loopEnabled.value.scheduled))
+const vodLoopItems = computed<AdminVodItem[]>(() => buildLoopItems(vodSummary.value, loopEnabled.value.vod))
 
 const openReservationDetail = (id: string) => {
   if (!id) return
-  router.push(`/admin/live/reservations/${id}`).catch(() => {})
+  router.push({ path: `/admin/live/reservations/${id}`, query: { tab: activeTab.value } }).catch(() => {})
 }
 
 const openLiveDetail = (id: string) => {
   if (!id) return
-  router.push(`/admin/live/now/${id}`).catch(() => {})
+  router.push({ path: `/admin/live/now/${id}`, query: { tab: activeTab.value } }).catch(() => {})
 }
 
 const openVodDetail = (id: string) => {
   if (!id) return
-  router.push(`/admin/live/vods/${id}`).catch(() => {})
+  router.push({ path: `/admin/live/vods/${id}`, query: { tab: activeTab.value } }).catch(() => {})
 }
 
 const formatDDay = (item: { startAtMs?: number }) => {
@@ -656,7 +731,9 @@ const refreshTabFromQuery = () => {
   const tab = route.query.tab
   if (tab === 'scheduled' || tab === 'live' || tab === 'vod' || tab === 'all') {
     activeTab.value = tab
+    return
   }
+  setTab('all', true)
 }
 
 const setCarouselRef = (kind: LoopKind) => (el: Element | ComponentPublicInstance | null) => {
@@ -669,6 +746,19 @@ const updateSlideWidth = (kind: LoopKind) => {
   if (!root) return
   const card = root.querySelector<HTMLElement>('.live-card')
   slideWidths.value[kind] = card?.offsetWidth ?? 280
+}
+
+const isCarouselOverflowing = (kind: LoopKind) => {
+  const root = carouselRefs.value[kind]
+  if (!root) return false
+  const viewport = root.parentElement
+  if (!viewport || viewport.clientWidth === 0) return false
+  const itemCount = baseItemsFor(kind).length
+  if (itemCount <= 1) return false
+  const cardWidth = slideWidths.value[kind] || root.querySelector<HTMLElement>('.live-card')?.offsetWidth || 0
+  if (!cardWidth) return false
+  const totalWidth = (cardWidth * itemCount) + (loopGap * (itemCount - 1))
+  return totalWidth > viewport.clientWidth
 }
 
 const getTrackStyle = (kind: LoopKind) => {
@@ -692,45 +782,71 @@ const baseItemsFor = (kind: LoopKind) => {
   return vodSummary.value
 }
 
-const handleLoopTransitionEnd = (kind: LoopKind) => {
+const getBaseLoopIndex = (kind: LoopKind) => {
   const items = loopItemsFor(kind)
-  if (!items.length) return
-  const lastIndex = items.length - 1
-  if (loopIndex.value[kind] === lastIndex) {
-    loopTransition.value[kind] = false
-    loopIndex.value[kind] = 1
-    requestAnimationFrame(() => {
-      loopTransition.value[kind] = true
-    })
-  } else if (loopIndex.value[kind] === 0) {
-    loopTransition.value[kind] = false
-    loopIndex.value[kind] = lastIndex - 1
-    requestAnimationFrame(() => {
-      loopTransition.value[kind] = true
-    })
-  }
+  if (!items.length) return 0
+  return 0
+}
+
+const handleLoopTransitionEnd = (kind: LoopKind) => {
+  if (!loopEnabled.value[kind]) return
+  if (!isCarouselOverflowing(kind)) return
 }
 
 const stepCarousel = (kind: LoopKind, delta: -1 | 1) => {
   const items = loopItemsFor(kind)
   if (items.length <= 1) return
-  const lastIndex = items.length - 1
-  loopTransition.value[kind] = true
-  const nextIndex = loopIndex.value[kind] + delta
-  if (nextIndex > lastIndex) {
-    loopIndex.value[kind] = lastIndex
-  } else if (nextIndex < 0) {
-    loopIndex.value[kind] = 0
-  } else {
+  if (!loopEnabled.value[kind]) {
+    const nextIndex = Math.min(Math.max(loopIndex.value[kind] + delta, 0), items.length - 1)
+    loopTransition.value[kind] = true
     loopIndex.value[kind] = nextIndex
+    return
   }
+  if (!isCarouselOverflowing(kind)) {
+    loopIndex.value[kind] = getBaseLoopIndex(kind)
+    return
+  }
+  const nextIndex = loopIndex.value[kind] + delta
+  const lastIndex = items.length - 1
+  if (nextIndex > lastIndex) {
+    loopTransition.value[kind] = false
+    loopIndex.value[kind] = 0
+    requestAnimationFrame(() => {
+      loopTransition.value[kind] = true
+    })
+    restartAutoLoop(kind)
+    return
+  }
+  if (nextIndex < 0) {
+    loopTransition.value[kind] = false
+    loopIndex.value[kind] = lastIndex
+    requestAnimationFrame(() => {
+      loopTransition.value[kind] = true
+    })
+    restartAutoLoop(kind)
+    return
+  }
+  loopTransition.value[kind] = true
+  loopIndex.value[kind] = nextIndex
   restartAutoLoop(kind)
 }
 
 const startAutoLoop = (kind: LoopKind) => {
   stopAutoLoop(kind)
-  if (baseItemsFor(kind).length <= 1) return
+  if (!loopEnabled.value[kind]) {
+    loopIndex.value[kind] = getBaseLoopIndex(kind)
+    return
+  }
+  if (!isCarouselOverflowing(kind)) {
+    loopIndex.value[kind] = getBaseLoopIndex(kind)
+    return
+  }
   autoTimers.value[kind] = window.setInterval(() => {
+    if (!isCarouselOverflowing(kind)) {
+      stopAutoLoop(kind)
+      loopIndex.value[kind] = getBaseLoopIndex(kind)
+      return
+    }
     stepCarousel(kind, 1)
   }, 3200)
 }
@@ -747,11 +863,16 @@ const restartAutoLoop = (kind: LoopKind) => {
 }
 
 const resetLoop = (kind: LoopKind) => {
-  loopIndex.value[kind] = loopItemsFor(kind).length > 1 ? 1 : 0
+  loopIndex.value[kind] = getBaseLoopIndex(kind)
   loopTransition.value[kind] = true
   nextTick(() => {
     updateSlideWidth(kind)
-    startAutoLoop(kind)
+    if (loopEnabled.value[kind] && isCarouselOverflowing(kind)) {
+      startAutoLoop(kind)
+    } else {
+      stopAutoLoop(kind)
+      loopIndex.value[kind] = getBaseLoopIndex(kind)
+    }
   })
 }
 
@@ -761,15 +882,36 @@ const resetAllLoops = () => {
   resetLoop('vod')
 }
 
+const updateLoopEnabled = () => {
+  const enable = activeTab.value === 'all'
+  loopEnabled.value = {
+    live: enable,
+    scheduled: enable,
+    vod: enable,
+  }
+}
+
 const handleResize = () => {
   updateSlideWidth('live')
   updateSlideWidth('scheduled')
   updateSlideWidth('vod')
+  restartAutoLoop('live')
+  restartAutoLoop('scheduled')
+  restartAutoLoop('vod')
 }
 
 watch(
   () => route.query.tab,
   () => refreshTabFromQuery(),
+)
+
+watch(
+  () => activeTab.value,
+  () => {
+    updateLoopEnabled()
+    resetAllLoops()
+  },
+  { immediate: true },
 )
 
 watch([liveCategory, liveSort], () => {
@@ -811,6 +953,7 @@ onMounted(() => {
   void loadCategories()
   loadAdminData()
   connectSse()
+  startStatsPolling()
   nextTick(() => {
     resetAllLoops()
     handleResize()
@@ -827,6 +970,8 @@ onBeforeUnmount(() => {
   sseRetryTimer.value = null
   if (refreshTimer.value) window.clearTimeout(refreshTimer.value)
   refreshTimer.value = null
+  if (statsTimer.value) window.clearInterval(statsTimer.value)
+  statsTimer.value = null
   sseSource.value?.close()
 })
 </script>
@@ -924,7 +1069,7 @@ onBeforeUnmount(() => {
             <div class="live-thumb">
               <img class="live-thumb__img" :src="item.thumb" :alt="item.title" loading="lazy" @error="handleImageError" />
               <div class="live-badges">
-                <span class="badge badge--live">{{ getLifecycleStatus(item) }}</span>
+                <span class="badge badge--live">{{ formatStatusLabel(getLifecycleStatus(item)) }}</span>
                 <span class="badge badge--viewer">시청자 {{ item.viewers }}명</span>
               </div>
             </div>
@@ -978,7 +1123,7 @@ onBeforeUnmount(() => {
                 <div class="live-thumb">
                   <img class="live-thumb__img" :src="item.thumb" :alt="item.title" loading="lazy" @error="handleImageError" />
                   <div class="live-badges">
-                    <span class="badge badge--live">{{ getLifecycleStatus(item) }}</span>
+                    <span class="badge badge--live">{{ formatStatusLabel(getLifecycleStatus(item)) }}</span>
                     <span class="badge badge--viewer">시청자 {{ item.viewers }}명</span>
                   </div>
                 </div>
@@ -1076,7 +1221,7 @@ onBeforeUnmount(() => {
                     class="badge badge--scheduled"
                     :class="{ 'badge--cancelled': getLifecycleStatus(item) === 'CANCELED' }"
                   >
-                    {{ getLifecycleStatus(item) }}
+                    {{ formatStatusLabel(getLifecycleStatus(item)) }}
                   </span>
                   <span class="badge badge--viewer">{{ formatDDay(item) }}</span>
                 </div>
@@ -1135,7 +1280,7 @@ onBeforeUnmount(() => {
                       class="badge badge--scheduled"
                       :class="{ 'badge--cancelled': getLifecycleStatus(item) === 'CANCELED' }"
                     >
-                      {{ getLifecycleStatus(item) }}
+                      {{ formatStatusLabel(getLifecycleStatus(item)) }}
                     </span>
                     <span class="badge badge--viewer">{{ formatDDay(item) }}</span>
                   </div>

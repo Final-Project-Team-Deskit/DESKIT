@@ -20,6 +20,7 @@ public class AdminService {
     private final RedisService redisService;
     private final SseService sseService;
     private final SanctionService sanctionService;
+    private final BroadcastService broadcastService;
 
     @Transactional(readOnly = true)
     public SanctionStatisticsResponse getSanctionStatistics(String period) {
@@ -48,6 +49,7 @@ public class AdminService {
             validateTransition(broadcast.getStatus(), BroadcastStatus.STOPPED);
             broadcast.forceStopByAdmin(reason);
 
+            broadcastService.saveBroadcastResultSnapshot(broadcast);
             openViduService.closeSession(broadcastId);
             redisService.deleteBroadcastKeys(broadcastId);
             sseService.notifyBroadcastUpdate(broadcastId, "BROADCAST_STOPPED", reason);
@@ -66,7 +68,7 @@ public class AdminService {
             Broadcast broadcast = broadcastRepository.findById(broadcastId)
                     .orElseThrow(() -> new BusinessException(ErrorCode.BROADCAST_NOT_FOUND));
 
-            if (broadcast.getStatus() != BroadcastStatus.RESERVED && broadcast.getStatus() != BroadcastStatus.READY) {
+            if (broadcast.getStatus() != BroadcastStatus.RESERVED) {
                 throw new BusinessException(ErrorCode.INVALID_INPUT_VALUE);
             }
 
@@ -76,6 +78,7 @@ public class AdminService {
 
             validateTransition(broadcast.getStatus(), BroadcastStatus.CANCELED);
             broadcast.cancelBroadcast(reason);
+            sseService.notifyBroadcastUpdate(broadcastId, "BROADCAST_CANCELED", reason);
         } finally {
             redisService.releaseLock(lockKey);
         }

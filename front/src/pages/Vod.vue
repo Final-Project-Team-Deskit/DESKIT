@@ -6,8 +6,17 @@ import PageHeader from '../components/PageHeader.vue'
 import { getLiveStatus, parseLiveDate } from '../lib/live/utils'
 import { getScheduledEndMs } from '../lib/broadcastStatus'
 import { useNow } from '../lib/live/useNow'
-import { fetchBroadcastProducts, fetchPublicBroadcastDetail, type BroadcastProductItem } from '../lib/live/api'
+import {
+  fetchBroadcastProducts,
+  fetchPublicBroadcastDetail,
+  recordVodView,
+  reportBroadcast,
+  toggleBroadcastLike,
+  type BroadcastProductItem,
+} from '../lib/live/api'
 import type { LiveItem } from '../lib/live/types'
+import { getAuthUser } from '../lib/auth'
+import { resolveViewerId } from '../lib/live/viewer'
 
 const route = useRoute()
 const router = useRouter()
@@ -56,21 +65,59 @@ const handleImageError = (event: Event) => {
   target.src = FALLBACK_IMAGE
 }
 
-const playerPanelRef = ref<HTMLElement | null>(null)
-const chatPanelRef = ref<HTMLElement | null>(null)
-const playerHeight = ref<number | null>(null)
-let panelResizeObserver: ResizeObserver | null = null
 
 const showChat = ref(true)
 const isFullscreen = ref(false)
 const stageRef = ref<HTMLElement | null>(null)
 const isLiked = ref(false)
+const likeCount = ref(0)
+const likeInFlight = ref(false)
+const reportInFlight = ref(false)
+const hasReported = ref(false)
 const isSettingsOpen = ref(false)
 const settingsButtonRef = ref<HTMLElement | null>(null)
 const settingsPanelRef = ref<HTMLElement | null>(null)
 
-const toggleLike = () => {
-  isLiked.value = !isLiked.value
+const isLoggedIn = computed(() => Boolean(getAuthUser()))
+
+const requireMemberAction = () => {
+  if (!isLoggedIn.value) {
+    alert('회원만 이용할 수 있습니다.')
+    return false
+  }
+  return true
+}
+
+const toggleLike = async () => {
+  if (!vodItem.value || likeInFlight.value || !requireMemberAction()) return
+  likeInFlight.value = true
+  try {
+    const result = await toggleBroadcastLike(Number(vodItem.value.id))
+    isLiked.value = result.liked
+    likeCount.value = result.likeCount
+  } catch {
+    return
+  } finally {
+    likeInFlight.value = false
+  }
+}
+
+const submitReport = async () => {
+  if (!vodItem.value || reportInFlight.value || !requireMemberAction()) return
+  reportInFlight.value = true
+  try {
+    const result = await reportBroadcast(Number(vodItem.value.id))
+    hasReported.value = hasReported.value || result.reported
+    if (result.reported) {
+      alert('신고가 접수되었습니다.')
+    } else {
+      alert('이미 신고한 VOD입니다.')
+    }
+  } catch {
+    return
+  } finally {
+    reportInFlight.value = false
+  }
 }
 
 const toggleChat = () => {
@@ -97,12 +144,6 @@ const toggleFullscreen = async () => {
   }
 }
 
-const syncChatHeight = () => {
-  if (!playerPanelRef.value) {
-    return
-  }
-  playerHeight.value = playerPanelRef.value.getBoundingClientRect().height
-}
 
 const products = ref<BroadcastProductItem[]>([])
 
@@ -129,7 +170,7 @@ const scheduledLabel = computed(() => {
   return `${month}.${date} (${day}) ${hours}:${minutes} 예정`
 })
 
-const buildVodItem = (detail: { broadcastId: number; title: string; notice?: string; thumbnailUrl?: string; scheduledAt?: string; startedAt?: string; sellerName?: string }) => {
+const buildVodItem = (detail: { broadcastId: number; title: string; notice?: string; thumbnailUrl?: string; scheduledAt?: string; startedAt?: string; sellerName?: string; vodUrl?: string }) => {
   const startAt = detail.startedAt ?? detail.scheduledAt ?? ''
   const startAtMs = startAt ? parseLiveDate(startAt).getTime() : NaN
   const endAtMs = Number.isNaN(startAtMs) ? undefined : getScheduledEndMs(startAtMs)
@@ -141,6 +182,7 @@ const buildVodItem = (detail: { broadcastId: number; title: string; notice?: str
     thumbnailUrl: detail.thumbnailUrl ?? '',
     startAt,
     endAt,
+    vodUrl: detail.vodUrl ?? '',
     sellerName: detail.sellerName ?? '',
   }
 }
@@ -155,7 +197,12 @@ const loadVodDetail = async () => {
   try {
     const detail = await fetchPublicBroadcastDetail(numeric)
     vodItem.value = buildVodItem(detail)
+    likeCount.value = detail.totalLikes ?? 0
+    isLiked.value = false
+    hasReported.value = false
     await loadProducts(numeric)
+    const viewerId = resolveViewerId(getAuthUser())
+    void recordVodView(numeric, viewerId)
   } catch {
     vodItem.value = null
   }
@@ -231,18 +278,6 @@ onMounted(() => {
   scrollChatToBottom()
 })
 
-onMounted(() => {
-  panelResizeObserver = new ResizeObserver(() => {
-    syncChatHeight()
-  })
-  if (playerPanelRef.value) {
-    panelResizeObserver.observe(playerPanelRef.value)
-  }
-  nextTick(() => {
-    syncChatHeight()
-  })
-})
-
 const handleDocumentClick = (event: MouseEvent) => {
   if (!isSettingsOpen.value) {
     return
@@ -271,10 +306,6 @@ const handleFullscreenChange = () => {
 }
 
 onBeforeUnmount(() => {
-  if (panelResizeObserver && playerPanelRef.value) {
-    panelResizeObserver.unobserve(playerPanelRef.value)
-  }
-  panelResizeObserver?.disconnect()
   document.removeEventListener('click', handleDocumentClick)
   document.removeEventListener('keydown', handleDocumentKeydown)
   document.removeEventListener('fullscreenchange', handleFullscreenChange)
@@ -309,7 +340,7 @@ watch(showChat, (visible) => {
           gridTemplateColumns: showChat ? 'minmax(0, 1.6fr) minmax(0, 0.95fr)' : 'minmax(0, 1fr)',
         }"
       >
-        <section ref="playerPanelRef" class="panel panel--player">
+        <section class="panel panel--player live-detail-main__primary">
           <div class="player-meta">
             <div class="status-row">
               <span class="status-badge" :class="statusBadgeClass">{{ statusLabel }}</span>
@@ -341,28 +372,47 @@ watch(showChat, (visible) => {
             <video v-else class="player-video" :src="vodItem.vodUrl" controls />
 
             <div class="player-actions">
-              <button
-                type="button"
-                class="icon-circle"
-                :class="{ active: isLiked }"
-                aria-label="좋아요"
-                @click="toggleLike"
-              >
-                <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
-                  <path
-                    v-if="isLiked"
-                    d="M12.1 21.35l-1.1-1.02C5.14 15.24 2 12.39 2 8.99 2 6.42 4.02 4.5 6.58 4.5c1.54 0 3.04.74 3.92 1.91C11.38 5.24 12.88 4.5 14.42 4.5 16.98 4.5 19 6.42 19 8.99c0 3.4-3.14 6.25-8.9 11.34l-1.1 1.02z"
-                    fill="currentColor"
-                  />
-                  <path
-                    v-else
-                    d="M12.1 21.35l-1.1-1.02C5.14 15.24 2 12.39 2 8.99 2 6.42 4.02 4.5 6.58 4.5c1.54 0 3.04.74 3.92 1.91C11.38 5.24 12.88 4.5 14.42 4.5 16.98 4.5 19 6.42 19 8.99c0 3.4-3.14 6.25-8.9 11.34l-1.1 1.02z"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="1.8"
-                  />
-                </svg>
-              </button>
+              <div class="icon-action">
+                <button
+                  type="button"
+                  class="icon-circle"
+                  :class="{ active: isLiked }"
+                  aria-label="좋아요"
+                  :disabled="likeInFlight"
+                  @click="toggleLike"
+                >
+                  <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+                    <path
+                      v-if="isLiked"
+                      d="M12.1 21.35l-1.1-1.02C5.14 15.24 2 12.39 2 8.99 2 6.42 4.02 4.5 6.58 4.5c1.54 0 3.04.74 3.92 1.91C11.38 5.24 12.88 4.5 14.42 4.5 16.98 4.5 19 6.42 19 8.99c0 3.4-3.14 6.25-8.9 11.34l-1.1 1.02z"
+                      fill="currentColor"
+                    />
+                    <path
+                      v-else
+                      d="M12.1 21.35l-1.1-1.02C5.14 15.24 2 12.39 2 8.99 2 6.42 4.02 4.5 6.58 4.5c1.54 0 3.04.74 3.92 1.91C11.38 5.24 12.88 4.5 14.42 4.5 16.98 4.5 19 6.42 19 8.99c0 3.4-3.14 6.25-8.9 11.34l-1.1 1.02z"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="1.8"
+                    />
+                  </svg>
+                </button>
+                <span class="icon-count">{{ likeCount.toLocaleString('ko-KR') }}</span>
+              </div>
+              <div class="icon-action">
+                <button
+                  type="button"
+                  class="icon-circle"
+                  aria-label="신고하기"
+                  :disabled="reportInFlight || hasReported"
+                  @click="submitReport"
+                >
+                  <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M6 3v18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
+                    <path d="M6 4h11l-2 4 2 4H6z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" />
+                  </svg>
+                </button>
+                <span class="icon-label">신고</span>
+              </div>
               <button
                 type="button"
                 class="icon-circle"
@@ -430,12 +480,7 @@ watch(showChat, (visible) => {
           </div>
         </section>
 
-        <aside
-          v-if="showChat"
-          ref="chatPanelRef"
-          class="chat-panel ds-surface"
-        :style="{ height: playerHeight ? `${playerHeight}px` : undefined }"
-        >
+        <aside v-if="showChat" class="chat-panel ds-surface">
           <header class="chat-head">
             <h4>채팅 기록</h4>
             <button type="button" class="chat-close" aria-label="채팅 닫기" @click="toggleChat">×</button>
@@ -508,6 +553,10 @@ watch(showChat, (visible) => {
   grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr);
   gap: 18px;
   align-items: start;
+}
+
+.live-detail-main__primary {
+  height: 100%;
 }
 
 .panel {
@@ -772,6 +821,19 @@ watch(showChat, (visible) => {
   z-index: 3;
 }
 
+.icon-action {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #fff;
+  font-weight: 700;
+}
+
+.icon-count,
+.icon-label {
+  font-size: 0.85rem;
+}
+
 .player-settings {
   position: relative;
   display: flex;
@@ -867,6 +929,7 @@ watch(showChat, (visible) => {
   max-width: 100%;
   display: flex;
   flex-direction: column;
+  align-self: stretch;
   border-radius: 16px;
   padding: 12px;
   gap: 10px;

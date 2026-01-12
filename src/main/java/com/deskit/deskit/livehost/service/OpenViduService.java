@@ -1,11 +1,24 @@
 package com.deskit.deskit.livehost.service;
 
-import io.openvidu.java.client.*;
+import io.openvidu.java.client.Connection;
+import io.openvidu.java.client.ConnectionProperties;
+import io.openvidu.java.client.ConnectionType;
+import io.openvidu.java.client.OpenVidu;
+import io.openvidu.java.client.OpenViduHttpException;
+import io.openvidu.java.client.OpenViduJavaClientException;
+import io.openvidu.java.client.OpenViduRole;
+import io.openvidu.java.client.Recording;
+import io.openvidu.java.client.RecordingMode;
+import io.openvidu.java.client.RecordingProperties;
+import io.openvidu.java.client.Session;
+import io.openvidu.java.client.SessionProperties;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
+import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 
 @Slf4j
@@ -74,7 +87,22 @@ public class OpenViduService {
     }
 
     public void startRecording(Long broadcastId) throws OpenViduJavaClientException, OpenViduHttpException {
-        openVidu.startRecording(sessionMap.get(broadcastId));
+        String sessionId = sessionMap.get(broadcastId);
+        if (sessionId == null) {
+            sessionId = createSession(broadcastId);
+        }
+
+        Optional<Recording> existing = findRecordingBySessionId(sessionId);
+        if (existing.isPresent()) {
+            String status = String.valueOf(existing.get().getStatus()).toLowerCase();
+            if ("starting".equals(status) || "started".equals(status)) {
+                log.info("OpenVidu recording already active: broadcastId={}, sessionId={}, status={}",
+                        broadcastId, sessionId, status);
+                return;
+            }
+        }
+
+        openVidu.startRecording(sessionId);
     }
 
     public void stopRecording(Long broadcastId) throws OpenViduJavaClientException, OpenViduHttpException {
@@ -97,6 +125,17 @@ public class OpenViduService {
                 log.error("세션 종료 중 오류: {}", e.getMessage());
             }
         }
+    }
+
+    public Optional<Recording> findRecordingBySessionId(String sessionId)
+            throws OpenViduJavaClientException, OpenViduHttpException {
+        List<Recording> recordings = openVidu.listRecordings();
+        if (recordings == null || recordings.isEmpty()) {
+            return Optional.empty();
+        }
+        return recordings.stream()
+                .filter(recording -> sessionId.equals(recording.getSessionId()))
+                .findFirst();
     }
 
     public void forceDisconnect(Long broadcastId, String connectionId) {
