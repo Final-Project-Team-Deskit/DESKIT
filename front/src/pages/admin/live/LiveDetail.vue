@@ -1291,7 +1291,6 @@ watch(
   width: min(100%, calc((100vh - 120px) * (16 / 9)));
   height: auto;
   max-height: calc(100vh - 120px);
-  min-height: clamp(360px, auto, 760px);
   aspect-ratio: 16 / 9;
   background: #0b0f1a;
   border-radius: 18px;

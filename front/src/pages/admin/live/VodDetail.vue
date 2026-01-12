@@ -672,20 +672,24 @@ watch(vodId, () => {
 
 .player-frame {
   position: relative;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 16 / 9;
   border-radius: 14px;
   overflow: hidden;
   background: #000;
-  min-height: 320px;
+  display: grid;
+  place-items: center;
 }
 
 .player-frame video {
   width: 100%;
   height: 100%;
   display: block;
+  object-fit: contain;
 }
 
 .vod-placeholder {
-  min-height: 320px;
   display: flex;
   align-items: center;
   justify-content: center;
