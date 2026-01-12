@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, ref, watch, watchEffect } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import PageContainer from '../components/PageContainer.vue'
 import PageHeader from '../components/PageHeader.vue'
@@ -273,11 +273,20 @@ onMounted(() => {
   }, 30000)
 })
 
-onBeforeUnmount(() => {
-  if (refreshTimerId.value !== null) {
-    window.clearInterval(refreshTimerId.value)
-    refreshTimerId.value = null
+watchEffect((onCleanup) => {
+  if (redirectPending.value) {
+    return
   }
+  const id = window.setInterval(() => {
+    void loadVodDetail()
+  }, 30000)
+  refreshTimerId.value = id
+  onCleanup(() => {
+    window.clearInterval(id)
+    if (refreshTimerId.value === id) {
+      refreshTimerId.value = null
+    }
+  })
 })
 
 watch(redirectPending, async (next) => {
@@ -352,61 +361,61 @@ watch(showChat, (visible) => {
               controlslist="nodownload"
               @contextmenu.prevent
             />
-          </div>
-          <div class="player-footer">
-            <div class="player-reactions">
-              <button
-                type="button"
-                class="icon-circle"
-                :class="{ active: showChat }"
-                aria-label="채팅 패널 토글"
-                @click="toggleChat"
-              >
-                <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
-                  <path d="M3 20l1.62-3.24A2 2 0 0 1 6.42 16H20a1 1 0 0 0 1-1V5a1 1 0 0 0-1-1H4a1 1 0 0 0-1 1v15z" fill="none" stroke="currentColor" stroke-width="1.8" />
-                  <path d="M7 9h10M7 12h6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
-                </svg>
-              </button>
-              <div class="icon-action">
+            <div class="player-actions">
+              <div class="player-reactions">
                 <button
                   type="button"
                   class="icon-circle"
-                  :class="{ active: isLiked }"
-                  aria-label="좋아요"
-                  :disabled="likeInFlight"
-                  @click="toggleLike"
+                  :class="{ active: showChat }"
+                  aria-label="채팅 패널 토글"
+                  @click="toggleChat"
                 >
                   <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
-                    <path
-                      v-if="isLiked"
-                      d="M12.1 21.35l-1.1-1.02C5.14 15.24 2 12.39 2 8.99 2 6.42 4.02 4.5 6.58 4.5c1.54 0 3.04.74 3.92 1.91C11.38 5.24 12.88 4.5 14.42 4.5 16.98 4.5 19 6.42 19 8.99c0 3.4-3.14 6.25-8.9 11.34l-1.1 1.02z"
-                      fill="currentColor"
-                    />
-                    <path
-                      v-else
-                      d="M12.1 21.35l-1.1-1.02C5.14 15.24 2 12.39 2 8.99 2 6.42 4.02 4.5 6.58 4.5c1.54 0 3.04.74 3.92 1.91C11.38 5.24 12.88 4.5 14.42 4.5 16.98 4.5 19 6.42 19 8.99c0 3.4-3.14 6.25-8.9 11.34l-1.1 1.02z"
-                      fill="none"
-                      stroke="currentColor"
-                      stroke-width="1.8"
-                    />
+                    <path d="M3 20l1.62-3.24A2 2 0 0 1 6.42 16H20a1 1 0 0 0 1-1V5a1 1 0 0 0-1-1H4a1 1 0 0 0-1 1v15z" fill="none" stroke="currentColor" stroke-width="1.8" />
+                    <path d="M7 9h10M7 12h6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
                   </svg>
                 </button>
-                <span class="icon-text">{{ likeCount.toLocaleString('ko-KR') }}</span>
-              </div>
-              <div class="icon-action">
-                <button
-                  type="button"
-                  class="icon-circle"
-                  aria-label="신고하기"
-                  :disabled="reportInFlight || hasReported"
-                  @click="submitReport"
-                >
-                  <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
-                    <path d="M6 3v18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
-                    <path d="M6 4h11l-2 4 2 4H6z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" />
-                  </svg>
-                </button>
-                <span class="icon-text">신고</span>
+                <div class="icon-action">
+                  <button
+                    type="button"
+                    class="icon-circle"
+                    :class="{ active: isLiked }"
+                    aria-label="좋아요"
+                    :disabled="likeInFlight"
+                    @click="toggleLike"
+                  >
+                    <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+                      <path
+                        v-if="isLiked"
+                        d="M12.1 21.35l-1.1-1.02C5.14 15.24 2 12.39 2 8.99 2 6.42 4.02 4.5 6.58 4.5c1.54 0 3.04.74 3.92 1.91C11.38 5.24 12.88 4.5 14.42 4.5 16.98 4.5 19 6.42 19 8.99c0 3.4-3.14 6.25-8.9 11.34l-1.1 1.02z"
+                        fill="currentColor"
+                      />
+                      <path
+                        v-else
+                        d="M12.1 21.35l-1.1-1.02C5.14 15.24 2 12.39 2 8.99 2 6.42 4.02 4.5 6.58 4.5c1.54 0 3.04.74 3.92 1.91C11.38 5.24 12.88 4.5 14.42 4.5 16.98 4.5 19 6.42 19 8.99c0 3.4-3.14 6.25-8.9 11.34l-1.1 1.02z"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="1.8"
+                      />
+                    </svg>
+                  </button>
+                  <span class="icon-text">{{ likeCount.toLocaleString('ko-KR') }}</span>
+                </div>
+                <div class="icon-action">
+                  <button
+                    type="button"
+                    class="icon-circle"
+                    aria-label="신고하기"
+                    :disabled="reportInFlight || hasReported"
+                    @click="submitReport"
+                  >
+                    <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+                      <path d="M6 3v18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
+                      <path d="M6 4h11l-2 4 2 4H6z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" />
+                    </svg>
+                  </button>
+                  <span class="icon-text">신고</span>
+                </div>
               </div>
             </div>
           </div>
@@ -727,8 +736,10 @@ watch(showChat, (visible) => {
   background: #0b0f18;
 }
 
-.player-footer {
-  margin-top: 12px;
+.player-actions {
+  position: absolute;
+  right: 16px;
+  bottom: 72px;
   display: flex;
   flex-direction: column;
   align-items: flex-end;
@@ -774,17 +785,17 @@ watch(showChat, (visible) => {
   background: rgba(var(--primary-rgb), 0.12);
 }
 
-.player-footer .icon-action {
-  color: var(--text-strong);
+.player-actions .icon-action {
+  color: #fff;
 }
 
-.player-footer .icon-circle {
+.player-actions .icon-circle {
   border-color: var(--border-color);
-  background: var(--surface);
-  color: var(--text-strong);
+  background: rgba(0, 0, 0, 0.65);
+  color: #fff;
 }
 
-.player-footer .icon-circle.active {
+.player-actions .icon-circle.active {
   border-color: var(--primary-color);
   color: var(--primary-color);
   background: rgba(var(--primary-rgb), 0.12);
