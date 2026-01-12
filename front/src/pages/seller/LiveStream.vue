@@ -307,6 +307,14 @@ const showPlaceholderMessage = computed(() => {
   return true
 })
 
+const resolveDetailStatus = (detail: BroadcastDetailResponse) => {
+  const normalized = normalizeBroadcastStatus(detail.status)
+  if (detail.startedAt && ['READY', 'RESERVED'].includes(normalized)) {
+    return 'ON_AIR'
+  }
+  return normalized
+}
+
 const resolveMediaSelection = (value: string, fallback: string) => {
   const trimmed = value?.trim()
   if (!trimmed || trimmed === 'default') return fallback
@@ -795,7 +803,7 @@ const hydrateStream = async () => {
     const startAtMs = baseTime ? parseLiveDate(baseTime).getTime() : NaN
     scheduleStartAtMs.value = Number.isNaN(startAtMs) ? null : startAtMs
     scheduleEndAtMs.value = scheduleStartAtMs.value ? getScheduledEndMs(scheduleStartAtMs.value) ?? null : null
-    streamStatus.value = normalizeBroadcastStatus(detail.status)
+    streamStatus.value = resolveDetailStatus(detail)
 
     const products = (detail.products ?? []).map((product) => ({
       id: String(product.bpId ?? product.productId),
@@ -911,7 +919,7 @@ const refreshInfo = async (broadcastId: number) => {
     const startAtMs = baseTime ? parseLiveDate(baseTime).getTime() : NaN
     scheduleStartAtMs.value = Number.isNaN(startAtMs) ? null : startAtMs
     scheduleEndAtMs.value = scheduleStartAtMs.value ? getScheduledEndMs(scheduleStartAtMs.value) ?? null : null
-    streamStatus.value = normalizeBroadcastStatus(detail.status)
+    streamStatus.value = resolveDetailStatus(detail)
     if (stream.value) {
       stream.value = {
         ...stream.value,
