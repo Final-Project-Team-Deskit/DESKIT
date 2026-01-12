@@ -58,7 +58,7 @@ public class BroadcastResult {
     private LocalDateTime updatedAt;
 
     // 관리자용
-    @Column(name = "total_result", nullable = false)
+    @Column(name = "total_reports", nullable = false)
     private int totalReports;
 
     public void updateFinalStats(int views, int likes, int reports, int avgWatchTime, int maxViews,
