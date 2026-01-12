@@ -126,6 +126,22 @@ const syncQuantityInputs = (products: LiveCreateProduct[]) => {
   quantityInputs.value = next
 }
 
+const syncDraftProductStock = () => {
+  if (!draft.value.products.length || !sellerProducts.value.length) return
+  const productMap = new Map(sellerProducts.value.map((product) => [product.id, product]))
+  draft.value.products = draft.value.products.map((product) => {
+    const source = productMap.get(product.id)
+    if (!source) return product
+    return {
+      ...product,
+      stock: source.stock,
+      safetyStock: source.safetyStock,
+      reservedBroadcastQty: source.reservedBroadcastQty,
+      thumb: product.thumb || source.thumb,
+    }
+  })
+}
+
 const clampProductQuantity = (product: LiveCreateProduct, value?: number) => {
   const maxQuantity = resolveMaxQuantity(product)
   const minQuantity = resolveMinQuantity(product)
@@ -270,6 +286,7 @@ const restoreDraft = async () => {
       : baseDraft
 
   draft.value = reservationDraft
+  syncDraftProductStock()
   draft.value.products = draft.value.products.map((product) => clampProductQuantity(product))
   modalProducts.value = draft.value.products.map((p) => ({ ...p }))
   syncQuantityInputs(draft.value.products)
@@ -584,6 +601,7 @@ const loadCategories = async () => {
 const loadProducts = async () => {
   try {
     sellerProducts.value = await fetchSellerProducts()
+    syncDraftProductStock()
   } catch (apiError) {
     if (getErrorStatus(apiError) === 404) {
       sellerProducts.value = []
