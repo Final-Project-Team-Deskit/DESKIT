@@ -33,6 +33,7 @@ import com.deskit.deskit.livehost.entity.BroadcastProduct;
 import com.deskit.deskit.livehost.entity.BroadcastResult;
 import com.deskit.deskit.livehost.entity.Qcard;
 import com.deskit.deskit.livehost.entity.Vod;
+import com.deskit.deskit.livehost.entity.ViewHistory;
 import com.deskit.deskit.livehost.repository.BroadcastProductRepository;
 import com.deskit.deskit.livehost.repository.BroadcastRepository;
 import com.deskit.deskit.livehost.repository.BroadcastRepositoryCustom;
@@ -536,6 +537,7 @@ public class BroadcastService {
         }
     }
 
+    @Transactional
     public String joinBroadcast(Long broadcastId, String viewerId) {
         Broadcast broadcast = broadcastRepository.findById(broadcastId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.BROADCAST_NOT_FOUND));
@@ -557,6 +559,7 @@ public class BroadcastService {
         if (broadcast.getStatus() == BroadcastStatus.ON_AIR) {
             redisService.updatePeakViewers(broadcastId);
         }
+        recordViewEnter(broadcast, viewerId);
 
         try {
             Map<String, Object> params = Map.of("role", "SUBSCRIBER");
@@ -566,6 +569,7 @@ public class BroadcastService {
         }
     }
 
+    @Transactional
     public void leaveBroadcast(Long broadcastId, String viewerId) {
         if (viewerId == null || viewerId.isBlank()) {
             return;
@@ -574,6 +578,8 @@ public class BroadcastService {
             return;
         }
         redisService.exitLiveRoom(broadcastId, viewerId);
+        broadcastRepository.findById(broadcastId)
+                .ifPresent(broadcast -> recordViewExit(broadcast, viewerId));
     }
 
     @Transactional
@@ -592,6 +598,7 @@ public class BroadcastService {
 
             validateTransition(broadcast.getStatus(), BroadcastStatus.ENDED);
             broadcast.endBroadcast();
+            closeActiveViewHistories(broadcast);
             try {
                 openViduService.stopRecording(broadcastId);
             } catch (Exception e) {
@@ -747,7 +754,10 @@ public class BroadcastService {
             redisService.enterLiveRoom(broadcastId, vId);
             broadcastRepository.findById(broadcastId)
                     .filter(broadcast -> broadcast.getStatus() == BroadcastStatus.ON_AIR)
-                    .ifPresent(broadcast -> redisService.updatePeakViewers(broadcastId));
+                    .ifPresent(broadcast -> {
+                        redisService.updatePeakViewers(broadcastId);
+                        recordViewEnter(broadcast, vId);
+                    });
             Map<String, Object> attrs = accessor.getSessionAttributes();
             if (attrs != null) {
                 attrs.put("broadcastId", bId);
@@ -761,7 +771,11 @@ public class BroadcastService {
         StompHeaderAccessor accessor = StompHeaderAccessor.wrap(event.getMessage());
         Map<String, Object> attrs = accessor.getSessionAttributes();
         if (attrs != null && attrs.containsKey("broadcastId")) {
-            redisService.exitLiveRoom(Long.parseLong((String) attrs.get("broadcastId")), (String) attrs.get("viewerId"));
+            Long broadcastId = Long.parseLong((String) attrs.get("broadcastId"));
+            String viewerId = (String) attrs.get("viewerId");
+            redisService.exitLiveRoom(broadcastId, viewerId);
+            broadcastRepository.findById(broadcastId)
+                    .ifPresent(broadcast -> recordViewExit(broadcast, viewerId));
         }
     }
 
@@ -1433,6 +1447,33 @@ public class BroadcastService {
     private record SalesMetric(int salesQuantity, BigDecimal salesAmount) {
     }
 
+    private void recordViewEnter(Broadcast broadcast, String viewerId) {
+        if (broadcast == null || viewerId == null || viewerId.isBlank()) {
+            return;
+        }
+        if (viewHistoryRepository.findActiveHistory(broadcast.getBroadcastId(), viewerId).isEmpty()) {
+            viewHistoryRepository.save(ViewHistory.enter(broadcast, viewerId));
+        }
+    }
+
+    private void recordViewExit(Broadcast broadcast, String viewerId) {
+        if (broadcast == null || viewerId == null || viewerId.isBlank()) {
+            return;
+        }
+        viewHistoryRepository.findActiveHistory(broadcast.getBroadcastId(), viewerId)
+                .ifPresent(history -> {
+                    history.recordExit();
+                    viewHistoryRepository.save(history);
+                });
+    }
+
+    private void closeActiveViewHistories(Broadcast broadcast) {
+        if (broadcast == null) {
+            return;
+        }
+        viewHistoryRepository.closeActiveHistories(broadcast, LocalDateTime.now());
+    }
+
     @Scheduled(fixedDelay = 60000)
     @Transactional
     public void syncBroadcastSchedules() {
@@ -1488,6 +1529,7 @@ public class BroadcastService {
                     if (broadcast != null && broadcast.getStatus() == BroadcastStatus.ON_AIR) {
                         validateTransition(broadcast.getStatus(), BroadcastStatus.ENDED);
                         broadcast.endBroadcast();
+                        closeActiveViewHistories(broadcast);
                         openViduService.closeSession(schedule.broadcastId());
                         triggerRecordingFallback(schedule.broadcastId(), "scheduled_end");
                     }

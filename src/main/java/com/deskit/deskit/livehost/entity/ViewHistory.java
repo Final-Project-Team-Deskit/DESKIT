@@ -34,6 +34,15 @@ public class ViewHistory {
     @UpdateTimestamp
     private LocalDateTime updatedAt;
 
+    private ViewHistory(Broadcast broadcast, String viewerId) {
+        this.broadcast = broadcast;
+        this.viewerId = viewerId;
+    }
+
+    public static ViewHistory enter(Broadcast broadcast, String viewerId) {
+        return new ViewHistory(broadcast, viewerId);
+    }
+
     // 입장 시 createdAt과 동일하게 초기화
     @PrePersist
     public void prePersist() {
@@ -47,4 +56,3 @@ public class ViewHistory {
         this.updatedAt = LocalDateTime.now();
     }
 }
-
