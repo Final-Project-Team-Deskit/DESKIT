@@ -1783,6 +1783,7 @@ onBeforeUnmount(() => {
   width: 100%;
   height: 100%;
   object-fit: contain;
+  transform: scaleX(-1);
 }
 
 .player-frame[data-quality='720p'] :deep(video),
