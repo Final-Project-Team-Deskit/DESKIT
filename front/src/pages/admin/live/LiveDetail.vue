@@ -59,11 +59,9 @@ type LiveChatMessageDTO = {
 const chatMessages = ref<{ id: string; user: string; text: string; time: string; kind?: 'system' | 'user'; senderRole?: string }[]>([])
 const stompClient = ref<Client | null>(null)
 let stompSubscription: StompSubscription | null = null
-let viewerSubscription: StompSubscription | null = null
 const isChatConnected = ref(false)
 const memberEmail = ref("")
 const nickname = ref("관리자")
-const viewerCount = ref<number | null>(null)
 
 
 
@@ -130,12 +128,6 @@ const formatChatUser = (message: { user: string; kind?: 'system' | 'user'; sende
   return message.user
 }
 
-const displayViewers = computed(() => {
-  if (viewerCount.value !== null) {
-    return viewerCount.value
-  }
-  return detail.value?.viewers ?? 0
-})
 
 // 최근 채팅 내역 조회
 const fetchRecentMessages = async () => {
@@ -190,20 +182,6 @@ const connectChat = () => {
         console.error('[admin chat] message parse failed', error)
       }
     })
-    viewerSubscription?.unsubscribe()
-    viewerSubscription = client.subscribe(`/sub/live/${broadcastId.value}/viewers`, (frame) => {
-      try {
-        const payload = JSON.parse(frame.body) as { broadcastId: number; viewers: number }
-        if (typeof payload.viewers === 'number') {
-          viewerCount.value = payload.viewers
-        }
-      } catch {
-        const count = Number.parseInt(frame.body, 10)
-        if (Number.isFinite(count)) {
-          viewerCount.value = count
-        }
-      }
-    })
   }
 
   client.onWebSocketClose = () => { isChatConnected.value = false }
@@ -217,8 +195,6 @@ const connectChat = () => {
 const disconnectChat = () => {
   stompSubscription?.unsubscribe()
   stompSubscription = null
-  viewerSubscription?.unsubscribe()
-  viewerSubscription = null
   stompClient.value?.deactivate()
   stompClient.value = null
   isChatConnected.value = false
@@ -428,7 +404,6 @@ onBeforeUnmount(() => {
 watch(broadcastId, (val) => {
 
   chatMessages.value = []
-  viewerCount.value = null
   disconnectChat()
 
   if (val) {
@@ -487,7 +462,7 @@ const modalHostTarget = computed(() => (isFullscreen.value && stageRef.value ? s
 
         <p><span>방송 시작</span>{{ detail.startedAt }}</p>
 
-        <p><span>시청자 수</span>{{ displayViewers }}명</p>
+        <p><span>시청자 수</span>{{ detail.viewers }}명</p>
 
         <p><span>신고 건수</span>{{ detail.reports ?? 0 }}건</p>
 
@@ -525,7 +500,7 @@ const modalHostTarget = computed(() => (isFullscreen.value && stageRef.value ? s
 
                   <div class="overlay-item">⏱ {{ detail.elapsed }}</div>
 
-                  <div class="overlay-item">👥 {{ displayViewers }}명</div>
+                  <div class="overlay-item">👥 {{ detail.viewers }}명</div>
 
                 </div>
 

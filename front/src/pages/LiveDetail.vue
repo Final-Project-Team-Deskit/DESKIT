@@ -93,7 +93,6 @@ const showChat = ref(true)
 const isFullscreen = ref(false)
 const stageRef = ref<HTMLElement | null>(null)
 const isLiked = ref(false)
-const viewerCount = ref<number | null>(null)
 const toggleLike = () => {
   isLiked.value = !isLiked.value
 }
@@ -166,7 +165,6 @@ const memberEmail = ref<string>("") // [확인] memberEmail ref
 const nickname = ref(`guest_${Math.floor(Math.random() * 1000)}`)
 const stompClient = ref<Client | null>(null)
 let stompSubscription: StompSubscription | null = null
-let viewerSubscription: StompSubscription | null = null
 const isChatConnected = ref(false)
 const ENTER_SENT_KEY_PREFIX = 'deskit_live_enter_sent_v1'
 
@@ -189,12 +187,6 @@ const formatChatTime = (value: Date) => {
   return `${hours}:${minutes}`
 }
 
-const displayViewerCount = computed(() => {
-  if (viewerCount.value !== null) {
-    return viewerCount.value
-  }
-  return liveItem.value?.viewerCount
-})
 
 const formatChatUser = (message: ChatMessage) => {
   if (message.kind === 'system') {
@@ -338,20 +330,6 @@ const connectChat = () => {
         console.error('[livechat] message parse failed', error)
       }
     })
-    viewerSubscription?.unsubscribe()
-    viewerSubscription = client.subscribe(`/sub/live/${broadcastId.value}/viewers`, (frame) => {
-      try {
-        const payload = JSON.parse(frame.body) as { broadcastId: number; viewers: number }
-        if (typeof payload.viewers === 'number') {
-          viewerCount.value = payload.viewers
-        }
-      } catch {
-        const count = Number.parseInt(frame.body, 10)
-        if (Number.isFinite(count)) {
-          viewerCount.value = count
-        }
-      }
-    })
     if (shouldSendEnterMessage()) {
       sendSocketMessage('ENTER', `${nickname.value} entered the room.`)
       markEnterMessageSent()
@@ -380,8 +358,6 @@ const disconnectChat = () => {
   }
   stompSubscription?.unsubscribe()
   stompSubscription = null
-  viewerSubscription?.unsubscribe()
-  viewerSubscription = null
   if (stompClient.value) {
     stompClient.value.deactivate()
     stompClient.value = null
@@ -540,7 +516,6 @@ watch(
       return
     }
     messages.value = []
-    viewerCount.value = null
     disconnectChat()
     if (value) {
       fetchRecentMessages()
@@ -595,8 +570,8 @@ onBeforeUnmount(() => {
               <span class="status-badge" :class="`status-badge--${status?.toLowerCase()}`">
                 {{ statusLabel }}
               </span>
-              <span v-if="status === 'LIVE' && displayViewerCount !== undefined" class="status-viewers">
-                {{ displayViewerCount.toLocaleString() }}명 시청 중
+              <span v-if="status === 'LIVE' && liveItem?.viewerCount !== undefined" class="status-viewers">
+                {{ liveItem.viewerCount.toLocaleString() }}명 시청 중
               </span>
               <span v-else-if="status === 'UPCOMING'" class="status-schedule">
                 {{ scheduledLabel }}

@@ -49,8 +49,7 @@ const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080'
 const showProducts = ref(true)
 const showChat = ref(true)
 const showSettings = ref(false)
-const viewerCount = ref<number | null>(null)
-const displayViewerCount = computed(() => viewerCount.value ?? 0)
+const viewerCount = ref(1010)
 const likeCount = ref(1574)
 const elapsed = ref('02:01:44')
 const monitorRef = ref<HTMLElement | null>(null)
@@ -444,7 +443,6 @@ type LiveChatMessageDTO = {
 const isChatConnected = ref(false)
 const stompClient = ref<Client | null>(null)
 let stompSubscription: StompSubscription | null = null
-let viewerSubscription: StompSubscription | null = null
 
 const isLoggedIn = ref(true)
 const nickname = ref('판매자')
@@ -613,21 +611,6 @@ const connectChat = () => {
         console.error('메시지 수신 에러:', e)
       }
     })
-    viewerSubscription?.unsubscribe()
-    viewerSubscription = client.subscribe(`/sub/live/${broadcastId.value}/viewers`, (frame) => {
-      try {
-        const payload = JSON.parse(frame.body) as { broadcastId: number; viewers: number }
-        if (typeof payload.viewers === 'number') {
-          viewerCount.value = payload.viewers
-        }
-      } catch {
-        const count = Number.parseInt(frame.body, 10)
-        if (Number.isFinite(count)) {
-          viewerCount.value = count
-        }
-      }
-    })
-
     // 입장 알림
     if (shouldSendEnterMessage()) {
       sendSocketMessage('ENTER', `${nickname.value}님이 입장했습니다.`)
@@ -652,8 +635,6 @@ const disconnectChat = () => {
   }
   stompSubscription?.unsubscribe()
   stompSubscription = null
-  viewerSubscription?.unsubscribe()
-  viewerSubscription = null
   stompClient.value?.deactivate()
   stompClient.value = null
   isChatConnected.value = false
@@ -674,7 +655,6 @@ onMounted(() => {
 // 6. 방송 ID 변경 시 재연결 및 정리
 watch(broadcastId, (newId) => {
   messages.value = []
-  viewerCount.value = null
   disconnectChat()
   if (newId) {
     fetchRecentMessages()
@@ -778,7 +758,7 @@ onBeforeUnmount(() => {
           >
             <div class="stream-overlay stream-overlay--stack">
               <div class="stream-overlay__row">⏱ 경과 {{ elapsed }}</div>
-              <div class="stream-overlay__row">👥 {{ displayViewerCount.toLocaleString('ko-KR') }}명</div>
+              <div class="stream-overlay__row">👥 {{ viewerCount.toLocaleString('ko-KR') }}명</div>
               <div class="stream-overlay__row">❤ {{ likeCount.toLocaleString('ko-KR') }}</div>
             </div>
             <div class="stream-fab">
