@@ -497,8 +497,8 @@ const updateLiveViewerCounts = async () => {
     }
   })
   if (!statsMap.size) return
-  const applyStats = (items: LiveItem[]) =>
-    items.map((item) => {
+  const applyStats = <T extends LiveItem>(items: T[]): T[] =>
+    items.map((item): T => {
       const stats = statsMap.get(item.id)
       if (!stats) return item
       const viewers = stats.viewerCount ?? item.viewers ?? 0
@@ -508,7 +508,7 @@ const updateLiveViewerCounts = async () => {
         viewerBadge: `${viewers}명 시청 중`,
         likes: stats.likeCount ?? item.likes ?? 0,
         reports: stats.reportCount ?? item.reports ?? 0,
-      }
+      } as T
     })
   liveItems.value = applyStats(liveItems.value)
   scheduledItems.value = applyStats(scheduledItems.value)
