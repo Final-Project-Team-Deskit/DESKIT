@@ -84,9 +84,11 @@ import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.Base64;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -1015,14 +1017,25 @@ public class BroadcastService {
                 .orElseThrow(() -> new BusinessException(ErrorCode.BROADCAST_NOT_FOUND));
         List<BroadcastProduct> products = broadcastProductRepository.findAllWithProductByBroadcastId(broadcastId);
         Map<Long, Integer> remainingQuantities = calculateRemainingQuantities(broadcast, products);
-        List<Long> soldOutProductIds = products.stream()
-                .filter(bp -> bp.markSoldOutIfNeeded(remainingQuantities.get(bp.getProduct().getId())))
-                .map(bp -> bp.getProduct().getId())
-                .distinct()
-                .collect(Collectors.toList());
+        Set<Long> soldOutProductIds = new LinkedHashSet<>();
+        boolean pinReleased = false;
+        for (BroadcastProduct bp : products) {
+            Integer remaining = remainingQuantities.get(bp.getProduct().getId());
+            boolean soldOut = bp.markSoldOutIfNeeded(remaining);
+            if (soldOut) {
+                soldOutProductIds.add(bp.getProduct().getId());
+            }
+            if ((remaining == null || remaining <= 0) && bp.isPinned()) {
+                bp.setPinned(false);
+                pinReleased = true;
+            }
+        }
 
         if (!soldOutProductIds.isEmpty()) {
             sseService.notifyBroadcastUpdate(broadcastId, "PRODUCT_SOLD_OUT", soldOutProductIds);
+        }
+        if (pinReleased) {
+            sseService.notifyBroadcastUpdate(broadcastId, "PRODUCT_UNPINNED", "soldout");
         }
 
         return products.stream()
@@ -1214,7 +1227,6 @@ public class BroadcastService {
         var orderTable = org.jooq.impl.DSL.table(name("order")).as("o");
         var orderItemTable = org.jooq.impl.DSL.table(name("order_item")).as("oi");
         var bpTable = org.jooq.impl.DSL.table(name("broadcast_product")).as("bp");
-        var broadcastTable = org.jooq.impl.DSL.table(name("broadcast")).as("b");
         var productTable = org.jooq.impl.DSL.table(name("product")).as("p");
 
         var orderIdField = field(name("o", "order_id"), Long.class);
@@ -1228,37 +1240,33 @@ public class BroadcastService {
         var orderItemUnitPriceField = field(name("oi", "unit_price"), Integer.class);
         var orderItemDeletedAtField = field(name("oi", "deleted_at"), LocalDateTime.class);
 
-        var bpBroadcastIdField = field(name("bp", "broadcast_id"), Long.class);
         var bpProductIdField = field(name("bp", "product_id"), Long.class);
-        var bpPriceField = field(name("bp", "bp_price"), Integer.class);
-
-        var broadcastIdField = field(name("b", "broadcast_id"), Long.class);
-        var broadcastStartedAtField = field(name("b", "started_at"), LocalDateTime.class);
-        var broadcastEndedAtField = field(name("b", "ended_at"), LocalDateTime.class);
 
         var productIdField = field(name("p", "product_id"), Long.class);
         var productNameField = field(name("p", "product_name"), String.class);
 
         LocalDateTime startDate = resolveRankingStartDate(period);
-        var effectivePrice = org.jooq.impl.DSL.coalesce(bpPriceField, orderItemUnitPriceField).cast(BigDecimal.class);
+        var effectivePrice = orderItemUnitPriceField.cast(BigDecimal.class);
         var salesExpr = org.jooq.impl.DSL.sum(effectivePrice.mul(orderItemQuantityField.cast(BigDecimal.class))).as("sales_amount");
 
         var orderField = desc ? salesExpr.desc().nullsLast() : salesExpr.asc().nullsLast();
+        var bpExists = org.jooq.impl.DSL.exists(
+                dsl.selectOne()
+                        .from(bpTable)
+                        .where(bpProductIdField.eq(orderItemProductIdField))
+        );
 
         return dsl.select(productIdField, productNameField, salesExpr)
                 .from(orderItemTable)
                 .join(orderTable).on(orderItemOrderIdField.eq(orderIdField))
-                .join(bpTable).on(bpProductIdField.eq(orderItemProductIdField))
-                .join(broadcastTable).on(bpBroadcastIdField.eq(broadcastIdField))
                 .join(productTable).on(bpProductIdField.eq(productIdField))
                 .where(
                         orderStatusField.in(OrderStatus.PAID.name(), OrderStatus.COMPLETED.name()),
                         orderPaidAtField.isNotNull(),
                         orderPaidAtField.ge(startDate),
-                        orderPaidAtField.between(broadcastStartedAtField, broadcastEndedAtField),
-                        broadcastEndedAtField.isNotNull(),
                         orderDeletedAtField.isNull(),
-                        orderItemDeletedAtField.isNull()
+                        orderItemDeletedAtField.isNull(),
+                        bpExists
                 )
                 .groupBy(productIdField, productNameField)
                 .orderBy(orderField)

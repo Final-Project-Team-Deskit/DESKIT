@@ -10,6 +10,8 @@ import { fetchBroadcastStats, fetchPublicBroadcastOverview } from '../lib/live/a
 import { getScheduledEndMs, normalizeBroadcastStatus } from '../lib/broadcastStatus'
 import type { LiveItem } from '../lib/live/types'
 import { parseLiveDate } from '../lib/live/utils'
+import { getAuthUser } from '../lib/auth'
+import { resolveViewerId } from '../lib/live/viewer'
 
 const liveItems = ref<LiveItem[]>([])
 const popularProducts = ref<ProductItem[]>([])
@@ -19,6 +21,11 @@ const popularSetupsLoading = ref(true)
 const popularProductsError = ref(false)
 const popularSetupsError = ref(false)
 let liveRefreshTimer: number | null = null
+const sseSource = ref<EventSource | null>(null)
+const sseRetryTimer = ref<number | null>(null)
+const sseRetryCount = ref(0)
+const refreshTimer = ref<number | null>(null)
+const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080'
 
 const buildProductItems = (items: Awaited<ReturnType<typeof listPopularProducts>>) =>
   items.map((item) => ({
@@ -134,9 +141,91 @@ const updateLiveViewerCounts = async () => {
   })
 }
 
+const parseSseData = (event: MessageEvent) => {
+  if (!event.data) return null
+  try {
+    return JSON.parse(event.data)
+  } catch {
+    return event.data
+  }
+}
+
+const scheduleRefresh = () => {
+  if (refreshTimer.value) window.clearTimeout(refreshTimer.value)
+  refreshTimer.value = window.setTimeout(() => {
+    void loadLiveItems()
+    void updateLiveViewerCounts()
+  }, 500)
+}
+
+const handleSseEvent = (event: MessageEvent) => {
+  parseSseData(event)
+  switch (event.type) {
+    case 'BROADCAST_READY':
+    case 'BROADCAST_UPDATED':
+    case 'BROADCAST_STARTED':
+    case 'PRODUCT_PINNED':
+    case 'PRODUCT_UNPINNED':
+    case 'PRODUCT_SOLD_OUT':
+    case 'SANCTION_UPDATED':
+    case 'BROADCAST_CANCELED':
+    case 'BROADCAST_ENDED':
+    case 'BROADCAST_SCHEDULED_END':
+    case 'BROADCAST_STOPPED':
+      scheduleRefresh()
+      break
+    default:
+      break
+  }
+}
+
+const scheduleReconnect = () => {
+  if (sseRetryTimer.value) window.clearTimeout(sseRetryTimer.value)
+  const delay = Math.min(30000, 1000 * 2 ** sseRetryCount.value)
+  const jitter = Math.floor(Math.random() * 500)
+  sseRetryTimer.value = window.setTimeout(() => {
+    connectSse()
+  }, delay + jitter)
+  sseRetryCount.value += 1
+}
+
+const connectSse = () => {
+  sseSource.value?.close()
+  const user = getAuthUser()
+  const viewerId = resolveViewerId(user)
+  const query = viewerId ? `?viewerId=${encodeURIComponent(viewerId)}` : ''
+  const source = new EventSource(`${apiBase}/api/broadcasts/subscribe/all${query}`)
+  const events = [
+    'BROADCAST_READY',
+    'BROADCAST_UPDATED',
+    'BROADCAST_STARTED',
+    'PRODUCT_PINNED',
+    'PRODUCT_UNPINNED',
+    'PRODUCT_SOLD_OUT',
+    'SANCTION_UPDATED',
+    'BROADCAST_CANCELED',
+    'BROADCAST_ENDED',
+    'BROADCAST_SCHEDULED_END',
+    'BROADCAST_STOPPED',
+  ]
+  events.forEach((name) => source.addEventListener(name, handleSseEvent))
+  source.onopen = () => {
+    sseRetryCount.value = 0
+    scheduleRefresh()
+  }
+  source.onerror = () => {
+    source.close()
+    if (document.visibilityState === 'visible') {
+      scheduleReconnect()
+    }
+  }
+  sseSource.value = source
+}
+
 onMounted(() => {
   loadPopulars()
   loadLiveItems()
+  connectSse()
   liveRefreshTimer = window.setInterval(() => {
     if (document.visibilityState === 'visible') {
       void updateLiveViewerCounts()
@@ -147,6 +236,12 @@ onMounted(() => {
 onBeforeUnmount(() => {
   if (liveRefreshTimer) window.clearInterval(liveRefreshTimer)
   liveRefreshTimer = null
+  sseSource.value?.close()
+  sseSource.value = null
+  if (sseRetryTimer.value) window.clearTimeout(sseRetryTimer.value)
+  sseRetryTimer.value = null
+  if (refreshTimer.value) window.clearTimeout(refreshTimer.value)
+  refreshTimer.value = null
 })
 </script>
 
