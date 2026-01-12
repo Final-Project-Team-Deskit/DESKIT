@@ -8,6 +8,7 @@ import com.deskit.deskit.livehost.dto.response.BroadcastReportResponse;
 import com.deskit.deskit.livehost.service.BroadcastService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -36,6 +37,15 @@ public class BroadcastMemberController {
     ) {
         Member member = liveAuthUtils.getCurrentMember();
         BroadcastLikeResponse response = broadcastService.likeBroadcast(broadcastId, member.getMemberId());
+        return ResponseEntity.ok(ApiResult.success(response));
+    }
+
+    @GetMapping("/{broadcastId}/like-status")
+    public ResponseEntity<ApiResult<BroadcastLikeResponse>> getLikeStatus(
+            @PathVariable Long broadcastId
+    ) {
+        Member member = liveAuthUtils.getCurrentMember();
+        BroadcastLikeResponse response = broadcastService.getBroadcastLikeStatus(broadcastId, member.getMemberId());
         return ResponseEntity.ok(ApiResult.success(response));
     }
 }

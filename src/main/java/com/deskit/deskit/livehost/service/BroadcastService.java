@@ -790,6 +790,31 @@ public class BroadcastService {
                 .build();
     }
 
+    @Transactional(readOnly = true)
+    public BroadcastLikeResponse getBroadcastLikeStatus(Long broadcastId, Long memberId) {
+        Broadcast broadcast = broadcastRepository.findById(broadcastId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.BROADCAST_NOT_FOUND));
+
+        boolean liked = redisService.isMemberLiked(broadcastId, memberId);
+        if (broadcast.getStatus() == BroadcastStatus.VOD) {
+            int baseLikes = broadcastResultRepository.findById(broadcastId)
+                    .map(BroadcastResult::getTotalLikes)
+                    .orElse(0);
+            int pendingDelta = redisService.getVodLikeDelta(broadcastId);
+            int likeCount = Math.max(0, baseLikes + pendingDelta);
+            return BroadcastLikeResponse.builder()
+                    .liked(liked)
+                    .likeCount(likeCount)
+                    .build();
+        }
+
+        int likeCount = redisService.getLikeCount(broadcastId);
+        return BroadcastLikeResponse.builder()
+                .liked(liked)
+                .likeCount(likeCount)
+                .build();
+    }
+
     @Transactional
     public void processVod(OpenViduRecordingWebhook payload) {
         Long broadcastId = Long.parseLong(payload.getSessionId().replace("broadcast-", ""));

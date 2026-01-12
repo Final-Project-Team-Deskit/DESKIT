@@ -78,9 +78,10 @@ const toggleVisibility = async () => {
 const handleDownload = () => {
   if (!detail.value?.vod?.url) return
   window.alert('VOD 파일 다운로드를 시작합니다.')
+  const fileName = buildDownloadName(detail.value.title)
   const link = document.createElement('a')
   link.href = detail.value.vod.url
-  link.download = ''
+  link.download = fileName
   link.rel = 'noopener'
   link.target = '_blank'
   document.body.appendChild(link)
@@ -170,6 +171,12 @@ const formatChatTime = (timestamp?: number) => {
   const displayHour = hours % 12 || 12
   const minutes = String(date.getMinutes()).padStart(2, '0')
   return `${hours >= 12 ? '오후' : '오전'} ${displayHour}:${minutes}`
+}
+
+const buildDownloadName = (title?: string) => {
+  const base = title?.trim() || 'vod'
+  const safe = base.replace(/[\\/:*?"<>|]/g, '_')
+  return `${safe}.mp4`
 }
 
 const buildDetail = (broadcast: BroadcastDetailResponse, report: BroadcastResult): SellerVodDetail => ({
@@ -338,7 +345,6 @@ watch(vodId, () => {
               v-if="isVodPlayable"
               :src="detail.vod.url"
               controls
-              :poster="detail.thumb"
             ></video>
             <div v-else class="vod-placeholder">
               <span>재생할 VOD가 없습니다.</span>

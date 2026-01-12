@@ -8,6 +8,7 @@ import { getScheduledEndMs } from '../lib/broadcastStatus'
 import { useNow } from '../lib/live/useNow'
 import {
   fetchBroadcastProducts,
+  fetchBroadcastLikeStatus,
   fetchPublicBroadcastDetail,
   recordVodView,
   reportBroadcast,
@@ -180,7 +181,11 @@ const loadVodDetail = async () => {
     const detail = await fetchPublicBroadcastDetail(numeric)
     vodItem.value = buildVodItem(detail)
     likeCount.value = detail.totalLikes ?? 0
-    isLiked.value = false
+    if (isLoggedIn.value) {
+      await loadLikeStatus(numeric)
+    } else {
+      isLiked.value = false
+    }
     hasReported.value = false
     totalViews.value = detail.totalViews ?? null
     isVodUnavailable.value = false
@@ -197,6 +202,17 @@ const loadVodDetail = async () => {
         alert('VOD가 삭제되어 방송 목록으로 이동합니다.')
       }
     }
+  }
+}
+
+const loadLikeStatus = async (broadcastId: number) => {
+  if (!isLoggedIn.value) return
+  try {
+    const result = await fetchBroadcastLikeStatus(broadcastId)
+    isLiked.value = result.liked
+    likeCount.value = result.likeCount ?? likeCount.value
+  } catch {
+    return
   }
 }
 
@@ -302,6 +318,15 @@ watch(redirectPending, async (next) => {
 watch(showChat, (visible) => {
   if (visible) {
     scrollChatToBottom()
+  }
+})
+
+watch(isLoggedIn, (next) => {
+  if (!vodItem.value) return
+  if (next) {
+    void loadLikeStatus(Number(vodItem.value.id))
+  } else {
+    isLiked.value = false
   }
 })
 </script>
