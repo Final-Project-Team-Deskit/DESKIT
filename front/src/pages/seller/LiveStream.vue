@@ -385,7 +385,7 @@ const disconnectOpenVidu = () => {
   if (openviduSession.value) {
     try {
       if (openviduPublisher.value) {
-        openviduSession.value.unpublish(openviduPublisher.value)
+        openviduSession.value.unpublish(openviduPublisher.value as Publisher)
       }
       openviduSession.value.disconnect()
     } catch {
@@ -428,7 +428,7 @@ const restartPublisher = async () => {
   if (!openviduSession.value || !openviduInstance.value || !publisherContainerRef.value) return
   try {
     if (openviduPublisher.value) {
-      openviduSession.value.unpublish(openviduPublisher.value)
+      openviduSession.value.unpublish(openviduPublisher.value as Publisher)
     }
     publisherContainerRef.value.innerHTML = ''
     openviduPublisher.value = openviduInstance.value.initPublisher(
