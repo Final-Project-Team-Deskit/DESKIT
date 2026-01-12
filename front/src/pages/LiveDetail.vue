@@ -684,6 +684,12 @@ const refreshChatPermission = async () => {
   }
 }
 
+watch(hasChatPermission, (next) => {
+  if (!next) {
+    input.value = ''
+  }
+})
+
 const handleSseEvent = (event: MessageEvent) => {
   const data = parseSseData(event)
   switch (event.type) {
