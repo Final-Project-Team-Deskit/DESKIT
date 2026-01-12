@@ -28,4 +28,10 @@ public interface BroadcastProductRepository extends JpaRepository<BroadcastProdu
             "WHERE bp.broadcast.broadcastId = :broadcastId " +
             "ORDER BY bp.displayOrder ASC")
     List<BroadcastProduct> findAllWithProductByBroadcastId(@Param("broadcastId") Long broadcastId);
+
+    @Query("SELECT bp FROM BroadcastProduct bp " +
+            "JOIN FETCH bp.product p " +
+            "WHERE bp.broadcast.broadcastId IN :broadcastIds " +
+            "ORDER BY bp.broadcast.broadcastId ASC, bp.displayOrder ASC")
+    List<BroadcastProduct> findAllWithProductByBroadcastIdIn(@Param("broadcastIds") List<Long> broadcastIds);
 }

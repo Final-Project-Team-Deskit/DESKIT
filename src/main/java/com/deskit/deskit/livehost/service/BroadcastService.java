@@ -17,8 +17,10 @@ import com.deskit.deskit.livehost.dto.request.OpenViduRecordingWebhook;
 import com.deskit.deskit.livehost.dto.request.QcardRequest;
 import com.deskit.deskit.livehost.dto.response.BroadcastAllResponse;
 import com.deskit.deskit.livehost.dto.response.BroadcastListResponse;
+import com.deskit.deskit.livehost.dto.response.BroadcastLikeResponse;
 import com.deskit.deskit.livehost.dto.response.BroadcastProductResponse;
 import com.deskit.deskit.livehost.dto.response.BroadcastResponse;
+import com.deskit.deskit.livehost.dto.response.BroadcastReportResponse;
 import com.deskit.deskit.livehost.dto.response.BroadcastResultResponse;
 import com.deskit.deskit.livehost.dto.response.BroadcastStatsResponse;
 import com.deskit.deskit.livehost.dto.response.MediaConfigResponse;
@@ -39,11 +41,17 @@ import com.deskit.deskit.livehost.repository.SanctionRepository;
 import com.deskit.deskit.livehost.repository.SanctionRepositoryCustom;
 import com.deskit.deskit.livehost.repository.ViewHistoryRepository;
 import com.deskit.deskit.livehost.repository.VodRepository;
+import com.deskit.deskit.livechat.dto.LiveMessageType;
+import com.deskit.deskit.livechat.repository.LiveChatRepository;
+import com.deskit.deskit.order.enums.OrderStatus;
 import com.deskit.deskit.product.entity.Product;
 import com.deskit.deskit.product.entity.Product.Status;
 import com.deskit.deskit.product.repository.ProductRepository;
 import com.deskit.deskit.tag.entity.TagCategory;
 import com.deskit.deskit.tag.repository.TagCategoryRepository;
+import io.openvidu.java.client.OpenViduHttpException;
+import io.openvidu.java.client.OpenViduJavaClientException;
+import io.openvidu.java.client.Recording;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.jooq.DSLContext;
@@ -67,12 +75,17 @@ import java.io.InputStream;
 import java.math.BigDecimal;
 import java.net.HttpURLConnection;
 import java.net.URL;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.security.cert.X509Certificate;
+import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.Base64;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -85,6 +98,13 @@ import static org.jooq.impl.DSL.table;
 @RequiredArgsConstructor
 public class BroadcastService {
 
+    private static final int RECORDING_RETRY_MAX_ATTEMPTS = 5;
+    private static final Duration RECORDING_RETRY_TTL = Duration.ofHours(6);
+    private static final Duration RECORDING_RETRY_BASE_DELAY = Duration.ofSeconds(30);
+    private static final int RECORDING_START_RETRY_MAX_ATTEMPTS = 10;
+    private static final Duration RECORDING_START_RETRY_TTL = Duration.ofMinutes(30);
+    private static final Duration RECORDING_START_RETRY_BASE_DELAY = Duration.ofSeconds(5);
+
     private final BroadcastRepository broadcastRepository;
     private final BroadcastProductRepository broadcastProductRepository;
     private final com.deskit.deskit.livehost.repository.QcardRepository qcardRepository;
@@ -96,10 +116,12 @@ public class BroadcastService {
     private final ProductRepository productRepository;
     private final SanctionRepository sanctionRepository;
     private final ViewHistoryRepository viewHistoryRepository;
+    private final LiveChatRepository liveChatRepository;
 
     private final RedisService redisService;
     private final SseService sseService;
     private final OpenViduService openViduService;
+    private final BroadcastScheduleEmailService broadcastScheduleEmailService;
     private final AwsS3Service s3Service;
     private final DSLContext dsl;
 
@@ -109,15 +131,22 @@ public class BroadcastService {
     @Value("${openvidu.secret}")
     private String openViduSecret;
 
+    @Value("${vod.admin-download-dir:${user.home}/deskit-admin-vod}")
+    private String adminVodDownloadDir;
+
     @Transactional
     public Long createBroadcast(Long sellerId, BroadcastCreateRequest request) {
         String lockKey = "lock:seller:" + sellerId + ":broadcast_create";
+        String slotLockKey = "lock:broadcast_slot:" + request.getScheduledAt().toString();
 
         if (!Boolean.TRUE.equals(redisService.acquireLock(lockKey, 3000))) {
             throw new BusinessException(ErrorCode.TOO_MANY_REQUESTS);
         }
 
         try {
+            if (!Boolean.TRUE.equals(redisService.acquireLock(slotLockKey, 3000))) {
+                throw new BusinessException(ErrorCode.TOO_MANY_REQUESTS);
+            }
             long reservedCount = broadcastRepository.countBySellerIdAndStatus(sellerId, BroadcastStatus.RESERVED);
             if (reservedCount >= 7) {
                 throw new BusinessException(ErrorCode.RESERVATION_LIMIT_EXCEEDED);
@@ -152,6 +181,7 @@ public class BroadcastService {
             log.info("방송 생성 완료: id={}", saved.getBroadcastId());
             return saved.getBroadcastId();
         } finally {
+            redisService.releaseLock(slotLockKey);
             redisService.releaseLock(lockKey);
         }
     }
@@ -169,6 +199,22 @@ public class BroadcastService {
                 .orElseThrow(() -> new BusinessException(ErrorCode.CATEGORY_NOT_FOUND));
 
         if (broadcast.getStatus() == BroadcastStatus.RESERVED || broadcast.getStatus() == BroadcastStatus.CANCELED) {
+            LocalDateTime nextScheduledAt = request.getScheduledAt();
+            LocalDateTime currentScheduledAt = broadcast.getScheduledAt();
+            if (nextScheduledAt != null && (currentScheduledAt == null || !currentScheduledAt.equals(nextScheduledAt))) {
+                String slotLockKey = "lock:broadcast_slot:" + nextScheduledAt.toString();
+                if (!Boolean.TRUE.equals(redisService.acquireLock(slotLockKey, 3000))) {
+                    throw new BusinessException(ErrorCode.TOO_MANY_REQUESTS);
+                }
+                try {
+                    long slotCount = broadcastRepository.countByTimeSlot(nextScheduledAt, nextScheduledAt.plusMinutes(30));
+                    if (slotCount >= 3) {
+                        throw new BusinessException(ErrorCode.BROADCAST_SLOT_FULL);
+                    }
+                } finally {
+                    redisService.releaseLock(slotLockKey);
+                }
+            }
             broadcast.updateBroadcastInfo(
                     category, request.getTitle(), request.getNotice(),
                     request.getScheduledAt(), request.getThumbnailUrl(),
@@ -189,19 +235,40 @@ public class BroadcastService {
 
     @Transactional
     public void cancelBroadcast(Long sellerId, Long broadcastId) {
+        String lockKey = "lock:broadcast_transition:" + broadcastId;
+        if (!Boolean.TRUE.equals(redisService.acquireLock(lockKey, 3000))) {
+            throw new BusinessException(ErrorCode.TOO_MANY_REQUESTS);
+        }
+        try {
+            Broadcast broadcast = broadcastRepository.findById(broadcastId)
+                    .orElseThrow(() -> new BusinessException(ErrorCode.BROADCAST_NOT_FOUND));
+
+            if (!broadcast.getSeller().getSellerId().equals(sellerId)) {
+                throw new BusinessException(ErrorCode.FORBIDDEN_ACCESS);
+            }
+
+            if (broadcast.getStatus() != BroadcastStatus.RESERVED && broadcast.getStatus() != BroadcastStatus.CANCELED) {
+                throw new BusinessException(ErrorCode.INVALID_INPUT_VALUE);
+            }
+
+            validateTransition(broadcast.getStatus(), BroadcastStatus.DELETED);
+            broadcast.deleteBroadcast();
+            log.info("방송 취소 처리 완료: id={}, status={}", broadcastId, broadcast.getStatus());
+            sseService.notifyBroadcastUpdate(broadcastId, "BROADCAST_CANCELED", "deleted");
+        } finally {
+            redisService.releaseLock(lockKey);
+        }
+    }
+
+    @Transactional
+    public void unpinProduct(Long sellerId, Long broadcastId) {
         Broadcast broadcast = broadcastRepository.findById(broadcastId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.BROADCAST_NOT_FOUND));
-
         if (!broadcast.getSeller().getSellerId().equals(sellerId)) {
             throw new BusinessException(ErrorCode.FORBIDDEN_ACCESS);
         }
-
-        if (broadcast.getStatus() != BroadcastStatus.RESERVED && broadcast.getStatus() != BroadcastStatus.READY) {
-            throw new BusinessException(ErrorCode.INVALID_INPUT_VALUE);
-        }
-
-        broadcast.cancelBroadcast("판매자 예약 취소");
-        log.info("방송 취소 처리 완료: id={}, status={}", broadcastId, broadcast.getStatus());
+        broadcastProductRepository.resetPinByBroadcastId(broadcastId);
+        sseService.notifyBroadcastUpdate(broadcastId, "PRODUCT_UNPINNED", "unpin");
     }
 
     @Transactional(readOnly = true)
@@ -211,21 +278,51 @@ public class BroadcastService {
         var productName = field(name("p", "product_name"), String.class);
         var price = field(name("p", "price"), Integer.class);
         var stockQty = field(name("p", "stock_qty"), Integer.class);
+        var safetyStock = field(name("p", "safety_stock"), Integer.class);
         var sellerField = field(name("p", "seller_id"), Long.class);
         var statusField = field(name("p", "status"), String.class);
         var deletedAt = field(name("p", "deleted_at"), LocalDateTime.class);
 
+        var broadcastTable = table(name("broadcast")).as("b");
+        var broadcastId = field(name("b", "broadcast_id"), Long.class);
+        var broadcastStatus = field(name("b", "status"), String.class);
+
+        var broadcastProductTable = table(name("broadcast_product")).as("bp");
+        var bpProductId = field(name("bp", "product_id"), Long.class);
+        var bpQuantity = field(name("bp", "bp_quantity"), Integer.class);
+        var bpStatus = field(name("bp", "status"), String.class);
+        var bpBroadcastId = field(name("bp", "broadcast_id"), Long.class);
+
         List<String> statuses = List.of(Status.ON_SALE.name(), Status.READY.name(), Status.LIMITED_SALE.name());
+        List<String> reservedStatuses = List.of(
+                BroadcastStatus.RESERVED.name(),
+                BroadcastStatus.READY.name(),
+                BroadcastStatus.ON_AIR.name(),
+                BroadcastStatus.ENDED.name()
+        );
+
+        var reservedQuantityField = org.jooq.impl.DSL.coalesce(org.jooq.impl.DSL.sum(bpQuantity), 0).as("reserved_qty");
+        var reservedSubquery = dsl.select(bpProductId, reservedQuantityField)
+                .from(broadcastProductTable)
+                .join(broadcastTable).on(bpBroadcastId.eq(broadcastId))
+                .where(broadcastStatus.in(reservedStatuses).and(bpStatus.ne("DELETED")))
+                .groupBy(bpProductId)
+                .asTable("reserved");
+        var reservedProductId = field(name("reserved", "product_id"), Long.class);
+        var reservedQty = field(name("reserved", "reserved_qty"), Integer.class);
+        var availableQty = stockQty.sub(safetyStock).sub(org.jooq.impl.DSL.coalesce(reservedQty, 0));
 
         var condition = sellerField.eq(sellerId)
                 .and(statusField.in(statuses))
+                .and(availableQty.gt(0))
                 .and(deletedAt.isNull());
         if (keyword != null && !keyword.isBlank()) {
             condition = condition.and(productName.containsIgnoreCase(keyword));
         }
 
-        return dsl.select(productId, productName, price, stockQty)
+        return dsl.select(productId, productName, price, stockQty, safetyStock, org.jooq.impl.DSL.coalesce(reservedQty, 0).as("reserved_qty"))
                 .from(productTable)
+                .leftJoin(reservedSubquery).on(productId.eq(reservedProductId))
                 .where(condition)
                 .orderBy(productId.asc())
                 .fetch(record -> ProductSelectResponse.builder()
@@ -233,6 +330,8 @@ public class BroadcastService {
                         .productName(record.get(productName))
                         .price(record.get(price))
                         .stockQty(record.get(stockQty))
+                        .safetyStock(record.get(safetyStock))
+                        .reservedBroadcastQty(record.get("reserved_qty", Integer.class))
                         .imageUrl(null)
                         .build());
     }
@@ -354,6 +453,14 @@ public class BroadcastService {
     }
 
     @Transactional(readOnly = true)
+    public BroadcastResponse getAdminBroadcastDetail(Long broadcastId) {
+        Broadcast broadcast = broadcastRepository.findById(broadcastId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.BROADCAST_NOT_FOUND));
+
+        return createBroadcastResponse(broadcast);
+    }
+
+    @Transactional(readOnly = true)
     public Object getPublicBroadcasts(BroadcastSearch condition, Pageable pageable) {
         if ("ALL".equalsIgnoreCase(condition.getTab())) {
             return getOverview(null, false);
@@ -375,29 +482,56 @@ public class BroadcastService {
 
     @Transactional(readOnly = true)
     public Object getAdminBroadcasts(BroadcastSearch condition, Pageable pageable) {
-        return broadcastRepository.searchBroadcasts(null, condition, pageable, true);
+        Slice<BroadcastListResponse> list = broadcastRepository.searchBroadcasts(null, condition, pageable, true);
+        injectLiveStats(list.getContent());
+        return list;
     }
 
     @Transactional
     public String startBroadcast(Long sellerId, Long broadcastId) {
-        Broadcast broadcast = broadcastRepository.findById(broadcastId)
-                .orElseThrow(() -> new BusinessException(ErrorCode.BROADCAST_NOT_FOUND));
-
-        if (!broadcast.getSeller().getSellerId().equals(sellerId)) {
-            throw new BusinessException(ErrorCode.FORBIDDEN_ACCESS);
+        String lockKey = "lock:broadcast_transition:" + broadcastId;
+        if (!Boolean.TRUE.equals(redisService.acquireLock(lockKey, 3000))) {
+            throw new BusinessException(ErrorCode.TOO_MANY_REQUESTS);
         }
-
-        if (broadcast.getScheduledAt() != null && LocalDateTime.now().isBefore(broadcast.getScheduledAt())) {
-            throw new BusinessException(ErrorCode.INVALID_INPUT_VALUE);
-        }
-
-        broadcast.startBroadcast("session-" + broadcastId);
-
         try {
-            Map<String, Object> params = Map.of("role", "HOST", "sellerId", sellerId);
-            return openViduService.createToken(broadcastId, params);
-        } catch (Exception e) {
-            throw new BusinessException(ErrorCode.OPENVIDU_ERROR);
+            Broadcast broadcast = broadcastRepository.findById(broadcastId)
+                    .orElseThrow(() -> new BusinessException(ErrorCode.BROADCAST_NOT_FOUND));
+
+            if (!broadcast.getSeller().getSellerId().equals(sellerId)) {
+                throw new BusinessException(ErrorCode.FORBIDDEN_ACCESS);
+            }
+
+            if (broadcast.getStatus() != BroadcastStatus.ON_AIR
+                    && broadcast.getScheduledAt() != null
+                    && LocalDateTime.now().isBefore(broadcast.getScheduledAt())) {
+                throw new BusinessException(ErrorCode.INVALID_INPUT_VALUE);
+            }
+
+            if (broadcast.getStatus() == BroadcastStatus.ON_AIR) {
+                try {
+                    Map<String, Object> params = Map.of("role", "HOST", "sellerId", sellerId);
+                    return openViduService.createToken(broadcastId, params);
+                } catch (Exception e) {
+                    throw new BusinessException(ErrorCode.OPENVIDU_ERROR);
+                }
+            }
+
+            validateTransition(broadcast.getStatus(), BroadcastStatus.ON_AIR);
+            broadcast.startBroadcast("session-" + broadcastId);
+            sseService.notifyBroadcastUpdate(broadcastId, "BROADCAST_STARTED", "started");
+
+            try {
+                Map<String, Object> params = Map.of("role", "HOST", "sellerId", sellerId);
+                String token = openViduService.createToken(broadcastId, params);
+                return token;
+            } catch (OpenViduJavaClientException | OpenViduHttpException e) {
+                log.error("OpenVidu error during broadcast start: broadcastId={}, message={}", broadcastId, e.getMessage());
+                throw new BusinessException(ErrorCode.OPENVIDU_ERROR);
+            } catch (Exception e) {
+                throw new BusinessException(ErrorCode.OPENVIDU_ERROR);
+            }
+        } finally {
+            redisService.releaseLock(lockKey);
         }
     }
 
@@ -408,7 +542,7 @@ public class BroadcastService {
         if (broadcast.getStatus() == BroadcastStatus.STOPPED) {
             throw new BusinessException(ErrorCode.BROADCAST_STOPPED_BY_ADMIN);
         }
-        if (!isLiveGroup(broadcast.getStatus())) {
+        if (!isJoinableGroup(broadcast.getStatus())) {
             throw new BusinessException(ErrorCode.BROADCAST_NOT_ON_AIR);
         }
 
@@ -419,6 +553,9 @@ public class BroadcastService {
 
         String uuid = (viewerId != null) ? viewerId : UUID.randomUUID().toString();
         redisService.enterLiveRoom(broadcastId, uuid);
+        if (broadcast.getStatus() == BroadcastStatus.ON_AIR) {
+            redisService.updatePeakViewers(broadcastId);
+        }
 
         try {
             Map<String, Object> params = Map.of("role", "SUBSCRIBER");
@@ -428,8 +565,45 @@ public class BroadcastService {
         }
     }
 
+    public void leaveBroadcast(Long broadcastId, String viewerId) {
+        if (viewerId == null || viewerId.isBlank()) {
+            return;
+        }
+        if (!broadcastRepository.existsById(broadcastId)) {
+            return;
+        }
+        redisService.exitLiveRoom(broadcastId, viewerId);
+    }
+
     @Transactional
     public void endBroadcast(Long sellerId, Long broadcastId) {
+        String lockKey = "lock:broadcast_transition:" + broadcastId;
+        if (!Boolean.TRUE.equals(redisService.acquireLock(lockKey, 3000))) {
+            throw new BusinessException(ErrorCode.TOO_MANY_REQUESTS);
+        }
+        try {
+            Broadcast broadcast = broadcastRepository.findById(broadcastId)
+                    .orElseThrow(() -> new BusinessException(ErrorCode.BROADCAST_NOT_FOUND));
+
+            if (!broadcast.getSeller().getSellerId().equals(sellerId)) {
+                throw new BusinessException(ErrorCode.FORBIDDEN_ACCESS);
+            }
+
+            validateTransition(broadcast.getStatus(), BroadcastStatus.ENDED);
+            broadcast.endBroadcast();
+            try {
+                openViduService.stopRecording(broadcastId);
+            } catch (Exception e) {
+                log.warn("Failed to stop OpenVidu recording: broadcastId={}, message={}", broadcastId, e.getMessage());
+            }
+            openViduService.closeSession(broadcastId);
+            sseService.notifyBroadcastUpdate(broadcastId, "BROADCAST_ENDED", "ended");
+        } finally {
+            redisService.releaseLock(lockKey);
+        }
+    }
+
+    public void startRecording(Long sellerId, Long broadcastId) {
         Broadcast broadcast = broadcastRepository.findById(broadcastId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.BROADCAST_NOT_FOUND));
 
@@ -437,9 +611,27 @@ public class BroadcastService {
             throw new BusinessException(ErrorCode.FORBIDDEN_ACCESS);
         }
 
-        broadcast.endBroadcast();
-        openViduService.closeSession(broadcastId);
-        sseService.notifyBroadcastUpdate(broadcastId, "BROADCAST_ENDED", "ended");
+        if (broadcast.getStatus() != BroadcastStatus.ON_AIR) {
+            throw new BusinessException(ErrorCode.BROADCAST_NOT_ON_AIR);
+        }
+
+        try {
+            openViduService.startRecording(broadcastId);
+        } catch (OpenViduHttpException e) {
+            int status = e.getStatus();
+            if (status == 406) {
+                scheduleRecordingStartRetry(broadcastId, "publisher_stream_created", status);
+            } else if (status == 409) {
+                log.info("OpenVidu recording already started: broadcastId={}", broadcastId);
+            } else {
+                log.error("OpenVidu recording start failed: broadcastId={}, status={}", broadcastId, status);
+                throw new BusinessException(ErrorCode.OPENVIDU_ERROR);
+            }
+        } catch (OpenViduJavaClientException e) {
+            scheduleRecordingStartRetry(broadcastId, "publisher_stream_created", 0);
+        } catch (Exception e) {
+            throw new BusinessException(ErrorCode.OPENVIDU_ERROR);
+        }
     }
 
     @Transactional
@@ -463,13 +655,93 @@ public class BroadcastService {
         sseService.notifyBroadcastUpdate(broadcastId, "PRODUCT_PINNED", bp.getProduct().getId());
     }
 
+    @Transactional
+    public String updateVodVisibility(Long sellerId, Long broadcastId, String status) {
+        Broadcast broadcast = broadcastRepository.findById(broadcastId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.BROADCAST_NOT_FOUND));
+        if (!broadcast.getSeller().getSellerId().equals(sellerId)) {
+            throw new BusinessException(ErrorCode.FORBIDDEN_ACCESS);
+        }
+        Vod vod = vodRepository.findByBroadcast(broadcast)
+                .orElseThrow(() -> new BusinessException(ErrorCode.VOD_NOT_FOUND));
+        VodStatus nextStatus = resolveVisibilityStatus(status);
+        if (vod.isVodAdminLock() && nextStatus == VodStatus.PUBLIC) {
+            throw new BusinessException(ErrorCode.VOD_ADMIN_LOCKED);
+        }
+        vod.changeStatus(nextStatus);
+        return nextStatus.name();
+    }
+
+    @Transactional
+    public void deleteVod(Long sellerId, Long broadcastId) {
+        Broadcast broadcast = broadcastRepository.findById(broadcastId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.BROADCAST_NOT_FOUND));
+        if (!broadcast.getSeller().getSellerId().equals(sellerId)) {
+            throw new BusinessException(ErrorCode.FORBIDDEN_ACCESS);
+        }
+        Vod vod = vodRepository.findByBroadcast(broadcast)
+                .orElseThrow(() -> new BusinessException(ErrorCode.VOD_NOT_FOUND));
+        if (vod.getVodUrl() != null && !vod.getVodUrl().isBlank()) {
+            s3Service.deleteObjectByUrl(vod.getVodUrl());
+        }
+        vod.markDeleted();
+    }
+
+    @Transactional
+    public String updateAdminVodVisibility(Long broadcastId, String status) {
+        Broadcast broadcast = broadcastRepository.findById(broadcastId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.BROADCAST_NOT_FOUND));
+        Vod vod = vodRepository.findByBroadcast(broadcast)
+                .orElseThrow(() -> new BusinessException(ErrorCode.VOD_NOT_FOUND));
+        VodStatus nextStatus = resolveVisibilityStatus(status);
+        vod.changeStatus(nextStatus);
+        vod.setAdminLock(nextStatus == VodStatus.PRIVATE);
+        if (broadcast.getStatus() == BroadcastStatus.STOPPED && nextStatus == VodStatus.PUBLIC) {
+            validateTransition(broadcast.getStatus(), BroadcastStatus.VOD);
+            broadcast.changeStatus(BroadcastStatus.VOD);
+        }
+        return nextStatus.name();
+    }
+
+    @Transactional
+    public void deleteAdminVod(Long broadcastId) {
+        Broadcast broadcast = broadcastRepository.findById(broadcastId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.BROADCAST_NOT_FOUND));
+        Vod vod = vodRepository.findByBroadcast(broadcast)
+                .orElseThrow(() -> new BusinessException(ErrorCode.VOD_NOT_FOUND));
+        if (vod.getVodUrl() != null && !vod.getVodUrl().isBlank()) {
+            s3Service.deleteObjectByUrl(vod.getVodUrl());
+        }
+        vod.markDeleted();
+    }
+
+    private VodStatus resolveVisibilityStatus(String status) {
+        if (status == null || status.isBlank()) {
+            throw new BusinessException(ErrorCode.INVALID_INPUT_VALUE);
+        }
+        VodStatus nextStatus;
+        try {
+            nextStatus = VodStatus.valueOf(status.toUpperCase());
+        } catch (IllegalArgumentException ex) {
+            throw new BusinessException(ErrorCode.INVALID_INPUT_VALUE);
+        }
+        if (nextStatus == VodStatus.DELETED) {
+            throw new BusinessException(ErrorCode.INVALID_INPUT_VALUE);
+        }
+        return nextStatus;
+    }
+
     @EventListener
     public void handleConnectListener(SessionConnectEvent event) {
         StompHeaderAccessor accessor = StompHeaderAccessor.wrap(event.getMessage());
         String bId = accessor.getFirstNativeHeader("broadcastId");
         String vId = accessor.getFirstNativeHeader("X-Viewer-Id");
         if (bId != null && vId != null) {
-            redisService.enterLiveRoom(Long.parseLong(bId), vId);
+            Long broadcastId = Long.parseLong(bId);
+            redisService.enterLiveRoom(broadcastId, vId);
+            broadcastRepository.findById(broadcastId)
+                    .filter(broadcast -> broadcast.getStatus() == BroadcastStatus.ON_AIR)
+                    .ifPresent(broadcast -> redisService.updatePeakViewers(broadcastId));
             Map<String, Object> attrs = accessor.getSessionAttributes();
             if (attrs != null) {
                 attrs.put("broadcastId", bId);
@@ -487,8 +759,29 @@ public class BroadcastService {
         }
     }
 
-    public void likeBroadcast(Long broadcastId, Long memberId) {
-        redisService.toggleLike(broadcastId, memberId);
+    public BroadcastLikeResponse likeBroadcast(Long broadcastId, Long memberId) {
+        Broadcast broadcast = broadcastRepository.findById(broadcastId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.BROADCAST_NOT_FOUND));
+
+        if (broadcast.getStatus() == BroadcastStatus.VOD) {
+            boolean liked = redisService.toggleVodLike(broadcastId, memberId);
+            int baseLikes = broadcastResultRepository.findById(broadcastId)
+                    .map(BroadcastResult::getTotalLikes)
+                    .orElse(0);
+            int pendingDelta = redisService.getVodLikeDelta(broadcastId);
+            int likeCount = Math.max(0, baseLikes + pendingDelta);
+            return BroadcastLikeResponse.builder()
+                    .liked(liked)
+                    .likeCount(likeCount)
+                    .build();
+        }
+
+        boolean liked = redisService.toggleLike(broadcastId, memberId);
+        int likeCount = redisService.getLikeCount(broadcastId);
+        return BroadcastLikeResponse.builder()
+                .liked(liked)
+                .likeCount(likeCount)
+                .build();
     }
 
     @Transactional
@@ -497,6 +790,12 @@ public class BroadcastService {
         Broadcast broadcast = broadcastRepository.findById(broadcastId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.BROADCAST_NOT_FOUND));
 
+        if (vodRepository.findByBroadcast(broadcast).isPresent()) {
+            log.info("VOD already processed: broadcastId={}", broadcastId);
+            redisService.clearRecordingRetry(broadcastId);
+            return;
+        }
+
         String recordingId = payload.getId();
         String s3Key = "seller_" + broadcast.getSeller().getSellerId() + "/vods/" + recordingId + ".mp4";
         String s3Url = payload.getUrl() != null ? payload.getUrl() : "";
@@ -504,7 +803,11 @@ public class BroadcastService {
         s3Url = uploadVodWithRetry(recordingId, s3Key, s3Url);
 
         boolean isStopped = broadcast.getStatus() == BroadcastStatus.STOPPED;
-        VodStatus status = isStopped ? VodStatus.PRIVATE : VodStatus.PUBLIC;
+        boolean hasVodUrl = s3Url != null && !s3Url.isBlank();
+        VodStatus status = (isStopped || !hasVodUrl) ? VodStatus.PRIVATE : VodStatus.PUBLIC;
+        if (isStopped && hasVodUrl) {
+            downloadVodToAdminLocal(s3Url, broadcastId, recordingId);
+        }
 
         long vodSize = payload.getSize() != null ? payload.getSize() : 0L;
         if (vodSize == 0L && s3Url != null && !s3Url.isBlank()) {
@@ -528,23 +831,57 @@ public class BroadcastService {
         int mv = redisService.getMaxViewers(broadcastId);
         LocalDateTime peak = redisService.getMaxViewersTime(broadcastId);
         Double avg = viewHistoryRepository.getAverageWatchTime(broadcastId);
+        SalesSummary salesSummary = fetchBroadcastSalesSummary(broadcast);
+        int totalChats = countBroadcastChats(broadcastId);
 
-        BroadcastResult result = BroadcastResult.builder()
-                .broadcast(broadcast)
-                .totalViews(uv)
-                .totalLikes(likes)
-                .totalReports(reports)
-                .avgWatchTime(avg != null ? avg.intValue() : 0)
-                .maxViews(mv)
-                .pickViewsAt(peak)
-                .totalChats(0)
-                .totalSales(BigDecimal.ZERO)
-                .build();
+        BroadcastResult result = broadcastResultRepository.findById(broadcastId).orElse(null);
+        LocalDateTime peakTime = resolveMaxViewsAt(broadcast, peak);
+        if (result == null) {
+            result = BroadcastResult.builder()
+                    .broadcast(broadcast)
+                    .totalViews(uv)
+                    .totalLikes(likes)
+                    .totalReports(reports)
+                    .avgWatchTime(avg != null ? avg.intValue() : 0)
+                    .maxViews(mv)
+                    .pickViewsAt(peakTime)
+                    .totalChats(totalChats)
+                    .totalSales(salesSummary.totalSales())
+                    .build();
+        } else {
+            result.updateFinalStats(
+                    uv,
+                    likes,
+                    reports,
+                    avg != null ? avg.intValue() : 0,
+                    mv,
+                    peakTime,
+                    totalChats,
+                    salesSummary.totalSales()
+            );
+        }
         broadcastResultRepository.save(result);
 
         redisService.deleteBroadcastKeys(broadcastId);
         if (isStopped || broadcast.getStatus() == BroadcastStatus.ENDED) {
+            validateTransition(broadcast.getStatus(), BroadcastStatus.VOD);
             broadcast.changeStatus(BroadcastStatus.VOD);
+        }
+        redisService.clearRecordingRetry(broadcastId);
+    }
+
+    private void downloadVodToAdminLocal(String vodUrl, Long broadcastId, String recordingId) {
+        try {
+            Path baseDir = Paths.get(adminVodDownloadDir);
+            Files.createDirectories(baseDir);
+            String safeRecordingId = recordingId != null && !recordingId.isBlank() ? recordingId : UUID.randomUUID().toString();
+            Path target = baseDir.resolve("broadcast-" + broadcastId + "-" + safeRecordingId + ".mp4");
+            try (InputStream inputStream = s3Service.getObjectStream(vodUrl, null, null)) {
+                Files.copy(inputStream, target);
+            }
+            log.info("관리자 로컬에 VOD 저장 완료: {}", target.toAbsolutePath());
+        } catch (Exception e) {
+            log.error("관리자 로컬 VOD 저장 실패: {}", vodUrl, e);
         }
     }
 
@@ -624,9 +961,20 @@ public class BroadcastService {
                 .build();
     }
 
-    @Transactional(readOnly = true)
+    @Transactional
     public List<BroadcastProductResponse> getBroadcastProducts(Long broadcastId) {
-        return broadcastProductRepository.findAllWithProductByBroadcastId(broadcastId).stream()
+        List<BroadcastProduct> products = broadcastProductRepository.findAllWithProductByBroadcastId(broadcastId);
+        List<Long> soldOutProductIds = products.stream()
+                .filter(bp -> bp.markSoldOutIfNeeded(bp.getBpQuantity()))
+                .map(bp -> bp.getProduct().getId())
+                .distinct()
+                .collect(Collectors.toList());
+
+        if (!soldOutProductIds.isEmpty()) {
+            sseService.notifyBroadcastUpdate(broadcastId, "PRODUCT_SOLD_OUT", soldOutProductIds);
+        }
+
+        return products.stream()
                 .map(BroadcastProductResponse::fromEntity)
                 .collect(Collectors.toList());
     }
@@ -647,11 +995,42 @@ public class BroadcastService {
         return !isViewerSanctioned(broadcastId, memberId, SanctionType.MUTE, SanctionType.OUT);
     }
 
-    public void reportBroadcast(Long broadcastId, Long memberId) {
-        if (!broadcastRepository.existsById(broadcastId)) {
-            throw new BusinessException(ErrorCode.BROADCAST_NOT_FOUND);
+    public BroadcastReportResponse reportBroadcast(Long broadcastId, Long memberId) {
+        Broadcast broadcast = broadcastRepository.findById(broadcastId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.BROADCAST_NOT_FOUND));
+
+        if (broadcast.getStatus() == BroadcastStatus.VOD) {
+            boolean reported = redisService.reportVod(broadcastId, memberId);
+            int baseReports = broadcastResultRepository.findById(broadcastId)
+                    .map(BroadcastResult::getTotalReports)
+                    .orElse(0);
+            int pendingDelta = redisService.getVodReportDelta(broadcastId);
+            int reportCount = Math.max(0, baseReports + pendingDelta);
+            return BroadcastReportResponse.builder()
+                    .reported(reported)
+                    .reportCount(reportCount)
+                    .build();
         }
-        redisService.reportBroadcast(broadcastId, memberId);
+
+        boolean reported = redisService.reportBroadcast(broadcastId, memberId);
+        int reportCount = redisService.getReportCount(broadcastId);
+        return BroadcastReportResponse.builder()
+                .reported(reported)
+                .reportCount(reportCount)
+                .build();
+    }
+
+    @Transactional
+    public void recordVodView(Long broadcastId, String viewerId) {
+        Broadcast broadcast = broadcastRepository.findById(broadcastId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.BROADCAST_NOT_FOUND));
+        if (broadcast.getStatus() != BroadcastStatus.VOD) {
+            return;
+        }
+        String resolvedViewerId = (viewerId == null || viewerId.isBlank())
+                ? UUID.randomUUID().toString()
+                : viewerId;
+        redisService.recordVodView(broadcastId, resolvedViewerId);
     }
 
     @Transactional(readOnly = true)
@@ -679,7 +1058,6 @@ public class BroadcastService {
         if (result != null) {
             views = result.getTotalViews();
             likes = result.getTotalLikes();
-            sales = result.getTotalSales();
             chats = result.getTotalChats();
             maxV = result.getMaxViews();
             maxTime = result.getPickViewsAt();
@@ -688,16 +1066,23 @@ public class BroadcastService {
         }
         sanctions = sanctionRepository.countByBroadcast(broadcast);
 
+        SalesSummary salesSummary = fetchBroadcastSalesSummary(broadcast);
+        sales = salesSummary.totalSales();
+
         List<BroadcastResultResponse.ProductSalesStat> productStats = broadcastProductRepository
                 .findAllWithProductByBroadcastId(broadcastId)
                 .stream()
-                .map(bp -> BroadcastResultResponse.ProductSalesStat.builder()
-                        .productId(bp.getProduct().getId())
-                        .productName(bp.getProduct().getProductName())
-                        .salesAmount(BigDecimal.ZERO)
-                        .price(bp.getBpPrice())
-                        .salesQuantity(0)
-                        .build())
+                .map(bp -> {
+                    SalesMetric metric = salesSummary.productMetrics().get(bp.getProduct().getId());
+                    int effectivePrice = bp.getBpPrice() != null ? bp.getBpPrice() : bp.getProduct().getPrice();
+                    return BroadcastResultResponse.ProductSalesStat.builder()
+                            .productId(bp.getProduct().getId())
+                            .productName(bp.getProduct().getProductName())
+                            .salesAmount(metric != null ? metric.salesAmount() : BigDecimal.ZERO)
+                            .price(effectivePrice)
+                            .salesQuantity(metric != null ? metric.salesQuantity() : 0)
+                            .build();
+                })
                 .collect(Collectors.toList());
 
         long duration = 0;
@@ -724,6 +1109,7 @@ public class BroadcastService {
                 .sanctionCount(sanctions)
                 .vodUrl((vod != null && vod.getStatus() != VodStatus.DELETED) ? vod.getVodUrl() : null)
                 .vodStatus(vod != null ? vod.getStatus() : null)
+                .vodAdminLock(vod != null && vod.isVodAdminLock())
                 .isEncoding(vod == null)
                 .productStats(productStats)
                 .build();
@@ -736,15 +1122,22 @@ public class BroadcastService {
         List<StatisticsResponse.BroadcastRank> best;
         List<StatisticsResponse.BroadcastRank> worst;
         List<StatisticsResponse.BroadcastRank> topView;
+        List<StatisticsResponse.BroadcastRank> worstView;
+        List<StatisticsResponse.ProductRank> bestProducts = List.of();
+        List<StatisticsResponse.ProductRank> worstProducts = List.of();
 
         if (sellerId != null) {
             best = broadcastResultRepository.getRanking(sellerId, period, "SALES", true, 5);
             worst = broadcastResultRepository.getRanking(sellerId, period, "SALES", false, 5);
             topView = broadcastResultRepository.getRanking(sellerId, period, "VIEWS", true, 5);
+            worstView = broadcastResultRepository.getRanking(sellerId, period, "VIEWS", false, 5);
         } else {
             best = broadcastResultRepository.getRanking(null, period, "SALES", true, 10);
             worst = broadcastResultRepository.getRanking(null, period, "SALES", false, 10);
             topView = List.of();
+            worstView = List.of();
+            bestProducts = getProductSalesRanking(period, true, 5);
+            worstProducts = getProductSalesRanking(period, false, 5);
         }
 
         return StatisticsResponse.builder()
@@ -753,7 +1146,242 @@ public class BroadcastService {
                 .bestBroadcasts(best)
                 .worstBroadcasts(worst)
                 .topViewerBroadcasts(topView)
+                .worstViewerBroadcasts(worstView)
+                .bestProducts(bestProducts)
+                .worstProducts(worstProducts)
                 .build();
+    }
+
+    private List<StatisticsResponse.ProductRank> getProductSalesRanking(String period, boolean desc, int limit) {
+        var orderTable = org.jooq.impl.DSL.table(name("order")).as("o");
+        var orderItemTable = org.jooq.impl.DSL.table(name("order_item")).as("oi");
+        var bpTable = org.jooq.impl.DSL.table(name("broadcast_product")).as("bp");
+        var broadcastTable = org.jooq.impl.DSL.table(name("broadcast")).as("b");
+        var productTable = org.jooq.impl.DSL.table(name("product")).as("p");
+
+        var orderIdField = field(name("o", "order_id"), Long.class);
+        var orderStatusField = field(name("o", "status"), String.class);
+        var orderPaidAtField = field(name("o", "paid_at"), LocalDateTime.class);
+        var orderDeletedAtField = field(name("o", "deleted_at"), LocalDateTime.class);
+
+        var orderItemOrderIdField = field(name("oi", "order_id"), Long.class);
+        var orderItemProductIdField = field(name("oi", "product_id"), Long.class);
+        var orderItemQuantityField = field(name("oi", "quantity"), Integer.class);
+        var orderItemUnitPriceField = field(name("oi", "unit_price"), Integer.class);
+        var orderItemDeletedAtField = field(name("oi", "deleted_at"), LocalDateTime.class);
+
+        var bpBroadcastIdField = field(name("bp", "broadcast_id"), Long.class);
+        var bpProductIdField = field(name("bp", "product_id"), Long.class);
+        var bpPriceField = field(name("bp", "bp_price"), Integer.class);
+
+        var broadcastIdField = field(name("b", "broadcast_id"), Long.class);
+        var broadcastStartedAtField = field(name("b", "started_at"), LocalDateTime.class);
+        var broadcastEndedAtField = field(name("b", "ended_at"), LocalDateTime.class);
+
+        var productIdField = field(name("p", "product_id"), Long.class);
+        var productNameField = field(name("p", "product_name"), String.class);
+
+        LocalDateTime startDate = resolveRankingStartDate(period);
+        var effectivePrice = org.jooq.impl.DSL.coalesce(bpPriceField, orderItemUnitPriceField).cast(BigDecimal.class);
+        var salesExpr = org.jooq.impl.DSL.sum(effectivePrice.mul(orderItemQuantityField.cast(BigDecimal.class))).as("sales_amount");
+
+        var orderField = desc ? salesExpr.desc().nullsLast() : salesExpr.asc().nullsLast();
+
+        return dsl.select(productIdField, productNameField, salesExpr)
+                .from(orderItemTable)
+                .join(orderTable).on(orderItemOrderIdField.eq(orderIdField))
+                .join(bpTable).on(bpProductIdField.eq(orderItemProductIdField))
+                .join(broadcastTable).on(bpBroadcastIdField.eq(broadcastIdField))
+                .join(productTable).on(bpProductIdField.eq(productIdField))
+                .where(
+                        orderStatusField.eq(OrderStatus.COMPLETED.name()),
+                        orderPaidAtField.isNotNull(),
+                        orderPaidAtField.ge(startDate),
+                        orderPaidAtField.between(broadcastStartedAtField, broadcastEndedAtField),
+                        broadcastEndedAtField.isNotNull(),
+                        orderDeletedAtField.isNull(),
+                        orderItemDeletedAtField.isNull()
+                )
+                .groupBy(productIdField, productNameField)
+                .orderBy(orderField)
+                .limit(limit)
+                .fetch(record -> StatisticsResponse.ProductRank.builder()
+                        .productId(record.get(productIdField))
+                        .title(record.get(productNameField))
+                        .totalSales(record.get(salesExpr) != null ? record.get(salesExpr) : BigDecimal.ZERO)
+                        .build());
+    }
+
+    private LocalDateTime resolveRankingStartDate(String period) {
+        LocalDateTime now = LocalDateTime.now();
+        if ("DAILY".equalsIgnoreCase(period)) {
+            return now.withHour(0).withMinute(0).withSecond(0).withNano(0);
+        }
+        if ("MONTHLY".equalsIgnoreCase(period)) {
+            return now.withDayOfMonth(1).withHour(0).withMinute(0).withSecond(0).withNano(0);
+        }
+        return now.withDayOfYear(1).withHour(0).withMinute(0).withSecond(0).withNano(0);
+    }
+
+    private SalesSummary fetchBroadcastSalesSummary(Broadcast broadcast) {
+        if (broadcast.getStartedAt() == null || broadcast.getEndedAt() == null) {
+            return new SalesSummary(BigDecimal.ZERO, Map.of());
+        }
+
+        var orderTable = org.jooq.impl.DSL.table(name("order")).as("o");
+        var orderItemTable = org.jooq.impl.DSL.table(name("order_item")).as("oi");
+        var bpTable = org.jooq.impl.DSL.table(name("broadcast_product")).as("bp");
+
+        var orderIdField = field(name("o", "order_id"), Long.class);
+        var orderStatusField = field(name("o", "status"), String.class);
+        var orderPaidAtField = field(name("o", "paid_at"), LocalDateTime.class);
+        var orderDeletedAtField = field(name("o", "deleted_at"), LocalDateTime.class);
+
+        var orderItemOrderIdField = field(name("oi", "order_id"), Long.class);
+        var orderItemProductIdField = field(name("oi", "product_id"), Long.class);
+        var orderItemQuantityField = field(name("oi", "quantity"), Integer.class);
+        var orderItemUnitPriceField = field(name("oi", "unit_price"), Integer.class);
+        var orderItemDeletedAtField = field(name("oi", "deleted_at"), LocalDateTime.class);
+
+        var bpBroadcastIdField = field(name("bp", "broadcast_id"), Long.class);
+        var bpProductIdField = field(name("bp", "product_id"), Long.class);
+        var bpPriceField = field(name("bp", "bp_price"), Integer.class);
+
+        var effectivePrice = org.jooq.impl.DSL.coalesce(bpPriceField, orderItemUnitPriceField).cast(BigDecimal.class);
+        var salesAmount = org.jooq.impl.DSL.sum(
+                effectivePrice.mul(orderItemQuantityField.cast(BigDecimal.class))
+        ).as("sales_amount");
+        var salesQuantity = org.jooq.impl.DSL.sum(orderItemQuantityField).cast(Integer.class).as("sales_quantity");
+
+        var records = dsl.select(orderItemProductIdField, salesQuantity, salesAmount)
+                .from(orderItemTable)
+                .join(orderTable).on(orderItemOrderIdField.eq(orderIdField))
+                .join(bpTable).on(bpProductIdField.eq(orderItemProductIdField)
+                        .and(bpBroadcastIdField.eq(broadcast.getBroadcastId())))
+                .where(
+                        orderStatusField.eq(OrderStatus.PAID.name()),
+                        orderPaidAtField.isNotNull(),
+                        orderPaidAtField.between(broadcast.getStartedAt(), broadcast.getEndedAt()),
+                        orderDeletedAtField.isNull(),
+                        orderItemDeletedAtField.isNull()
+                )
+                .groupBy(orderItemProductIdField)
+                .fetch();
+
+        Map<Long, SalesMetric> metrics = records.stream()
+                .collect(Collectors.toMap(
+                        record -> record.get(orderItemProductIdField),
+                        record -> new SalesMetric(
+                                record.get(salesQuantity) != null ? record.get(salesQuantity) : 0,
+                                record.get(salesAmount) != null ? record.get(salesAmount) : BigDecimal.ZERO
+                        )
+                ));
+
+        BigDecimal totalSales = metrics.values().stream()
+                .map(SalesMetric::salesAmount)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        return new SalesSummary(totalSales, metrics);
+    }
+
+    private int countBroadcastChats(Long broadcastId) {
+        return (int) liveChatRepository.countByBroadcastIdAndMsgTypeIn(
+                broadcastId,
+                List.of(LiveMessageType.TALK, LiveMessageType.PURCHASE, LiveMessageType.NOTICE)
+        );
+    }
+
+    @Transactional
+    public void saveBroadcastResultSnapshot(Broadcast broadcast) {
+        if (broadcast == null) {
+            return;
+        }
+
+        Long broadcastId = broadcast.getBroadcastId();
+        int uv = redisService.getTotalUniqueViewerCount(broadcastId);
+        int likes = redisService.getLikeCount(broadcastId);
+        int reports = redisService.getReportCount(broadcastId);
+        int mv = redisService.getMaxViewers(broadcastId);
+        LocalDateTime peak = redisService.getMaxViewersTime(broadcastId);
+        Double avg = viewHistoryRepository.getAverageWatchTime(broadcastId);
+        int totalChats = countBroadcastChats(broadcastId);
+        SalesSummary salesSummary = fetchBroadcastSalesSummary(broadcast);
+
+        BroadcastResult result = broadcastResultRepository.findById(broadcastId).orElse(null);
+        int avgWatchTime = avg != null ? avg.intValue() : 0;
+        BigDecimal totalSales = salesSummary.totalSales() != null ? salesSummary.totalSales() : BigDecimal.ZERO;
+        LocalDateTime peakTime = peak;
+        int maxViews = mv;
+        int totalViews = uv;
+        int totalLikes = likes;
+        int totalReports = reports;
+        int chats = totalChats;
+
+        if (result != null) {
+            totalViews = Math.max(result.getTotalViews(), uv);
+            totalLikes = Math.max(result.getTotalLikes(), likes);
+            totalReports = Math.max(result.getTotalReports(), reports);
+            chats = Math.max(result.getTotalChats(), totalChats);
+            maxViews = Math.max(result.getMaxViews(), mv);
+            if (mv <= result.getMaxViews()) {
+                peakTime = result.getPickViewsAt();
+            }
+            if (peakTime == null) {
+                peakTime = peak;
+            }
+            if (avg == null) {
+                avgWatchTime = result.getAvgWatchTime();
+            }
+            if (result.getTotalSales() != null && result.getTotalSales().compareTo(totalSales) > 0) {
+                totalSales = result.getTotalSales();
+            }
+        }
+
+        peakTime = resolveMaxViewsAt(broadcast, peakTime);
+        if (result == null) {
+            result = BroadcastResult.builder()
+                    .broadcast(broadcast)
+                    .totalViews(totalViews)
+                    .totalLikes(totalLikes)
+                    .totalReports(totalReports)
+                    .avgWatchTime(avgWatchTime)
+                    .maxViews(maxViews)
+                    .pickViewsAt(peakTime)
+                    .totalChats(chats)
+                    .totalSales(totalSales)
+                    .build();
+        } else {
+            result.updateFinalStats(
+                    totalViews,
+                    totalLikes,
+                    totalReports,
+                    avgWatchTime,
+                    maxViews,
+                    peakTime,
+                    chats,
+                    totalSales
+            );
+        }
+        broadcastResultRepository.save(result);
+    }
+
+    private LocalDateTime resolveMaxViewsAt(Broadcast broadcast, LocalDateTime peakTime) {
+        if (peakTime != null) {
+            return peakTime;
+        }
+        if (broadcast.getStartedAt() != null) {
+            return broadcast.getStartedAt();
+        }
+        if (broadcast.getCreatedAt() != null) {
+            return broadcast.getCreatedAt();
+        }
+        return LocalDateTime.now();
+    }
+
+    private record SalesSummary(BigDecimal totalSales, Map<Long, SalesMetric> productMetrics) {
+    }
+
+    private record SalesMetric(int salesQuantity, BigDecimal salesAmount) {
     }
 
     @Scheduled(fixedDelay = 60000)
@@ -765,6 +1393,7 @@ public class BroadcastService {
         for (Long broadcastId : readyTargets) {
             Broadcast broadcast = broadcastRepository.findById(broadcastId).orElse(null);
             if (broadcast != null && broadcast.getStatus() == BroadcastStatus.RESERVED) {
+                validateTransition(broadcast.getStatus(), BroadcastStatus.READY);
                 broadcast.readyBroadcast();
                 sseService.notifyBroadcastUpdate(broadcastId, "BROADCAST_READY", "ready");
             }
@@ -774,7 +1403,8 @@ public class BroadcastService {
         for (Long broadcastId : noShowTargets) {
             Broadcast broadcast = broadcastRepository.findById(broadcastId).orElse(null);
             if (broadcast != null && (broadcast.getStatus() == BroadcastStatus.RESERVED || broadcast.getStatus() == BroadcastStatus.READY)) {
-                broadcast.markNoShow("방송 시작 시간 초과");
+                validateTransition(broadcast.getStatus(), BroadcastStatus.CANCELED);
+                broadcast.markNoShow("broadcast start time violation");
                 sseService.notifyBroadcastUpdate(broadcastId, "BROADCAST_CANCELED", "no_show");
             }
         }
@@ -782,21 +1412,42 @@ public class BroadcastService {
         List<BroadcastRepositoryCustom.BroadcastScheduleInfo> schedules = broadcastRepository.findBroadcastSchedules(
                 now.minusHours(2),
                 now.plusHours(2),
-                List.of(BroadcastStatus.ON_AIR, BroadcastStatus.READY, BroadcastStatus.ENDED)
+                List.of(BroadcastStatus.ON_AIR, BroadcastStatus.READY, BroadcastStatus.ENDED, BroadcastStatus.RESERVED)
         );
 
         for (BroadcastRepositoryCustom.BroadcastScheduleInfo schedule : schedules) {
             if (schedule.scheduledAt() == null) {
                 continue;
             }
-            LocalDateTime scheduledEnd = schedule.scheduledAt().plusMinutes(60);
+            if (schedule.status() == BroadcastStatus.RESERVED) {
+                LocalDateTime startNoticeAt = schedule.scheduledAt().minusMinutes(30);
+                if (!startNoticeAt.isAfter(now) && schedule.scheduledAt().isAfter(now)) {
+                    String noticeKey = redisService.getScheduleNoticeKey(schedule.broadcastId(), "start_30m");
+                    if (redisService.setIfAbsent(noticeKey, "sent", java.time.Duration.ofHours(2))) {
+                        Broadcast broadcast = broadcastRepository.findById(schedule.broadcastId()).orElse(null);
+                        if (broadcast != null) {
+                            broadcastScheduleEmailService.sendStartReminder(broadcast);
+                        }
+                    }
+                }
+            }
+            LocalDateTime scheduledEnd = schedule.scheduledAt().plusMinutes(30);
             if (!scheduledEnd.isAfter(now)) {
                 String noticeKey = redisService.getScheduleNoticeKey(schedule.broadcastId(), "ended");
                 if (redisService.setIfAbsent(noticeKey, "sent", java.time.Duration.ofHours(2))) {
                     Broadcast broadcast = broadcastRepository.findById(schedule.broadcastId()).orElse(null);
                     if (broadcast != null && broadcast.getStatus() == BroadcastStatus.ON_AIR) {
+                        validateTransition(broadcast.getStatus(), BroadcastStatus.ENDED);
                         broadcast.endBroadcast();
                         openViduService.closeSession(schedule.broadcastId());
+                        triggerRecordingFallback(schedule.broadcastId(), "scheduled_end");
+                    }
+                    if (broadcast != null && (broadcast.getStatus() == BroadcastStatus.ENDED || broadcast.getStatus() == BroadcastStatus.STOPPED)) {
+                        validateTransition(broadcast.getStatus(), BroadcastStatus.VOD);
+                        broadcast.changeStatus(BroadcastStatus.VOD);
+                    }
+                    if (broadcast != null) {
+                        saveBroadcastResultSnapshot(broadcast);
                     }
                     sseService.notifyBroadcastUpdate(schedule.broadcastId(), "BROADCAST_SCHEDULED_END", "ended");
                 }
@@ -807,10 +1458,161 @@ public class BroadcastService {
             if (!noticeAt.isAfter(now)) {
                 String noticeKey = redisService.getScheduleNoticeKey(schedule.broadcastId(), "ending_soon");
                 if (redisService.setIfAbsent(noticeKey, "sent", java.time.Duration.ofHours(2))) {
-                    sseService.notifyBroadcastUpdate(schedule.broadcastId(), "BROADCAST_ENDING_SOON", "1m");
+                    Broadcast broadcast = broadcastRepository.findById(schedule.broadcastId()).orElse(null);
+                    if (broadcast != null) {
+                        sseService.notifyTargetUser(schedule.broadcastId(), broadcast.getSeller().getSellerId(), "BROADCAST_ENDING_SOON", "1m");
+                    }
                 }
             }
         }
+    }
+
+    @Scheduled(fixedDelay = 30000)
+    @Transactional
+    public void processRecordingFallbackQueue() {
+        for (Long broadcastId : redisService.popDueRecordingRetries(20)) {
+            triggerRecordingFallback(broadcastId, "retry_queue");
+        }
+    }
+
+    @Scheduled(fixedDelay = 5000)
+    @Transactional
+    public void processRecordingStartRetryQueue() {
+        for (Long broadcastId : redisService.popDueRecordingStartRetries(20)) {
+            attemptStartRecordingRetry(broadcastId, "retry_queue");
+        }
+    }
+
+    @Scheduled(fixedDelay = 300000)
+    @Transactional
+    public void recoverMissingVodOrResult() {
+        List<Broadcast> targets = broadcastRepository.findMissingVodOrResultByStatus(
+                List.of(BroadcastStatus.ENDED, BroadcastStatus.STOPPED)
+        );
+
+        for (Broadcast broadcast : targets) {
+            Long broadcastId = broadcast.getBroadcastId();
+            boolean hasVod = vodRepository.findByBroadcast(broadcast).isPresent();
+            boolean hasResult = broadcastResultRepository.findById(broadcastId).isPresent();
+
+            if (!hasVod) {
+                log.info("Missing VOD detected, triggering fallback: broadcastId={}", broadcastId);
+                triggerRecordingFallback(broadcastId, "missing_vod");
+            }
+
+            if (!hasResult) {
+                log.info("Missing broadcast result detected, saving snapshot: broadcastId={}", broadcastId);
+                saveBroadcastResultSnapshot(broadcast);
+            }
+        }
+    }
+
+    private void triggerRecordingFallback(Long broadcastId, String reason) {
+        Broadcast broadcast = broadcastRepository.findById(broadcastId).orElse(null);
+        if (broadcast == null) {
+            redisService.clearRecordingRetry(broadcastId);
+            return;
+        }
+        if (vodRepository.findByBroadcast(broadcast).isPresent()) {
+            redisService.clearRecordingRetry(broadcastId);
+            return;
+        }
+
+        String sessionId = "broadcast-" + broadcastId;
+        try {
+            Optional<Recording> recording = openViduService.findRecordingBySessionId(sessionId);
+            if (recording.isEmpty()) {
+                scheduleRecordingRetry(broadcastId, reason, "not_found");
+                return;
+            }
+
+            String status = String.valueOf(recording.get().getStatus()).toLowerCase();
+            if ("ready".equals(status)) {
+                OpenViduRecordingWebhook payload = new OpenViduRecordingWebhook(
+                        "recordingStatusChanged",
+                        recording.get().getId(),
+                        recording.get().getSessionId(),
+                        recording.get().getName(),
+                        recording.get().getSize(),
+                        recording.get().getDuration(),
+                        status,
+                        recording.get().getUrl()
+                );
+                processVod(payload);
+                redisService.clearRecordingRetry(broadcastId);
+                return;
+            }
+
+            if ("failed".equals(status)) {
+                log.warn("OpenVidu recording failed: broadcastId={}, status={}", broadcastId, status);
+                redisService.clearRecordingRetry(broadcastId);
+                return;
+            }
+
+            scheduleRecordingRetry(broadcastId, reason, status);
+        } catch (OpenViduJavaClientException | OpenViduHttpException ex) {
+            log.warn("OpenVidu recording status check failed: broadcastId={}, reason={}, message={}",
+                    broadcastId, reason, ex.getMessage());
+            scheduleRecordingRetry(broadcastId, reason, "error");
+        } catch (Exception ex) {
+            log.error("Recording fallback error: broadcastId={}, reason={}", broadcastId, reason, ex);
+            scheduleRecordingRetry(broadcastId, reason, "exception");
+        }
+    }
+
+    private void scheduleRecordingRetry(Long broadcastId, String reason, String status) {
+        int attempt = redisService.incrementRecordingRetryAttempt(broadcastId, RECORDING_RETRY_TTL);
+        if (attempt > RECORDING_RETRY_MAX_ATTEMPTS) {
+            log.warn("Recording fallback retries exceeded: broadcastId={}, reason={}, status={}", broadcastId, reason, status);
+            redisService.clearRecordingRetry(broadcastId);
+            return;
+        }
+        Duration delay = RECORDING_RETRY_BASE_DELAY.multipliedBy(attempt);
+        redisService.scheduleRecordingRetry(broadcastId, delay);
+        log.info("Recording fallback scheduled: broadcastId={}, reason={}, status={}, attempt={}, delay={}s",
+                broadcastId, reason, status, attempt, delay.toSeconds());
+    }
+
+    private void attemptStartRecordingRetry(Long broadcastId, String reason) {
+        Broadcast broadcast = broadcastRepository.findById(broadcastId).orElse(null);
+        if (broadcast == null || broadcast.getStatus() != BroadcastStatus.ON_AIR) {
+            redisService.clearRecordingStartRetry(broadcastId);
+            return;
+        }
+        try {
+            openViduService.startRecording(broadcastId);
+            redisService.clearRecordingStartRetry(broadcastId);
+            log.info("OpenVidu recording start succeeded after retry: broadcastId={}, reason={}", broadcastId, reason);
+        } catch (OpenViduHttpException e) {
+            int status = e.getStatus();
+            if (status == 406) {
+                scheduleRecordingStartRetry(broadcastId, reason, status);
+                return;
+            }
+            if (status == 409) {
+                redisService.clearRecordingStartRetry(broadcastId);
+                log.info("OpenVidu recording already started during retry: broadcastId={}, reason={}", broadcastId, reason);
+                return;
+            }
+            redisService.clearRecordingStartRetry(broadcastId);
+            log.error("OpenVidu recording start retry failed: broadcastId={}, reason={}, status={}",
+                    broadcastId, reason, status);
+        } catch (OpenViduJavaClientException e) {
+            scheduleRecordingStartRetry(broadcastId, reason, 0);
+        }
+    }
+
+    private void scheduleRecordingStartRetry(Long broadcastId, String reason, int status) {
+        int attempt = redisService.incrementRecordingStartRetryAttempt(broadcastId, RECORDING_START_RETRY_TTL);
+        if (attempt > RECORDING_START_RETRY_MAX_ATTEMPTS) {
+            log.warn("Recording start retries exceeded: broadcastId={}, reason={}, status={}", broadcastId, reason, status);
+            redisService.clearRecordingStartRetry(broadcastId);
+            return;
+        }
+        Duration delay = RECORDING_START_RETRY_BASE_DELAY.multipliedBy(attempt);
+        redisService.scheduleRecordingStartRetry(broadcastId, delay);
+        log.info("Recording start retry scheduled: broadcastId={}, reason={}, status={}, attempt={}, delay={}s",
+                broadcastId, reason, status, attempt, delay.toSeconds());
     }
 
     private void saveBroadcastProducts(Long sellerId, Broadcast broadcast, List<BroadcastProductRequest> products) {
@@ -825,6 +1627,13 @@ public class BroadcastService {
 
             if (!product.getSellerId().equals(sellerId)) {
                 throw new BusinessException(ErrorCode.FORBIDDEN_ACCESS);
+            }
+
+            int stockQty = product.getStockQty() == null ? 0 : product.getStockQty();
+            int safetyStock = product.getSafetyStock() == null ? 0 : product.getSafetyStock();
+            int maxQuantity = stockQty - safetyStock;
+            if (dto.getBpQuantity() == null || dto.getBpQuantity() > maxQuantity) {
+                throw new BusinessException(ErrorCode.PRODUCT_SOLD_OUT);
             }
 
             BroadcastProduct bp = BroadcastProduct.builder()
@@ -867,6 +1676,27 @@ public class BroadcastService {
         saveQcards(broadcast, qcards);
     }
 
+    private void validateTransition(BroadcastStatus from, BroadcastStatus to) {
+        if (!isTransitionAllowed(from, to)) {
+            throw new BusinessException(ErrorCode.BROADCAST_INVALID_TRANSITION);
+        }
+    }
+
+    private boolean isTransitionAllowed(BroadcastStatus from, BroadcastStatus to) {
+        if (from == null || to == null || from == to) {
+            return false;
+        }
+        return switch (from) {
+            case RESERVED -> to == BroadcastStatus.READY || to == BroadcastStatus.CANCELED || to == BroadcastStatus.DELETED;
+            case CANCELED -> to == BroadcastStatus.RESERVED || to == BroadcastStatus.DELETED;
+            case READY -> to == BroadcastStatus.ON_AIR || to == BroadcastStatus.STOPPED || to == BroadcastStatus.CANCELED;
+            case ON_AIR -> to == BroadcastStatus.ENDED || to == BroadcastStatus.STOPPED;
+            case ENDED -> to == BroadcastStatus.VOD || to == BroadcastStatus.STOPPED;
+            case STOPPED -> to == BroadcastStatus.VOD;
+            default -> false;
+        };
+    }
+
     private List<BroadcastProductResponse> getProductListResponse(Broadcast broadcast) {
         return broadcast.getProducts().stream()
                 .map(BroadcastProductResponse::fromEntity)
@@ -884,6 +1714,10 @@ public class BroadcastService {
 
     private boolean isLiveGroup(BroadcastStatus status) {
         return status == BroadcastStatus.ON_AIR || status == BroadcastStatus.READY || status == BroadcastStatus.ENDED;
+    }
+
+    private boolean isJoinableGroup(BroadcastStatus status) {
+        return status == BroadcastStatus.ON_AIR || status == BroadcastStatus.READY;
     }
 
     private Long parseMemberId(String viewerId) {
@@ -955,19 +1789,19 @@ public class BroadcastService {
     private BroadcastAllResponse getOverview(Long sellerId, boolean isAdmin) {
         List<BroadcastListResponse> onAir = broadcastRepository.findTop5ByStatus(
                 sellerId,
-                List.of(BroadcastStatus.ON_AIR, BroadcastStatus.READY),
+                List.of(BroadcastStatus.ON_AIR, BroadcastStatus.READY, BroadcastStatus.ENDED, BroadcastStatus.STOPPED),
                 BroadcastRepositoryCustom.BroadcastSortOrder.STARTED_AT_DESC,
                 isAdmin
         );
         List<BroadcastListResponse> reserved = broadcastRepository.findTop5ByStatus(
                 sellerId,
-                List.of(BroadcastStatus.RESERVED),
+                isAdmin ? List.of(BroadcastStatus.RESERVED, BroadcastStatus.CANCELED) : List.of(BroadcastStatus.RESERVED),
                 BroadcastRepositoryCustom.BroadcastSortOrder.SCHEDULED_AT_ASC,
                 isAdmin
         );
         List<BroadcastListResponse> vod = broadcastRepository.findTop5ByStatus(
                 sellerId,
-                List.of(BroadcastStatus.VOD, BroadcastStatus.ENDED, BroadcastStatus.STOPPED),
+                List.of(BroadcastStatus.VOD),
                 BroadcastRepositoryCustom.BroadcastSortOrder.ENDED_AT_DESC,
                 isAdmin
         );
@@ -977,7 +1811,7 @@ public class BroadcastService {
 
     private void injectLiveStats(List<BroadcastListResponse> list) {
         list.forEach(item -> {
-            if (item.getStatus() == BroadcastStatus.ON_AIR) {
+            if (isLiveGroup(item.getStatus())) {
                 item.setLiveViewerCount(redisService.getRealtimeViewerCount(item.getBroadcastId()));
                 item.setTotalLikes(redisService.getLikeCount(item.getBroadcastId()));
                 item.setReportCount(redisService.getReportCount(item.getBroadcastId()));
@@ -986,14 +1820,24 @@ public class BroadcastService {
     }
 
     private void injectLiveDetails(List<BroadcastListResponse> list) {
+        List<Long> liveIds = list.stream()
+                .filter(item -> isLiveGroup(item.getStatus()))
+                .map(BroadcastListResponse::getBroadcastId)
+                .toList();
+        if (liveIds.isEmpty()) {
+            return;
+        }
+
+        var productMap = broadcastProductRepository.findAllWithProductByBroadcastIdIn(liveIds).stream()
+                .collect(Collectors.groupingBy(bp -> bp.getBroadcast().getBroadcastId()));
+
         list.forEach(item -> {
-            if (item.getStatus() == BroadcastStatus.ON_AIR) {
+            if (isLiveGroup(item.getStatus())) {
                 item.setLiveViewerCount(redisService.getRealtimeViewerCount(item.getBroadcastId()));
                 item.setTotalLikes(redisService.getLikeCount(item.getBroadcastId()));
                 item.setReportCount(redisService.getReportCount(item.getBroadcastId()));
 
-                List<BroadcastProduct> products = broadcastProductRepository.findAllWithProductByBroadcastId(item.getBroadcastId());
-
+                List<BroadcastProduct> products = productMap.getOrDefault(item.getBroadcastId(), List.of());
                 item.setProducts(products.stream().map(bp -> {
                     Product p = bp.getProduct();
                     return BroadcastListResponse.SimpleProductInfo.builder()

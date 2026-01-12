@@ -3,6 +3,8 @@ package com.deskit.deskit.livehost.controller.member;
 import com.deskit.deskit.account.entity.Member;
 import com.deskit.deskit.livehost.common.exception.ApiResult;
 import com.deskit.deskit.livehost.common.utils.LiveAuthUtils;
+import com.deskit.deskit.livehost.dto.response.BroadcastLikeResponse;
+import com.deskit.deskit.livehost.dto.response.BroadcastReportResponse;
 import com.deskit.deskit.livehost.service.BroadcastService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -20,20 +22,20 @@ public class BroadcastMemberController {
     private final LiveAuthUtils liveAuthUtils;
 
     @PostMapping("/{broadcastId}/report")
-    public ResponseEntity<ApiResult<Void>> reportBroadcast(
+    public ResponseEntity<ApiResult<BroadcastReportResponse>> reportBroadcast(
             @PathVariable Long broadcastId
     ) {
         Member member = liveAuthUtils.getCurrentMember();
-        broadcastService.reportBroadcast(broadcastId, member.getMemberId());
-        return ResponseEntity.ok(ApiResult.success(null));
+        BroadcastReportResponse response = broadcastService.reportBroadcast(broadcastId, member.getMemberId());
+        return ResponseEntity.ok(ApiResult.success(response));
     }
 
     @PostMapping("/{broadcastId}/like")
-    public ResponseEntity<ApiResult<Void>> likeBroadcast(
+    public ResponseEntity<ApiResult<BroadcastLikeResponse>> likeBroadcast(
             @PathVariable Long broadcastId
     ) {
         Member member = liveAuthUtils.getCurrentMember();
-        broadcastService.likeBroadcast(broadcastId, member.getMemberId());
-        return ResponseEntity.ok(ApiResult.success(null));
+        BroadcastLikeResponse response = broadcastService.likeBroadcast(broadcastId, member.getMemberId());
+        return ResponseEntity.ok(ApiResult.success(response));
     }
 }

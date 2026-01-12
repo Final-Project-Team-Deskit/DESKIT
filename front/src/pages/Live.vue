@@ -4,20 +4,24 @@ import { useRouter } from 'vue-router'
 import ConfirmModal from '../components/ConfirmModal.vue'
 import PageContainer from '../components/PageContainer.vue'
 import PageHeader from '../components/PageHeader.vue'
-import { liveItems } from '../lib/live/data'
 import {
   filterLivesByDay,
   getDayWindow,
-  getLiveStatus,
   parseLiveDate,
   sortLivesByStartAt,
 } from '../lib/live/utils'
+import { computeLifecycleStatus, getScheduledEndMs, normalizeBroadcastStatus, type BroadcastStatus } from '../lib/broadcastStatus'
 import type { LiveItem } from '../lib/live/types'
 import { useNow } from '../lib/live/useNow'
+import { fetchBroadcastStats, fetchPublicBroadcastOverview } from '../lib/live/api'
+import { getAuthUser } from '../lib/auth'
+import { resolveViewerId } from '../lib/live/viewer'
 
 const router = useRouter()
 const today = new Date()
 const { now } = useNow(1000)
+
+const FALLBACK_IMAGE = 'data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs='
 
 const NOTIFY_KEY = 'deskit_live_notifications'
 const WATCH_HISTORY_CONSENT_KEY = 'deskit_live_watch_history_consent_v1'
@@ -26,7 +30,15 @@ const normalizeDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getD
 const toast = ref<{ message: string; variant: 'success' | 'neutral' } | null>(null)
 const showWatchHistoryConsent = ref(false)
 const pendingLiveId = ref<string | null>(null)
+const liveItems = ref<LiveItem[]>([])
 let toastTimer: ReturnType<typeof setTimeout> | null = null
+const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080'
+const sseSource = ref<EventSource | null>(null)
+const sseConnected = ref(false)
+const sseRetryCount = ref(0)
+const sseRetryTimer = ref<number | null>(null)
+const refreshTimer = ref<number | null>(null)
+const statsTimer = ref<number | null>(null)
 
 const hasWatchHistoryConsent = () => {
   try {
@@ -62,7 +74,7 @@ const handleCancelWatchHistory = () => {
 }
 
 const dayWindow = computed(() => getDayWindow(today))
-const selectedDay = ref(normalizeDay(dayWindow.value[3]))
+const selectedDay = ref(normalizeDay(dayWindow.value[3] ?? today))
 
 const formatTime = (value: string) => {
   const time = parseLiveDate(value)
@@ -71,14 +83,89 @@ const formatTime = (value: string) => {
   return `${hours}:${minutes}`
 }
 
-const getStatus = (item: LiveItem) => getLiveStatus(item, now.value)
+const handleImageError = (event: Event) => {
+  const target = event.target as HTMLImageElement | null
+  if (!target || target.dataset.fallbackApplied) return
+  target.dataset.fallbackApplied = 'true'
+  target.src = FALLBACK_IMAGE
+}
+
+const getLifecycleStatus = (item: LiveItem): BroadcastStatus => {
+  const startAtMs = parseLiveDate(item.startAt).getTime()
+  const normalizedStart = Number.isNaN(startAtMs) ? undefined : startAtMs
+  const endAtMs = parseLiveDate(item.endAt).getTime()
+  const normalizedEnd = Number.isNaN(endAtMs) ? getScheduledEndMs(normalizedStart) : endAtMs
+  return computeLifecycleStatus({
+    status: normalizeBroadcastStatus(item.status),
+    startAtMs: normalizedStart,
+    endAtMs: normalizedEnd,
+  })
+}
+
+const getStatus = (item: LiveItem) => {
+  const status = getLifecycleStatus(item)
+  if (status === 'ON_AIR') return 'LIVE'
+  if (status === 'READY') return 'READY'
+  if (status === 'RESERVED') return 'UPCOMING'
+  if (status === 'STOPPED') return 'STOPPED'
+  if (status === 'VOD') return 'VOD'
+  return 'ENDED'
+}
+const getSectionStatus = (item: LiveItem) => {
+  const status = getLifecycleStatus(item)
+  if (status === 'RESERVED') return 'UPCOMING'
+  if (status === 'VOD') return 'ENDED'
+  return 'LIVE'
+}
+const isPastScheduledEnd = (item: LiveItem): boolean => {
+  const startAtMs = parseLiveDate(item.startAt).getTime()
+  const normalizedStart = Number.isNaN(startAtMs) ? undefined : startAtMs
+  const scheduledEndMs = getScheduledEndMs(normalizedStart)
+  if (!scheduledEndMs) return false
+  return Date.now() > scheduledEndMs
+}
+const isRowDisabled = (item: LiveItem) => getLifecycleStatus(item) === 'RESERVED'
+const getElapsedLabel = (item: LiveItem) => {
+  if (getStatus(item) !== 'LIVE') return ''
+  const started = parseLiveDate(item.startAt)
+  if (Number.isNaN(started.getTime())) return ''
+  const diffMs = Math.max(0, now.value.getTime() - started.getTime())
+  const totalSeconds = Math.floor(diffMs / 1000)
+  const minutes = Math.floor((totalSeconds % 3600) / 60)
+  const seconds = totalSeconds % 60
+  const hours = Math.floor(totalSeconds / 3600)
+  const pad = (value: number) => String(value).padStart(2, '0')
+  return hours > 0 ? `${pad(hours)}:${pad(minutes)}:${pad(seconds)}` : `${pad(minutes)}:${pad(seconds)}`
+}
 const getCountdownLabel = (item: LiveItem) => {
-  if (getStatus(item) !== 'UPCOMING') {
+  const lifecycleStatus = getLifecycleStatus(item)
+  if (lifecycleStatus !== 'RESERVED' && lifecycleStatus !== 'READY' && lifecycleStatus !== 'ENDED') {
     return ''
   }
   const start = parseLiveDate(item.startAt)
   const nowValue = now.value
   const diffMs = start.getTime() - nowValue.getTime()
+  if (lifecycleStatus === 'READY') {
+    if (diffMs <= 0) {
+      return '방송 대기 중'
+    }
+    const totalSeconds = Math.ceil(diffMs / 1000)
+    const minutes = Math.floor(totalSeconds / 60)
+    const seconds = totalSeconds % 60
+    return `${minutes}분 ${String(seconds).padStart(2, '0')}초 뒤 방송 시작`
+  }
+  if (lifecycleStatus === 'ENDED') {
+    const startAtMs = Number.isNaN(start.getTime()) ? undefined : start.getTime()
+    const rawEndAt = parseLiveDate(item.endAt).getTime()
+    const endAtMs = Number.isNaN(rawEndAt) ? getScheduledEndMs(startAtMs) : rawEndAt
+    if (!endAtMs) return '방송 종료'
+    const remainingMs = endAtMs - nowValue.getTime()
+    if (remainingMs <= 0) return '방송 종료'
+    const totalSeconds = Math.ceil(remainingMs / 1000)
+    const minutes = Math.floor(totalSeconds / 60)
+    const seconds = totalSeconds % 60
+    return `종료까지 ${minutes}분 ${String(seconds).padStart(2, '0')}초`
+  }
   if (diffMs <= 0) {
     return '시작 예정'
   }
@@ -108,13 +195,27 @@ const getCountdownLabel = (item: LiveItem) => {
 }
 
 const itemsForDay = computed(() => {
-  return sortLivesByStartAt(filterLivesByDay(liveItems, selectedDay.value))
+  const filtered = filterLivesByDay(liveItems.value, selectedDay.value)
+  const visible = filtered.filter((item) => {
+    const rawStatus = (item.status ?? '').toUpperCase()
+    if (rawStatus === 'DELETED') return false
+    const status = getLifecycleStatus(item)
+    if (status === 'CANCELED') return false
+    if (!['RESERVED', 'READY', 'ON_AIR', 'STOPPED', 'ENDED', 'VOD'].includes(status)) return false
+    if (status === 'STOPPED' && isPastScheduledEnd(item)) return false
+    if (status === 'VOD') {
+      const visibility = (item as { isPublic?: boolean; public?: boolean }).isPublic ?? (item as { public?: boolean }).public
+      if (typeof visibility === 'boolean' && !visibility) return false
+    }
+    return true
+  })
+  return sortLivesByStartAt(visible)
 })
 
-const liveItemsForDay = computed(() => itemsForDay.value.filter((item) => getStatus(item) === 'LIVE'))
-const upcomingItemsForDay = computed(() => itemsForDay.value.filter((item) => getStatus(item) === 'UPCOMING'))
+const liveItemsForDay = computed(() => itemsForDay.value.filter((item) => getSectionStatus(item) === 'LIVE'))
+const upcomingItemsForDay = computed(() => itemsForDay.value.filter((item) => getSectionStatus(item) === 'UPCOMING'))
 const endedItemsForDay = computed(() =>
-  [...itemsForDay.value].filter((item) => getStatus(item) === 'ENDED').reverse(),
+  [...itemsForDay.value].filter((item) => getSectionStatus(item) === 'ENDED').reverse(),
 )
 
 const orderedItems = computed(() => [
@@ -124,7 +225,7 @@ const orderedItems = computed(() => [
 ])
 
 const statusWeight = (item: LiveItem) => {
-  const s = getStatus(item)
+  const s = getSectionStatus(item)
   if (s === 'LIVE') return 0
   if (s === 'UPCOMING') return 1
   return 2
@@ -175,7 +276,7 @@ const formatDayLabel = (day: Date) => {
   return { label, date }
 }
 
-const getDayCount = (day: Date) => filterLivesByDay(liveItems, day).length
+const getDayCount = (day: Date) => filterLivesByDay(liveItems.value, day).length
 
 const selectDay = (day: Date) => {
   selectedDay.value = normalizeDay(day)
@@ -186,11 +287,11 @@ const selectToday = () => {
 }
 
 const handleRowClick = (item: LiveItem) => {
-  const status = getStatus(item)
-  if (status === 'UPCOMING') {
+  const lifecycleStatus = getLifecycleStatus(item)
+  if (lifecycleStatus === 'RESERVED') {
     return
   }
-  if (status === 'LIVE') {
+  if (lifecycleStatus !== 'VOD') {
     if (!hasWatchHistoryConsent()) {
       requestWatchHistoryConsent(item.id)
       return
@@ -198,9 +299,7 @@ const handleRowClick = (item: LiveItem) => {
     router.push({ name: 'live-detail', params: { id: item.id } })
     return
   }
-  if (status === 'ENDED') {
-    router.push({ name: 'vod', params: { id: item.id } })
-  }
+  router.push({ name: 'vod', params: { id: item.id } })
 }
 
 const isNotified = (id: string) => notifiedIds.value.has(id)
@@ -250,6 +349,182 @@ onMounted(() => {
   }
 })
 
+type BroadcastOverviewItem = {
+  broadcastId: number
+  title: string
+  notice?: string
+  thumbnailUrl?: string
+  startAt?: string
+  scheduledAt?: string
+  endAt?: string
+  liveViewerCount?: number
+  viewerCount?: number
+  sellerName?: string
+  status?: string
+}
+
+const mapToLiveItems = (items: BroadcastOverviewItem[]) =>
+  items
+    .map((item) => {
+      const startAt = item.startAt ?? item.scheduledAt ?? ''
+      if (!startAt) return null
+      const liveItem: LiveItem = {
+        id: String(item.broadcastId),
+        title: item.title,
+        description: item.notice ?? '',
+        thumbnailUrl: item.thumbnailUrl ?? '',
+        startAt,
+        endAt: item.endAt ?? startAt,
+        viewerCount: item.liveViewerCount ?? item.viewerCount ?? 0,
+        status: item.status,
+        sellerName: item.sellerName ?? '',
+      }
+      return liveItem
+    })
+    .filter((item): item is LiveItem => item !== null)
+
+const loadBroadcasts = async () => {
+  try {
+    const items = await fetchPublicBroadcastOverview()
+    liveItems.value = mapToLiveItems(items)
+  } catch {
+    liveItems.value = []
+  }
+}
+
+const parseSseData = (event: MessageEvent) => {
+  if (!event.data) return null
+  try {
+    return JSON.parse(event.data)
+  } catch {
+    return event.data
+  }
+}
+
+const scheduleRefresh = () => {
+  if (refreshTimer.value) window.clearTimeout(refreshTimer.value)
+  refreshTimer.value = window.setTimeout(() => {
+    void loadBroadcasts()
+  }, 500)
+}
+
+const handleSseEvent = (event: MessageEvent) => {
+  parseSseData(event)
+  switch (event.type) {
+    case 'BROADCAST_READY':
+    case 'BROADCAST_UPDATED':
+    case 'BROADCAST_STARTED':
+    case 'PRODUCT_PINNED':
+    case 'PRODUCT_SOLD_OUT':
+    case 'SANCTION_UPDATED':
+    case 'BROADCAST_CANCELED':
+    case 'BROADCAST_ENDED':
+    case 'BROADCAST_SCHEDULED_END':
+    case 'BROADCAST_STOPPED':
+      scheduleRefresh()
+      break
+    default:
+      break
+  }
+}
+
+const scheduleReconnect = () => {
+  if (sseRetryTimer.value) window.clearTimeout(sseRetryTimer.value)
+  const delay = Math.min(30000, 1000 * 2 ** sseRetryCount.value)
+  const jitter = Math.floor(Math.random() * 500)
+  sseRetryTimer.value = window.setTimeout(() => {
+    connectSse()
+  }, delay + jitter)
+  sseRetryCount.value += 1
+}
+
+const connectSse = () => {
+  sseSource.value?.close()
+  const user = getAuthUser()
+  const viewerId = resolveViewerId(user)
+  const query = viewerId ? `?viewerId=${encodeURIComponent(viewerId)}` : ''
+  const source = new EventSource(`${apiBase}/api/broadcasts/subscribe/all${query}`)
+  const events = [
+    'BROADCAST_READY',
+    'BROADCAST_UPDATED',
+    'BROADCAST_STARTED',
+    'PRODUCT_PINNED',
+    'PRODUCT_SOLD_OUT',
+    'SANCTION_UPDATED',
+    'BROADCAST_CANCELED',
+    'BROADCAST_ENDED',
+    'BROADCAST_SCHEDULED_END',
+    'BROADCAST_STOPPED',
+  ]
+  events.forEach((name) => source.addEventListener(name, handleSseEvent))
+  source.onopen = () => {
+    sseConnected.value = true
+    sseRetryCount.value = 0
+    scheduleRefresh()
+  }
+  source.onerror = () => {
+    sseConnected.value = false
+    source.close()
+    if (document.visibilityState === 'visible') {
+      scheduleReconnect()
+    }
+  }
+  sseSource.value = source
+}
+
+const isStatsTarget = (item: LiveItem) => {
+  const status = normalizeBroadcastStatus(item.status)
+  if (status === 'ON_AIR' || status === 'READY') return true
+  const startAtMs = parseLiveDate(item.startAt).getTime()
+  if (Number.isNaN(startAtMs)) return false
+  const endAtMs = parseLiveDate(item.endAt).getTime()
+  const normalizedEnd = Number.isNaN(endAtMs) ? getScheduledEndMs(startAtMs) : endAtMs
+  if (!normalizedEnd) return false
+  const now = Date.now()
+  return now >= startAtMs && now <= normalizedEnd
+}
+
+const updateLiveViewerCounts = async () => {
+  const targets = liveItems.value.filter((item) => isStatsTarget(item))
+  if (!targets.length) return
+  const updates = await Promise.allSettled(
+    targets.map(async (item) => ({
+      id: item.id,
+      stats: await fetchBroadcastStats(Number(item.id)),
+    })),
+  )
+  const statsMap = new Map<string, { viewerCount: number; likeCount: number; reportCount: number }>()
+  updates.forEach((result) => {
+    if (result.status === 'fulfilled') {
+      statsMap.set(result.value.id, {
+        viewerCount: result.value.stats.viewerCount ?? 0,
+        likeCount: result.value.stats.likeCount ?? 0,
+        reportCount: result.value.stats.reportCount ?? 0,
+      })
+    }
+  })
+  if (!statsMap.size) return
+  liveItems.value = liveItems.value.map((item) => {
+    const stats = statsMap.get(item.id)
+    if (!stats) return item
+    return {
+      ...item,
+      viewerCount: stats.viewerCount ?? item.viewerCount ?? 0,
+      likeCount: stats.likeCount ?? item.likeCount ?? 0,
+      reportCount: stats.reportCount ?? item.reportCount ?? 0,
+    }
+  })
+}
+
+const startStatsPolling = () => {
+  if (statsTimer.value) window.clearInterval(statsTimer.value)
+  statsTimer.value = window.setInterval(() => {
+    if (document.visibilityState === 'visible') {
+      void updateLiveViewerCounts()
+    }
+  }, 5000)
+}
+
 watchEffect(() => {
   localStorage.setItem(NOTIFY_KEY, JSON.stringify(Array.from(notifiedIds.value)))
 })
@@ -258,6 +533,19 @@ onBeforeUnmount(() => {
   if (toastTimer) {
     clearTimeout(toastTimer)
   }
+  if (sseRetryTimer.value) window.clearTimeout(sseRetryTimer.value)
+  sseRetryTimer.value = null
+  if (refreshTimer.value) window.clearTimeout(refreshTimer.value)
+  refreshTimer.value = null
+  if (statsTimer.value) window.clearInterval(statsTimer.value)
+  statsTimer.value = null
+  sseSource.value?.close()
+})
+
+onMounted(() => {
+  void loadBroadcasts()
+  connectSse()
+  startStatsPolling()
 })
 </script>
 
@@ -305,15 +593,15 @@ onBeforeUnmount(() => {
             :key="item.id"
             class="live-card-row"
             :class="{
-              'row--clickable': getStatus(item) !== 'UPCOMING',
-              'row--disabled': getStatus(item) === 'UPCOMING',
+              'row--clickable': !isRowDisabled(item),
+              'row--disabled': isRowDisabled(item),
             }"
-            :aria-disabled="getStatus(item) === 'UPCOMING' ? 'true' : undefined"
-            :tabindex="getStatus(item) === 'UPCOMING' ? -1 : 0"
+            :aria-disabled="isRowDisabled(item) ? 'true' : undefined"
+            :tabindex="isRowDisabled(item) ? -1 : 0"
             @click="handleRowClick(item)"
             @keydown="(e) => handleRowKeydown(e, item)"
           >
-            <img class="thumb" :src="item.thumbnailUrl" :alt="item.title" />
+            <img class="thumb" :src="item.thumbnailUrl" :alt="item.title" @error="handleImageError" />
             <div class="meta">
               <div class="meta__title-row">
                 <h4 class="meta__title">{{ item.title }}</h4>
@@ -326,9 +614,28 @@ onBeforeUnmount(() => {
                     {{ item.viewerCount.toLocaleString() }}명
                   </span>
                 </span>
+                <span v-else-if="getStatus(item) === 'READY'" class="status-pill">대기</span>
                 <span v-else-if="getStatus(item) === 'UPCOMING'" class="status-pill">예정</span>
-                <span v-else class="status-pill status-pill--ended">종료</span>
-                <span v-if="getStatus(item) === 'UPCOMING'" class="status-pill status-pill--sub">
+                <span v-else-if="getStatus(item) === 'STOPPED'" class="status-pill status-pill--ended">중지됨</span>
+                <span v-else-if="getStatus(item) === 'VOD'" class="status-pill status-pill--ended">
+                  VOD
+                  <span v-if="item.viewerCount" class="status-viewers">
+                    누적 {{ item.viewerCount.toLocaleString() }}명
+                  </span>
+                </span>
+                <span v-else class="status-pill status-pill--ended">
+                  종료
+                  <span v-if="item.viewerCount" class="status-viewers">
+                    시청자 {{ item.viewerCount.toLocaleString() }}명
+                  </span>
+                </span>
+                <span
+                  v-if="getStatus(item) === 'LIVE'"
+                  class="status-pill status-pill--sub"
+                >
+                  경과 {{ getElapsedLabel(item) }}
+                </span>
+                <span v-else-if="['UPCOMING', 'READY', 'ENDED'].includes(getStatus(item))" class="status-pill status-pill--sub">
                   {{ getCountdownLabel(item) }}
                 </span>
               </div>
@@ -534,6 +841,7 @@ onBeforeUnmount(() => {
   overflow: hidden;
   display: -webkit-box;
   -webkit-line-clamp: 2;
+  line-clamp: 2;
   -webkit-box-orient: vertical;
   white-space: normal;
   line-height: 1.4;

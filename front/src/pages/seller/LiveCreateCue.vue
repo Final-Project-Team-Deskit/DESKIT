@@ -5,11 +5,17 @@ import PageContainer from '../../components/PageContainer.vue'
 import PageHeader from '../../components/PageHeader.vue'
 import {
   buildDraftFromReservation,
+  clearDraft,
   createDefaultQuestions,
   createEmptyDraft,
+  getDraftRestoreDecision,
   loadDraft,
   saveDraft,
+  saveWorkingDraft,
+  clearWorkingDraft,
   type LiveCreateDraft,
+  clearDraftRestoreDecision,
+  setDraftRestoreDecision,
 } from '../../composables/useLiveCreateDraft'
 
 const router = useRouter()
@@ -28,20 +34,34 @@ const createQuestion = () => ({
 })
 
 const syncDraft = () => {
-  saveDraft({
+  saveWorkingDraft({
     ...draft.value,
     questions: draft.value.questions.map((q) => ({ ...q, text: q.text.trim() })),
   })
 }
 
-const restoreDraft = () => {
+const restoreDraft = async () => {
   const saved = loadDraft()
-  if (saved && (!isEditMode.value || saved.reservationId === reservationId.value)) {
-    draft.value = { ...draft.value, ...saved }
+  if (!isEditMode.value && saved && (!saved.reservationId || saved.reservationId === reservationId.value)) {
+    const decision = getDraftRestoreDecision()
+    if (decision === 'accepted') {
+      draft.value = { ...draft.value, ...saved }
+    } else if (decision === 'declined') {
+      clearDraft()
+    } else {
+      const shouldRestore = window.confirm('이전에 작성 중인 내용을 불러올까요?')
+      if (shouldRestore) {
+        setDraftRestoreDecision('accepted')
+        draft.value = { ...draft.value, ...saved }
+      } else {
+        setDraftRestoreDecision('declined')
+        clearDraft()
+      }
+    }
   }
 
   if (isEditMode.value) {
-    draft.value = { ...draft.value, ...buildDraftFromReservation(reservationId.value) }
+    draft.value = { ...draft.value, ...(await buildDraftFromReservation(reservationId.value)) }
   }
 
   if (!draft.value.questions.length) {
@@ -89,6 +109,9 @@ const goNext = () => {
 const cancel = () => {
   const ok = window.confirm('작성 중인 내용을 취소하시겠어요?')
   if (!ok) return
+  saveDraft(draft.value)
+  clearDraftRestoreDecision()
+  clearWorkingDraft()
   const redirect = isEditMode.value && reservationId.value
     ? `/seller/broadcasts/reservations/${reservationId.value}`
     : '/seller/live?tab=scheduled'

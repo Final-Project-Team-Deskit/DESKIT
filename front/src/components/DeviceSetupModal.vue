@@ -1,34 +1,198 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 
 const props = defineProps<{
   modelValue: boolean
   broadcastTitle?: string
+  initialCameraId?: string
+  initialMicId?: string
 }>()
 
 const emit = defineEmits<{
   (e: 'update:modelValue', value: boolean): void
+  (e: 'apply', value: { cameraId: string; microphoneId: string }): void
   (e: 'start'): void
 }>()
 
-const selectedCamera = ref('camera-1')
-const selectedMic = ref('mic-1')
+const selectedCamera = ref('')
+const selectedMic = ref('')
 const volumeLevel = ref(70)
+const deviceCameras = ref<MediaDeviceInfo[]>([])
+const deviceMics = ref<MediaDeviceInfo[]>([])
+const deviceError = ref<string | null>(null)
+const videoRef = ref<HTMLVideoElement | null>(null)
+const mediaStream = ref<MediaStream | null>(null)
+const audioContext = ref<AudioContext | null>(null)
+const analyser = ref<AnalyserNode | null>(null)
+const meterFrame = ref<number | null>(null)
+const isSyncingDevices = ref(false)
+
+const stopMeter = () => {
+  if (meterFrame.value !== null) {
+    cancelAnimationFrame(meterFrame.value)
+    meterFrame.value = null
+  }
+}
+
+const stopPreview = () => {
+  stopMeter()
+  if (audioContext.value) {
+    audioContext.value.close()
+    audioContext.value = null
+  }
+  analyser.value = null
+  if (mediaStream.value) {
+    mediaStream.value.getTracks().forEach((track) => track.stop())
+    mediaStream.value = null
+  }
+  if (videoRef.value) {
+    videoRef.value.srcObject = null
+  }
+}
+
+const hydrateSelection = () => {
+  selectedCamera.value = props.initialCameraId ?? ''
+  selectedMic.value = props.initialMicId ?? ''
+}
+
+const startMeter = (stream: MediaStream) => {
+  const audioTracks = stream.getAudioTracks()
+  if (!audioTracks.length) {
+    volumeLevel.value = 0
+    return
+  }
+  const context = new AudioContext()
+  const source = context.createMediaStreamSource(stream)
+  const analyserNode = context.createAnalyser()
+  analyserNode.fftSize = 512
+  source.connect(analyserNode)
+  audioContext.value = context
+  analyser.value = analyserNode
+  const buffer = new Uint8Array(analyserNode.fftSize)
+  const update = () => {
+    analyserNode.getByteTimeDomainData(buffer)
+    let sum = 0
+    for (const sample of buffer) {
+      const normalized = (sample - 128) / 128
+      sum += normalized * normalized
+    }
+    const rms = Math.sqrt(sum / buffer.length)
+    volumeLevel.value = Math.min(100, Math.round(rms * 140))
+    meterFrame.value = requestAnimationFrame(update)
+  }
+  update()
+}
+
+const loadDevices = async () => {
+  if (!navigator.mediaDevices?.enumerateDevices) {
+    deviceError.value = '디바이스 정보를 가져올 수 없습니다.'
+    return
+  }
+  const devices = await navigator.mediaDevices.enumerateDevices()
+  deviceCameras.value = devices.filter((device) => device.kind === 'videoinput')
+  deviceMics.value = devices.filter((device) => device.kind === 'audioinput')
+  if (!selectedCamera.value && deviceCameras.value.length > 0) {
+    const firstCamera = deviceCameras.value[0]
+    if (firstCamera) {
+      selectedCamera.value = firstCamera.deviceId
+    }
+  }
+  if (!selectedMic.value && deviceMics.value.length > 0) {
+    const firstMic = deviceMics.value[0]
+    if (firstMic) {
+      selectedMic.value = firstMic.deviceId
+    }
+  }
+}
+
+const startPreview = async () => {
+  if (!navigator.mediaDevices?.getUserMedia) {
+    deviceError.value = '미디어 스트림을 사용할 수 없습니다.'
+    return
+  }
+  stopPreview()
+  deviceError.value = null
+  try {
+    const constraints: MediaStreamConstraints = {
+      video: selectedCamera.value ? { deviceId: { exact: selectedCamera.value } } : true,
+      audio: selectedMic.value ? { deviceId: { exact: selectedMic.value } } : true,
+    }
+    let stream: MediaStream | null = null
+    try {
+      stream = await navigator.mediaDevices.getUserMedia(constraints)
+    } catch (error) {
+      if (selectedCamera.value || selectedMic.value) {
+        stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true })
+      } else {
+        deviceError.value = '카메라 또는 마이크 접근 권한이 필요합니다.'
+        return
+      }
+    }
+    if (!stream) {
+      deviceError.value = '카메라 또는 마이크 접근 권한이 필요합니다.'
+      return
+    }
+    mediaStream.value = stream
+    const [videoTrack] = stream.getVideoTracks()
+    const [audioTrack] = stream.getAudioTracks()
+    if (videoTrack) {
+      const deviceId = videoTrack.getSettings().deviceId
+      if (deviceId) {
+        isSyncingDevices.value = true
+        selectedCamera.value = deviceId
+      }
+    }
+    if (audioTrack) {
+      const deviceId = audioTrack.getSettings().deviceId
+      if (deviceId) {
+        isSyncingDevices.value = true
+        selectedMic.value = deviceId
+      }
+    }
+    if (isSyncingDevices.value) {
+      await nextTick()
+      isSyncingDevices.value = false
+    }
+    if (videoRef.value) {
+      videoRef.value.srcObject = stream
+      await videoRef.value.play()
+    }
+    startMeter(stream)
+    await loadDevices()
+  } catch (error) {
+    deviceError.value = '카메라 또는 마이크 접근 권한이 필요합니다.'
+    stopPreview()
+  }
+}
 
 watch(
   () => props.modelValue,
   (value) => {
     if (value) {
-      selectedCamera.value = 'camera-1'
-      selectedMic.value = 'mic-1'
-      volumeLevel.value = 70
+      hydrateSelection()
+      volumeLevel.value = 0
+      loadDevices()
+      startPreview()
+    } else {
+      stopPreview()
     }
   },
 )
 
+watch([selectedCamera, selectedMic], () => {
+  if (props.modelValue && !isSyncingDevices.value) {
+    startPreview()
+  }
+})
+
+onBeforeUnmount(() => {
+  stopPreview()
+})
+
 const close = () => emit('update:modelValue', false)
 
 const handleStart = () => {
+  emit('apply', { cameraId: selectedCamera.value, microphoneId: selectedMic.value })
   emit('start')
   close()
 }
@@ -50,28 +214,32 @@ const modalTitle = computed(() => (props.broadcastTitle ? `${props.broadcastTitl
 
       <div class="ds-modal__body">
         <div class="preview-box">
-          <div class="preview-placeholder">
+          <video v-if="mediaStream" ref="videoRef" class="preview-video" muted playsinline autoplay></video>
+          <div v-else class="preview-placeholder">
             <span class="preview-icon">📷</span>
             <p class="preview-label">카메라 미리보기</p>
           </div>
         </div>
+        <p v-if="deviceError" class="device-error">{{ deviceError }}</p>
 
         <div class="control-grid">
           <label class="field">
             <span class="field__label">카메라 선택</span>
             <select v-model="selectedCamera" class="field__input">
-              <option value="camera-1">기본 웹캠</option>
-              <option value="camera-2">외부 카메라 1</option>
-              <option value="camera-3">외부 카메라 2</option>
+              <option v-if="deviceCameras.length === 0" value="" disabled>카메라 없음</option>
+              <option v-for="(camera, index) in deviceCameras" :key="camera.deviceId" :value="camera.deviceId">
+                {{ camera.label || `카메라 ${index + 1}` }}
+              </option>
             </select>
           </label>
 
           <label class="field">
             <span class="field__label">마이크 선택</span>
             <select v-model="selectedMic" class="field__input">
-              <option value="mic-1">기본 마이크</option>
-              <option value="mic-2">외부 마이크 1</option>
-              <option value="mic-3">외부 마이크 2</option>
+              <option v-if="deviceMics.length === 0" value="" disabled>마이크 없음</option>
+              <option v-for="(mic, index) in deviceMics" :key="mic.deviceId" :value="mic.deviceId">
+                {{ mic.label || `마이크 ${index + 1}` }}
+              </option>
             </select>
           </label>
 
@@ -157,6 +325,9 @@ const modalTitle = computed(() => (props.broadcastTitle ? `${props.broadcastTitl
   display: flex;
   flex-direction: column;
   gap: 14px;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
 }
 
 .preview-box {
@@ -169,6 +340,12 @@ const modalTitle = computed(() => (props.broadcastTitle ? `${props.broadcastTitl
   display: flex;
   align-items: center;
   justify-content: center;
+}
+
+.preview-video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 .preview-placeholder {
@@ -231,6 +408,12 @@ const modalTitle = computed(() => (props.broadcastTitle ? `${props.broadcastTitl
   color: var(--text-muted);
   font-weight: 700;
   font-size: 0.9rem;
+}
+
+.device-error {
+  margin: 0;
+  color: #ef4444;
+  font-weight: 700;
 }
 
 .ds-modal__actions {

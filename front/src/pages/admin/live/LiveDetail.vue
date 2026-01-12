@@ -1,28 +1,45 @@
-﻿<script setup lang="ts">
-
+<script setup lang="ts">
+import { OpenVidu, type Session, type Subscriber } from 'openvidu-browser'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { Client, type StompSubscription } from '@stomp/stompjs'
-import SockJS from 'sockjs-client/dist/sockjs'
-import { ADMIN_LIVES_EVENT, getAdminLiveSummaries, stopAdminLiveBroadcast } from '../../../lib/mocks/adminLives'
+import {
+  fetchAdminBroadcastDetail,
+  fetchBroadcastProducts,
+  fetchBroadcastStats,
+  fetchRecentLiveChats,
+  joinBroadcast,
+  leaveBroadcast,
+  stopAdminBroadcast,
+} from '../../../lib/live/api'
+import { parseLiveDate } from '../../../lib/live/utils'
+import { useNow } from '../../../lib/live/useNow'
+import { computeLifecycleStatus, getBroadcastStatusLabel, getScheduledEndMs, normalizeBroadcastStatus } from '../../../lib/broadcastStatus'
 import { getAuthUser } from '../../../lib/auth'
-
+import { resolveViewerId } from '../../../lib/live/viewer'
 
 const route = useRoute()
 const router = useRouter()
-const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080'
+
 const liveId = computed(() => (typeof route.params.liveId === 'string' ? route.params.liveId : ''))
 
-// 웹소켓 통신을 위한 숫자형 ID 변환
-const broadcastId = computed(() => {
-  if (!liveId.value) return undefined
-  const numeric = Number.parseInt(liveId.value.replace(/[^0-9]/g, ''), 10)
-  return Number.isFinite(numeric) ? numeric : undefined
-})
+type AdminDetail = {
+  id: string
+  title: string
+  sellerName: string
+  startedAt: string
+  scheduledAt?: string
+  status: string
+  waitScreenUrl?: string
+  stoppedReason?: string
+  viewers: number
+  reports: number
+  likes: number
+  elapsed: string
+}
 
+const detail = ref<AdminDetail | null>(null)
+const { now } = useNow(1000)
 
-
-const detail = ref<ReturnType<typeof getAdminLiveSummaries>[number] | null>(null)
 const stageRef = ref<HTMLDivElement | null>(null)
 const isFullscreen = ref(false)
 const showStopModal = ref(false)
@@ -30,574 +47,937 @@ const stopReason = ref('')
 const stopDetail = ref('')
 const error = ref('')
 const showChat = ref(true)
+const stopEntryPrompted = ref(false)
+const isStopRestricted = ref(false)
 const chatText = ref('')
+const chatMessages = ref<{ id: string; user: string; text: string; time: string }[]>([])
 const chatListRef = ref<HTMLDivElement | null>(null)
-const seededLiveId = ref('')
 const showModerationModal = ref(false)
 const moderationTarget = ref<{ user: string } | null>(null)
 const moderationType = ref('')
 const moderationReason = ref('')
 const moderatedUsers = ref<Record<string, { type: string; reason: string; at: string }>>({})
 const activePane = ref<'monitor' | 'products'>('monitor')
+const liveProducts = ref<
+  Array<{
+    id: string
+    name: string
+    option: string
+    price: string
+    sale: string
+    status: string
+    thumb: string
+    sold: number
+    stock: number
+    isPinned: boolean
+  }>
+>([])
+const sseSource = ref<EventSource | null>(null)
+const sseConnected = ref(false)
+const sseRetryCount = ref(0)
+const sseRetryTimer = ref<number | null>(null)
+const statsTimer = ref<number | null>(null)
+const refreshTimer = ref<number | null>(null)
+const joinInFlight = ref(false)
+const streamToken = ref<string | null>(null)
+const viewerId = ref<string | null>(resolveViewerId(getAuthUser()))
+const joinedBroadcastId = ref<number | null>(null)
+const joinedViewerId = ref<string | null>(null)
+const leaveRequested = ref(false)
+const viewerContainerRef = ref<HTMLDivElement | null>(null)
+const openviduInstance = ref<OpenVidu | null>(null)
+const openviduSession = ref<Session | null>(null)
+const openviduSubscriber = ref<Subscriber | null>(null)
+const openviduConnected = ref(false)
+const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080'
+const FALLBACK_IMAGE = 'data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs='
 
+const reasonOptions = [
+  '음란물',
+  '폭력',
+  '국가기밀 누설',
+  '불쾌감/공포심/불안감 조성',
+  '비방',
+  '취급 불가 상품 판매',
+  '사이트 운영정책에 맞지 않는 상품',
+  '기타',
+]
 
-// 채팅 관련 상태 추가
-type LiveMessageType = 'TALK' | 'ENTER' | 'EXIT' | 'PURCHASE' | 'NOTICE'
-type LiveChatMessageDTO = {
-  broadcastId: number
-  memberEmail: string
-  type: LiveMessageType
-  sender: string
-  content: string
-  senderRole?: string
-  vodPlayTime: number
-  sentAt?: number
+const goBack = () => {
+  router.back()
 }
 
+const goToList = () => {
+  router.push('/admin/live?tab=live').catch(() => {})
+}
 
+const formatElapsed = (startAt?: string) => {
+  if (!startAt) return '00:00:00'
+  const started = parseLiveDate(startAt)
+  if (Number.isNaN(started.getTime())) return '00:00:00'
+  const diff = Math.max(0, Date.now() - started.getTime())
+  const totalSeconds = Math.floor(diff / 1000)
+  const hours = Math.floor(totalSeconds / 3600)
+  const minutes = Math.floor((totalSeconds % 3600) / 60)
+  const seconds = totalSeconds % 60
+  return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`
+}
 
-const chatMessages = ref<{ id: string; user: string; text: string; time: string; kind?: 'system' | 'user'; senderRole?: string }[]>([])
-const stompClient = ref<Client | null>(null)
-let stompSubscription: StompSubscription | null = null
-const isChatConnected = ref(false)
-const memberEmail = ref("")
-const nickname = ref("관리자")
+const handleImageError = (event: Event) => {
+  const target = event.target as HTMLImageElement | null
+  if (!target || target.dataset.fallbackApplied) return
+  target.dataset.fallbackApplied = 'true'
+  target.src = FALLBACK_IMAGE
+}
 
+const formatChatTime = (timestamp?: number) => {
+  if (!timestamp) return ''
+  const date = new Date(timestamp)
+  const hours = date.getHours()
+  const displayHour = hours % 12 || 12
+  const minutes = String(date.getMinutes()).padStart(2, '0')
+  return `${hours >= 12 ? '오후' : '오전'} ${displayHour}:${minutes}`
+}
 
-
-const liveProducts = ref([
-  { id: 'p-1', name: '모던 스탠딩 데스크', option: '1200mm · 오프화이트', price: '₩229,000', sale: '₩189,000', status: '판매중', thumb: '', sold: 128, stock: 42 },
-  { id: 'p-2', name: '무선 기계식 키보드', option: '갈축 · 무선', price: '₩139,000', sale: '₩109,000', status: '판매중', thumb: '', sold: 93, stock: 65 },
-  { id: 'p-3', name: '프리미엄 데스크 매트', option: '900mm · 샌드', price: '₩59,000', sale: '₩45,000', status: '품절', thumb: '', sold: 210, stock: 0 },
-  { id: 'p-4', name: '알루미늄 모니터암', option: '싱글 · 블랙', price: '₩169,000', sale: '₩129,000', status: '판매중', thumb: '', sold: 77, stock: 18 },
-])
-
-
-
-const getAccessToken = () => localStorage.getItem('access') || sessionStorage.getItem('access')
-const refreshAuth = () => {
-  const user = getAuthUser()
-  if (user) {
-    memberEmail.value = user.email || ""
-    nickname.value = user.name || "관리자"
+const mapLiveProduct = (item: {
+  id: string
+  name: string
+  price: number
+  isSoldOut: boolean
+  isPinned?: boolean
+  imageUrl?: string
+  totalQty?: number
+  stockQty?: number
+}) => {
+  const totalQty = item.totalQty ?? item.stockQty ?? 0
+  const stockQty = item.stockQty ?? totalQty
+  const sold = Math.max(0, totalQty - stockQty)
+  return {
+    id: item.id,
+    name: item.name,
+    option: item.name,
+    price: `₩${item.price.toLocaleString('ko-KR')}`,
+    sale: `₩${item.price.toLocaleString('ko-KR')}`,
+    status: item.isSoldOut ? '품절' : '판매중',
+    thumb: item.imageUrl ?? '',
+    sold,
+    stock: stockQty,
+    isPinned: item.isPinned ?? false,
   }
 }
 
-
-
-// 실시간 메시지 수신 처리
-const handleIncomingMessage = (payload: LiveChatMessageDTO) => {
-  const sentAt = payload.sentAt ? new Date(payload.sentAt) : new Date()
-  const timeStr = `${sentAt.getHours()}시 ${String(sentAt.getMinutes()).padStart(2, '0')}분`
-
-  chatMessages.value.push({
-    id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
-    user: payload.type === 'TALK' ? (payload.sender || '알 수 없음') : 'SYSTEM',
-    text: payload.content || '',
-    time: timeStr,
-    kind: payload.type === 'TALK' ? 'user' : 'system',
-    senderRole: payload.senderRole
+const sortedLiveProducts = computed(() => {
+  const list = [...liveProducts.value]
+  const orderMap = new Map(list.map((product, index) => [product.id, index]))
+  return list.sort((a, b) => {
+    const aSoldOut = a.status === '품절'
+    const bSoldOut = b.status === '품절'
+    if (aSoldOut !== bSoldOut) return aSoldOut ? 1 : -1
+    if (a.isPinned !== b.isPinned) return a.isPinned ? -1 : 1
+    return (orderMap.get(a.id) ?? 0) - (orderMap.get(b.id) ?? 0)
   })
-  nextTick(() => {
-    if (chatListRef.value) {
-      chatListRef.value.scrollTop = chatListRef.value.scrollHeight
-    }
-  })
-}
+})
 
-
-
-const formatChatUser = (message: { user: string; kind?: 'system' | 'user'; senderRole?: string }) => {
-  if (message.kind === 'system') {
-    return message.user
+const loadDetail = async () => {
+  if (!liveId.value) {
+    detail.value = null
+    liveProducts.value = []
+    chatMessages.value = []
+    return
   }
-  if (message.senderRole) {
-    if (message.senderRole === 'ROLE_ADMIN') {
-      return `${message.user}(관리자)`
-    }
-    if (message.senderRole.startsWith('ROLE_SELLER')) {
-      return `${message.user}(판매자)`
-    }
+  const idValue = Number(liveId.value)
+  if (Number.isNaN(idValue)) {
+    detail.value = null
+    return
   }
-  if (message.user === nickname.value) {
-    return `${message.user}(관리자)`
-  }
-  if (detail.value?.sellerName && message.user === detail.value.sellerName) {
-    return `${message.user}(판매자)`
-  }
-  return message.user
-}
 
-
-// 최근 채팅 내역 조회
-const fetchRecentMessages = async () => {
-  if (!broadcastId.value) return
   try {
-    const response = await fetch(`${apiBase}/livechats/${broadcastId.value}/recent?seconds=60`)
-    if (!response.ok) return
-    const recent = (await response.json()) as LiveChatMessageDTO[]
-    if (!Array.isArray(recent)) return
-    chatMessages.value = recent
-        .filter((item) => item.type === 'TALK')
-        .map((item) => {
-          const at = new Date(item.sentAt ?? Date.now())
-          return {
-            id: `${item.sentAt ?? Date.now()}-${Math.random().toString(16).slice(2)}`,
-            user: item.sender || 'unknown',
-            text: item.content ?? '',
-            time: `${at.getHours()}시 ${String(at.getMinutes()).padStart(2, '0')}분`,
-            kind: 'user',
-            senderRole: item.senderRole
-          }
-        })
+    const [detailResponse, statsResponse, productsResponse, chatResponse] = await Promise.all([
+      fetchAdminBroadcastDetail(idValue),
+      fetchBroadcastStats(idValue).catch(() => null),
+      fetchBroadcastProducts(idValue).catch(() => []),
+      fetchRecentLiveChats(idValue, 300).catch(() => []),
+    ])
 
-  } catch (error) {
-    console.error('[admin chat] recent fetch failed', error)
+    const viewers = statsResponse?.viewerCount ?? detailResponse.totalViews ?? 0
+    const likes = statsResponse?.likeCount ?? detailResponse.totalLikes ?? 0
+    const reports = statsResponse?.reportCount ?? detailResponse.totalReports ?? 0
+    const startedAt = detailResponse.startedAt ?? detailResponse.scheduledAt ?? ''
+    const scheduledAt = detailResponse.scheduledAt ?? ''
+
+    detail.value = {
+      id: String(detailResponse.broadcastId),
+      title: detailResponse.title,
+      sellerName: detailResponse.sellerName ?? '',
+      startedAt,
+      scheduledAt,
+      status: detailResponse.status ?? '',
+      waitScreenUrl: detailResponse.waitScreenUrl ?? '',
+      stoppedReason: detailResponse.stoppedReason ?? '',
+      viewers,
+      reports,
+      likes,
+      elapsed: formatElapsed(startedAt),
+    }
+
+    liveProducts.value = productsResponse.map((item) => mapLiveProduct(item))
+
+    chatMessages.value = chatResponse.map((item) => ({
+      id: `${item.sentAt}-${item.sender}`,
+      user: item.sender || item.memberEmail || '시청자',
+      text: item.content,
+      time: formatChatTime(item.sentAt),
+    }))
+    await nextTick()
+    const el = chatListRef.value
+    if (el) {
+      el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
+    }
+  } catch {
+    detail.value = null
+    liveProducts.value = []
+    chatMessages.value = []
   }
 }
 
-
-
-// 웹소켓 연결 설정
-const connectChat = () => {
-  if (!broadcastId.value || stompClient.value?.active) return
-  const client = new Client({
-    webSocketFactory: () => new SockJS(`${apiBase}/ws`, undefined, { withCredentials: true }),
-    reconnectDelay: 5000,
-  })
-
-  const access = getAccessToken()
-  if (access) {
-    client.connectHeaders = { access, Authorization: `Bearer ${access}` }
+const refreshStats = async (broadcastId: number) => {
+  if (!detail.value) return
+  try {
+    const stats = await fetchBroadcastStats(broadcastId)
+    detail.value = {
+      ...detail.value,
+      viewers: stats.viewerCount ?? detail.value.viewers,
+      likes: stats.likeCount ?? detail.value.likes,
+      reports: stats.reportCount ?? detail.value.reports,
+    }
+  } catch {
+    return
   }
+}
 
-  client.onConnect = () => {
-    isChatConnected.value = true
-    stompSubscription?.unsubscribe()
-    // 채널 구독: 시청자와 동일한 broadcastId 채널 사용
-    stompSubscription = client.subscribe(`/sub/chat/${broadcastId.value}`, (frame) => {
-      try {
-        handleIncomingMessage(JSON.parse(frame.body))
-      } catch (error) {
-        console.error('[admin chat] message parse failed', error)
+const refreshProducts = async (broadcastId: number) => {
+  try {
+    const products = await fetchBroadcastProducts(broadcastId)
+    liveProducts.value = products.map((item) => mapLiveProduct(item))
+  } catch {
+    return
+  }
+}
+
+const refreshDetail = async (broadcastId: number) => {
+  try {
+    const detailResponse = await fetchAdminBroadcastDetail(broadcastId)
+    if (!detail.value) return
+    const startedAt = detailResponse.startedAt ?? detailResponse.scheduledAt ?? ''
+    const scheduledAt = detailResponse.scheduledAt ?? ''
+    detail.value = {
+      ...detail.value,
+      title: detailResponse.title,
+      sellerName: detailResponse.sellerName ?? detail.value.sellerName,
+      startedAt,
+      scheduledAt,
+      status: detailResponse.status ?? detail.value.status,
+      waitScreenUrl: detailResponse.waitScreenUrl ?? detail.value.waitScreenUrl,
+      stoppedReason: detailResponse.stoppedReason ?? detail.value.stoppedReason,
+      elapsed: formatElapsed(startedAt),
+    }
+  } catch {
+    return
+  }
+}
+
+const lifecycleStatus = computed(() => {
+  if (!detail.value) return 'RESERVED'
+  const baseTime = detail.value.startedAt || detail.value.scheduledAt
+  const startAtMs = baseTime ? parseLiveDate(baseTime).getTime() : NaN
+  const endAtMs = Number.isNaN(startAtMs) ? undefined : getScheduledEndMs(startAtMs)
+  return computeLifecycleStatus({
+    status: normalizeBroadcastStatus(detail.value.status),
+    startAtMs: Number.isNaN(startAtMs) ? undefined : startAtMs,
+    endAtMs,
+  })
+})
+
+const statusLabel = computed(() => getBroadcastStatusLabel(lifecycleStatus.value))
+const isInteractive = computed(() => lifecycleStatus.value === 'ON_AIR')
+const canForceStop = computed(() => ['READY', 'ON_AIR', 'ENDED'].includes(lifecycleStatus.value))
+const isReadOnly = computed(() => lifecycleStatus.value !== 'ON_AIR')
+const waitingScreenUrl = computed(() => detail.value?.waitScreenUrl ?? '')
+const readyCountdownLabel = computed(() => {
+  if (lifecycleStatus.value !== 'READY') return ''
+  const baseTime = detail.value?.scheduledAt ?? detail.value?.startedAt
+  if (!baseTime) return '방송 시작 대기 중'
+  const startAtMs = parseLiveDate(baseTime).getTime()
+  if (Number.isNaN(startAtMs)) return '방송 시작 대기 중'
+  const diffMs = startAtMs - now.value.getTime()
+  if (diffMs <= 0) return '방송 시작 대기 중'
+  const totalSeconds = Math.ceil(diffMs / 1000)
+  const minutes = Math.floor(totalSeconds / 60)
+  const seconds = totalSeconds % 60
+  return `${minutes}분 ${String(seconds).padStart(2, '0')}초 뒤 방송 시작`
+})
+const endedCountdownLabel = computed(() => {
+  if (lifecycleStatus.value !== 'ENDED') return ''
+  const baseTime = detail.value?.scheduledAt ?? detail.value?.startedAt
+  if (!baseTime) return '방송 종료'
+  const startAtMs = parseLiveDate(baseTime).getTime()
+  if (Number.isNaN(startAtMs)) return '방송 종료'
+  const scheduledEndMs = getScheduledEndMs(startAtMs)
+  if (!scheduledEndMs) return '방송 종료'
+  const diffMs = scheduledEndMs - now.value.getTime()
+  if (diffMs <= 0) return '방송 종료'
+  const totalSeconds = Math.ceil(diffMs / 1000)
+  const minutes = Math.floor(totalSeconds / 60)
+  const seconds = totalSeconds % 60
+  return `종료까지 ${minutes}분 ${String(seconds).padStart(2, '0')}초`
+})
+const elapsedLabel = computed(() => {
+  if (!detail.value?.startedAt) return '00:00:00'
+  now.value
+  return formatElapsed(detail.value.startedAt)
+})
+const playerMessage = computed(() => {
+  if (lifecycleStatus.value === 'STOPPED') {
+    return '방송 운영 정책 위반으로 송출 중지되었습니다.'
+  }
+  if (lifecycleStatus.value === 'ENDED') {
+    return '방송이 종료되었습니다.'
+  }
+  if (lifecycleStatus.value === 'READY') {
+    return readyCountdownLabel.value || '방송 시작 대기 중'
+  }
+  return ''
+})
+const hasSubscriberStream = computed(() => openviduConnected.value && !!openviduSubscriber.value)
+
+const clearViewerContainer = () => {
+  if (viewerContainerRef.value) {
+    viewerContainerRef.value.innerHTML = ''
+  }
+}
+
+const resetOpenViduState = () => {
+  openviduConnected.value = false
+  openviduSubscriber.value = null
+  openviduSession.value = null
+  openviduInstance.value = null
+  clearViewerContainer()
+}
+
+const disconnectOpenVidu = () => {
+  if (openviduSession.value) {
+    try {
+      if (openviduSubscriber.value) {
+        openviduSession.value.unsubscribe(openviduSubscriber.value)
       }
+      openviduSession.value.disconnect()
+    } catch {
+      // noop
+    }
+  }
+  resetOpenViduState()
+}
+
+const connectSubscriber = async (token: string) => {
+  if (!viewerContainerRef.value) return
+  try {
+    disconnectOpenVidu()
+    openviduInstance.value = new OpenVidu()
+    openviduSession.value = openviduInstance.value.initSession()
+    openviduSession.value.on('streamCreated', (event) => {
+      if (!viewerContainerRef.value || !openviduSession.value) return
+      if (openviduSubscriber.value) {
+        openviduSession.value.unsubscribe(openviduSubscriber.value)
+        openviduSubscriber.value = null
+        clearViewerContainer()
+      }
+      openviduSubscriber.value = openviduSession.value.subscribe(event.stream, viewerContainerRef.value, {
+        insertMode: 'append',
+      })
     })
+    openviduSession.value.on('streamDestroyed', () => {
+      openviduSubscriber.value = null
+      clearViewerContainer()
+    })
+    await openviduSession.value.connect(token)
+    openviduConnected.value = true
+  } catch {
+    disconnectOpenVidu()
   }
-
-  client.onWebSocketClose = () => { isChatConnected.value = false }
-  client.onDisconnect = () => { isChatConnected.value = false }
-  stompClient.value = client
-  client.activate()
 }
 
-
-
-const disconnectChat = () => {
-  stompSubscription?.unsubscribe()
-  stompSubscription = null
-  stompClient.value?.deactivate()
-  stompClient.value = null
-  isChatConnected.value = false
+const ensureSubscriberConnected = async () => {
+  if (!streamToken.value || lifecycleStatus.value !== 'ON_AIR') return
+  if (openviduConnected.value) return
+  await connectSubscriber(streamToken.value)
 }
 
-
-
-// 메시지 전송 (WebSocket 발행)
-const sendChat = () => {
-  if (!chatText.value.trim() || !isChatConnected.value || !broadcastId.value) return
-  const payload: LiveChatMessageDTO = {
-    broadcastId: broadcastId.value,
-    memberEmail: memberEmail.value,
-    type: 'TALK',
-    sender: nickname.value,
-    content: chatText.value.trim(),
-    vodPlayTime: 0,
-    sentAt: Date.now(),
+const requestJoinToken = async () => {
+  if (!detail.value) return
+  if (!['READY', 'ON_AIR'].includes(lifecycleStatus.value)) return
+  if (joinInFlight.value) return
+  if (joinedBroadcastId.value === Number(detail.value.id)) return
+  if (!viewerId.value) {
+    viewerId.value = resolveViewerId(getAuthUser())
   }
-
-  stompClient.value?.publish({
-    destination: '/pub/chat/message',
-    body: JSON.stringify(payload),
-
-  })
-
-
-
-  chatText.value = ''
-
+  if (!viewerId.value) return
+  joinInFlight.value = true
+  try {
+    streamToken.value = await joinBroadcast(Number(detail.value.id), viewerId.value)
+    joinedBroadcastId.value = Number(detail.value.id)
+    joinedViewerId.value = viewerId.value
+  } catch {
+    return
+  } finally {
+    joinInFlight.value = false
+  }
 }
 
-
-
-const loadDetail = () => {
-
-  const items = getAdminLiveSummaries()
-
-  detail.value = items.find((item) => item.id === liveId.value) ?? items[0] ?? null
-
+const sendLeaveSignal = async (useBeacon = false) => {
+  const leavingViewerId = joinedViewerId.value ?? viewerId.value
+  if (!joinedBroadcastId.value || !leavingViewerId || leaveRequested.value) return
+  leaveRequested.value = true
+  const url = `${apiBase}/api/broadcasts/${joinedBroadcastId.value}/leave?viewerId=${encodeURIComponent(leavingViewerId)}`
+  if (useBeacon && navigator.sendBeacon) {
+    navigator.sendBeacon(url)
+    return
+  }
+  await leaveBroadcast(joinedBroadcastId.value, leavingViewerId).catch(() => {})
 }
 
+const handlePageHide = () => {
+  void sendLeaveSignal(true)
+}
 
+const parseSseData = (event: MessageEvent) => {
+  if (!event.data) return null
+  try {
+    return JSON.parse(event.data)
+  } catch {
+    return event.data
+  }
+}
+
+const buildStopConfirmMessage = () => {
+  return '방송 운영 정책 위반으로 방송이 중지되었습니다.\n방송에서 나가겠습니까?'
+}
+
+const handleStopDecision = (message: string) => {
+  const ok = window.confirm(message)
+  if (ok) {
+    goToList()
+    return
+  }
+  isStopRestricted.value = true
+  showChat.value = false
+  activePane.value = 'monitor'
+}
+
+const promptStoppedEntry = () => {
+  if (stopEntryPrompted.value) return
+  stopEntryPrompted.value = true
+  handleStopDecision('해당 방송은 운영정책 위반으로 송출 중지되었습니다. 방송을 나가겠습니까?')
+}
+
+const scheduleRefresh = (broadcastId: number) => {
+  if (refreshTimer.value) window.clearTimeout(refreshTimer.value)
+  refreshTimer.value = window.setTimeout(() => {
+    void refreshDetail(broadcastId)
+    void refreshStats(broadcastId)
+    void refreshProducts(broadcastId)
+  }, 500)
+}
+
+const handleSseEvent = (event: MessageEvent) => {
+  const idValue = Number(liveId.value)
+  if (Number.isNaN(idValue)) return
+  const data = parseSseData(event)
+  switch (event.type) {
+    case 'BROADCAST_READY':
+    case 'BROADCAST_UPDATED':
+    case 'BROADCAST_STARTED':
+      scheduleRefresh(idValue)
+      break
+    case 'PRODUCT_PINNED':
+    case 'PRODUCT_UNPINNED':
+    case 'PRODUCT_SOLD_OUT':
+      scheduleRefresh(idValue)
+      break
+    case 'SANCTION_UPDATED':
+      scheduleRefresh(idValue)
+      break
+    case 'BROADCAST_CANCELED':
+      alert('방송이 자동 취소되었습니다.')
+      goToList()
+      break
+    case 'BROADCAST_ENDED':
+      alert('방송이 종료되었습니다.')
+      void refreshDetail(idValue)
+      break
+    case 'BROADCAST_SCHEDULED_END':
+      alert('방송이 종료되었습니다.')
+      goToList()
+      break
+    case 'BROADCAST_STOPPED':
+      if (detail.value) {
+        detail.value.status = 'STOPPED'
+      }
+      scheduleRefresh(idValue)
+      stopEntryPrompted.value = true
+      handleStopDecision(buildStopConfirmMessage())
+      break
+    default:
+      break
+  }
+}
+
+const scheduleReconnect = (broadcastId: number) => {
+  if (sseRetryTimer.value) window.clearTimeout(sseRetryTimer.value)
+  const delay = Math.min(30000, 1000 * 2 ** sseRetryCount.value)
+  const jitter = Math.floor(Math.random() * 500)
+  sseRetryTimer.value = window.setTimeout(() => {
+    connectSse(broadcastId)
+  }, delay + jitter)
+  sseRetryCount.value += 1
+}
+
+const connectSse = (broadcastId: number) => {
+  if (sseSource.value) {
+    sseSource.value.close()
+  }
+  const source = new EventSource(`${apiBase}/api/broadcasts/${broadcastId}/subscribe`)
+  const events = [
+    'BROADCAST_READY',
+    'BROADCAST_UPDATED',
+    'BROADCAST_STARTED',
+    'PRODUCT_PINNED',
+    'PRODUCT_UNPINNED',
+    'PRODUCT_SOLD_OUT',
+    'SANCTION_UPDATED',
+    'BROADCAST_ENDING_SOON',
+    'BROADCAST_CANCELED',
+    'BROADCAST_ENDED',
+    'BROADCAST_SCHEDULED_END',
+    'BROADCAST_STOPPED',
+  ]
+  events.forEach((name) => source.addEventListener(name, handleSseEvent))
+  source.onopen = () => {
+    sseConnected.value = true
+    sseRetryCount.value = 0
+    scheduleRefresh(broadcastId)
+  }
+  source.onerror = () => {
+    sseConnected.value = false
+    source.close()
+    if (document.visibilityState === 'visible') {
+      scheduleReconnect(broadcastId)
+    }
+  }
+  sseSource.value = source
+}
+
+const startStatsPolling = (broadcastId: number) => {
+  if (statsTimer.value) window.clearInterval(statsTimer.value)
+  statsTimer.value = window.setInterval(() => {
+    if (document.visibilityState !== 'visible') {
+      return
+    }
+    void refreshStats(broadcastId)
+    if (!sseConnected.value) {
+      void refreshProducts(broadcastId)
+    }
+  }, 5000)
+}
 
 const openStopConfirm = () => {
-
-  if (!detail.value || detail.value.status === 'STOPPED') return
-
+  if (!detail.value || detail.value.status === 'STOPPED' || !canForceStop.value) return
   showStopModal.value = true
-
+  error.value = ''
 }
-
-
 
 const closeStopModal = () => {
-
   showStopModal.value = false
-
   stopReason.value = ''
-
   stopDetail.value = ''
-
+  error.value = ''
 }
-
-
 
 const handleStopSave = () => {
-
   if (!detail.value) return
-
-  if (!stopReason.value) { error.value = '유형을 선택해주세요.'; return }
-
-  if (stopReason.value === '기타' && !stopDetail.value.trim()) { error.value = '중지 사유를 입력해주세요.'; return }
-
-
-
-  if (window.confirm('방송 송출을 중지하시겠습니까?')) {
-
-    stopAdminLiveBroadcast(detail.value.id, {
-
-      reason: stopReason.value,
-
-      detail: stopReason.value === '기타' ? stopDetail.value.trim() : undefined,
-
-    })
-
-    showStopModal.value = false
-
-  }
-
-}
-
-
-
-const syncFullscreen = () => { isFullscreen.value = Boolean(document.fullscreenElement) }
-
-const toggleFullscreen = async () => {
-
-  if (!stageRef.value) return
-
-  try {
-
-    if (document.fullscreenElement) await document.exitFullscreen()
-
-    else await stageRef.value.requestFullscreen()
-
-  } catch { /* ignore */ }
-
-}
-
-
-
-const openModeration = (msg: any) => {
-
-  if (msg.user === 'SYSTEM' || msg.user === '관리자') return
-
-  moderationTarget.value = { user: msg.user }
-
-  showModerationModal.value = true
-
-}
-
-
-
-const closeModeration = () => {
-
-  showModerationModal.value = false
-
-  moderationTarget.value = null
-
-}
-
-
-
-const saveModeration = () => {
-
-  if (!moderationType.value || !moderationReason.value.trim()) {
-
-    window.alert('필수 정보를 입력해주세요.')
-
+  if (!stopReason.value) {
+    error.value = '유형을 선택해주세요.'
     return
-
   }
-
-  if (window.confirm('시청자를 제재하시겠습니까?')) {
-
-    const target = moderationTarget.value?.user || ''
-
-    moderatedUsers.value[target] = {
-
-      type: moderationType.value,
-
-      reason: moderationReason.value.trim(),
-
-      at: new Date().toLocaleTimeString()
-
-    }
-
-    // 시스템 메시지 형식으로 채팅창에 표시
-
-    chatMessages.value.push({
-
-      id: `sys-${Date.now()}`,
-
-      user: 'SYSTEM',
-
-      text: `${target}님을 '${moderationType.value}' 처리했습니다.`,
-
-      time: new Date().toLocaleTimeString()
-
+  if (stopReason.value === '기타' && !stopDetail.value.trim()) {
+    error.value = '중지 사유를 입력해주세요.'
+    return
+  }
+  const ok = window.confirm('방송 송출을 중지하시겠습니까?')
+  if (!ok) return
+  const reason = stopReason.value === '기타' ? stopDetail.value.trim() : stopReason.value
+  stopAdminBroadcast(Number(detail.value.id), reason)
+    .then(() => {
+      if (detail.value) {
+        detail.value.status = 'STOPPED'
+        detail.value.stoppedReason = reason
+      }
+      goToList()
     })
-
-    closeModeration()
-
-  }
-
+    .catch(() => {})
+    .finally(() => {
+      showStopModal.value = false
+    })
 }
 
-
-
-onMounted(() => {
-
-  refreshAuth()
-
-  loadDetail()
-
-  document.addEventListener('fullscreenchange', syncFullscreen)
-
-  window.addEventListener(ADMIN_LIVES_EVENT, loadDetail)
-
-})
-
-
-
-onBeforeUnmount(() => {
-
-  document.removeEventListener('fullscreenchange', syncFullscreen)
-
-  window.removeEventListener(ADMIN_LIVES_EVENT, loadDetail)
-
-  disconnectChat()
-
-})
-
-
-
-watch(broadcastId, (val) => {
-
-  chatMessages.value = []
-  disconnectChat()
-
-  if (val) {
-
-    fetchRecentMessages()
-
-    connectChat()
-
-  }
-
-}, { immediate: true })
-
-
+const syncFullscreen = () => {
+  isFullscreen.value = Boolean(document.fullscreenElement)
+}
 
 const modalHostTarget = computed(() => (isFullscreen.value && stageRef.value ? stageRef.value : 'body'))
 
+const toggleFullscreen = async () => {
+  const el = stageRef.value
+  if (!el) return
+  try {
+    if (document.fullscreenElement) {
+      await document.exitFullscreen()
+      return
+    }
+    if (el.requestFullscreen) {
+      await el.requestFullscreen()
+    }
+  } catch {
+    return
+  }
+}
+
+const toggleChat = () => {
+  if (isStopRestricted.value) return
+  showChat.value = !showChat.value
+}
+
+const closeChat = () => {
+  showChat.value = false
+}
+
+const sendChat = () => {
+  if (!isInteractive.value) return
+  if (!chatText.value.trim()) return
+  const now = new Date()
+  const time = `${now.getHours()}시 ${String(now.getMinutes()).padStart(2, '0')}분`
+  chatMessages.value = [
+    ...chatMessages.value,
+    { id: `${liveId.value}-${Date.now()}`, user: '관리자', text: chatText.value.trim(), time },
+  ]
+  chatText.value = ''
+  nextTick(() => {
+    const el = chatListRef.value
+    if (!el) return
+    el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
+  })
+}
+
+const openModeration = (msg: { user: string }) => {
+  if (!isInteractive.value) return
+  if (msg.user === 'SYSTEM' || msg.user === '관리자') return
+  console.log('[admin chat] moderation open', msg.user)
+  moderationTarget.value = { user: msg.user }
+  moderationType.value = ''
+  moderationReason.value = ''
+  showModerationModal.value = true
+}
+
+const closeModeration = () => {
+  showModerationModal.value = false
+  moderationTarget.value = null
+  moderationType.value = ''
+  moderationReason.value = ''
+}
+
+const saveModeration = () => {
+  if (!moderationType.value) {
+    window.alert('제재 유형을 선택해주세요.')
+    return
+  }
+  if (!moderationReason.value.trim()) {
+    window.alert('제재 사유를 입력해주세요.')
+    return
+  }
+  const confirmModeration = window.confirm('입력한 내용으로 시청자를 제재하시겠습니까?')
+  if (!confirmModeration) return
+  const target = moderationTarget.value
+  if (!target) return
+  const now = new Date()
+  const at = `${now.getHours()}시 ${String(now.getMinutes()).padStart(2, '0')}분`
+  moderatedUsers.value = {
+    ...moderatedUsers.value,
+    [target.user]: { type: moderationType.value, reason: moderationReason.value.trim(), at },
+  }
+  chatMessages.value = [
+    ...chatMessages.value,
+    {
+      id: `sys-${Date.now()}`,
+      user: 'SYSTEM',
+      text: `관리자가 ${target.user}님을 '${moderationType.value}' 처리했습니다. (사유: ${moderationReason.value.trim()})`,
+      time: at,
+    },
+  ]
+  closeModeration()
+  nextTick(() => {
+    const el = chatListRef.value
+    if (!el) return
+    el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
+  })
+}
+
+onMounted(() => {
+  document.addEventListener('fullscreenchange', syncFullscreen)
+})
+
+onBeforeUnmount(() => {
+  document.removeEventListener('fullscreenchange', syncFullscreen)
+  window.removeEventListener('pagehide', handlePageHide)
+  void sendLeaveSignal()
+  sseSource.value?.close()
+  sseSource.value = null
+  sseConnected.value = false
+  if (sseRetryTimer.value) window.clearTimeout(sseRetryTimer.value)
+  sseRetryTimer.value = null
+  if (statsTimer.value) window.clearInterval(statsTimer.value)
+  statsTimer.value = null
+  if (refreshTimer.value) window.clearTimeout(refreshTimer.value)
+  refreshTimer.value = null
+  disconnectOpenVidu()
+})
+
+onMounted(() => {
+  viewerId.value = resolveViewerId(getAuthUser())
+  window.addEventListener('pagehide', handlePageHide)
+})
+
+watch(
+  liveId,
+  (value) => {
+    if (joinedBroadcastId.value) {
+      void sendLeaveSignal()
+    }
+    leaveRequested.value = false
+    joinedBroadcastId.value = null
+    joinedViewerId.value = null
+    streamToken.value = null
+    disconnectOpenVidu()
+    loadDetail()
+    const idValue = Number(value)
+    if (!Number.isNaN(idValue)) {
+      connectSse(idValue)
+      startStatsPolling(idValue)
+      void requestJoinToken()
+    } else {
+      sseSource.value?.close()
+      sseSource.value = null
+      sseConnected.value = false
+      if (sseRetryTimer.value) window.clearTimeout(sseRetryTimer.value)
+      sseRetryTimer.value = null
+      if (statsTimer.value) window.clearInterval(statsTimer.value)
+      statsTimer.value = null
+      if (refreshTimer.value) window.clearTimeout(refreshTimer.value)
+      refreshTimer.value = null
+    }
+  },
+  { immediate: true },
+)
+
+watch(
+  lifecycleStatus,
+  () => {
+    if (lifecycleStatus.value === 'STOPPED') {
+      promptStoppedEntry()
+    } else {
+      isStopRestricted.value = false
+      stopEntryPrompted.value = false
+    }
+    void requestJoinToken()
+    if (lifecycleStatus.value === 'ON_AIR') {
+      void ensureSubscriberConnected()
+      return
+    }
+    disconnectOpenVidu()
+  },
+)
+
+watch(streamToken, () => {
+  if (lifecycleStatus.value === 'ON_AIR') {
+    void ensureSubscriberConnected()
+  }
+})
 </script>
 
-
-
 <template>
-
   <div v-if="detail" class="live-detail">
-
     <header class="detail-header">
-
-      <button type="button" class="back-link" @click="router.back()">← 뒤로 가기</button>
-
+      <button type="button" class="back-link" @click="goBack">← 뒤로 가기</button>
       <div class="header-actions">
-
-        <button type="button" class="btn" @click="router.push('/admin/live?tab=live')">목록으로</button>
-
-        <button type="button" class="btn danger" :disabled="detail.status === 'STOPPED'" @click="openStopConfirm">
-
+        <button type="button" class="btn" @click="goToList">목록으로</button>
+        <button
+          type="button"
+          class="btn danger"
+          :disabled="detail.status === 'STOPPED' || !canForceStop"
+          @click="openStopConfirm"
+        >
           {{ detail.status === 'STOPPED' ? '송출 중지됨' : '방송 송출 중지' }}
-
         </button>
-
       </div>
-
     </header>
-
-
 
     <h2 class="page-title">방송 모니터링</h2>
 
-
-
     <section class="detail-card ds-surface meta-card">
-
       <div class="detail-meta">
-
         <h3>{{ detail.title }}</h3>
-
         <p><span>판매자</span>{{ detail.sellerName }}</p>
-
         <p><span>방송 시작</span>{{ detail.startedAt }}</p>
-
+        <p v-if="detail.scheduledAt"><span>예약 시간</span>{{ detail.scheduledAt }}</p>
         <p><span>시청자 수</span>{{ detail.viewers }}명</p>
-
         <p><span>신고 건수</span>{{ detail.reports ?? 0 }}건</p>
-
-        <p><span>상태</span>{{ detail.status }}</p>
-
+        <p><span>상태</span>{{ statusLabel }}</p>
+        <p v-if="lifecycleStatus === 'READY'"><span>카운트다운</span>{{ readyCountdownLabel }}</p>
+        <p v-if="lifecycleStatus === 'ENDED'"><span>종료까지</span>{{ endedCountdownLabel }}</p>
       </div>
-
     </section>
 
-
-
     <section class="player-card">
-
       <div class="player-tabs">
-
-        <div class="tab-list" role="tablist">
-
-          <button type="button" class="tab" :class="{ 'tab--active': activePane === 'monitor' }" @click="activePane = 'monitor'">모니터링</button>
-
-          <button type="button" class="tab" :class="{ 'tab--active': activePane === 'products' }" @click="activePane = 'products'">상품</button>
-
+        <div class="tab-list" role="tablist" aria-label="모니터링 패널">
+          <button
+              type="button"
+              class="tab"
+              :class="{ 'tab--active': activePane === 'monitor' }"
+              role="tab"
+              aria-controls="monitor-pane"
+              :aria-selected="activePane === 'monitor'"
+              @click="activePane = 'monitor'"
+          >
+            모니터링
+          </button>
+          <button
+              v-if="!isStopRestricted"
+              type="button"
+              class="tab"
+              :class="{ 'tab--active': activePane === 'products' }"
+              role="tab"
+              aria-controls="products-pane"
+              :aria-selected="activePane === 'products'"
+              @click="activePane = 'products'"
+          >
+            상품
+          </button>
         </div>
 
-
-
-        <div v-show="activePane === 'monitor'">
-
-          <div ref="stageRef" class="monitor-stage" :class="{ 'monitor-stage--chat': showChat }">
-
+        <div v-show="activePane === 'monitor'" id="monitor-pane">
+          <div ref="stageRef" class="monitor-stage" :class="{ 'monitor-stage--chat': showChat && !isStopRestricted }">
             <div class="player-wrap">
-
               <div class="player-frame" :class="{ 'player-frame--fullscreen': isFullscreen }">
-
+                <div v-show="hasSubscriberStream" ref="viewerContainerRef" class="player-frame__viewer"></div>
                 <div class="player-overlay">
-
-                  <div class="overlay-item">⏱ {{ detail.elapsed }}</div>
-
+                  <div class="overlay-item">⏱ {{ elapsedLabel }}</div>
                   <div class="overlay-item">👥 {{ detail.viewers }}명</div>
-
+                  <div class="overlay-item">❤ {{ detail.likes }}</div>
+                  <div class="overlay-item">🚩 {{ detail.reports ?? 0 }}건</div>
                 </div>
-
-                <div class="overlay-actions">
-
-                  <button type="button" class="icon-circle" :class="{ active: showChat }" @click="showChat = !showChat">
-
-                    <svg class="icon" viewBox="0 0 24 24"><path d="M3 20l1.62-3.24A2 2 0 0 1 6.42 16H20a1 1 0 0 0 1-1V5a1 1 0 0 0-1-1H4a1 1 0 0 0-1 1v15z" stroke="currentColor" fill="none" /></svg>
-
+                <div v-if="!isStopRestricted" class="overlay-actions">
+                  <button type="button" class="icon-circle" :class="{ active: showChat }" @click="toggleChat" :title="showChat ? '채팅 닫기' : '채팅 보기'">
+                    <svg aria-hidden="true" class="icon" viewBox="0 0 24 24" focusable="false">
+                      <path d="M3 20l1.62-3.24A2 2 0 0 1 6.42 16H20a1 1 0 0 0 1-1V5a1 1 0 0 0-1-1H4a1 1 0 0 0-1 1v15z" stroke="currentColor" stroke-width="1.7" />
+                      <path d="M7 9h10M7 12h6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" />
+                    </svg>
                   </button>
-
-                  <button type="button" class="icon-circle ghost" @click="toggleFullscreen">
-
-                    <svg class="icon" viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" stroke="currentColor" fill="none" /></svg>
-
+                  <button type="button" class="icon-circle ghost" :class="{ active: isFullscreen }" @click="toggleFullscreen" :title="isFullscreen ? '전체화면 종료' : '전체화면'">
+                    <svg v-if="!isFullscreen" aria-hidden="true" class="icon" viewBox="0 0 24 24" focusable="false">
+                      <path d="M4 9V4h5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" />
+                      <path d="M20 9V4h-5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" />
+                      <path d="M4 15v5h5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" />
+                      <path d="M20 15v5h-5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" />
+                    </svg>
+                    <svg v-else aria-hidden="true" class="icon" viewBox="0 0 24 24" focusable="false">
+                      <path d="M9 5H5v4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" />
+                      <path d="M15 19h4v-4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" />
+                      <path d="M9 19H5v-4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" />
+                      <path d="M15 5h4v4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" />
+                    </svg>
                   </button>
-
                 </div>
-
-                <div class="player-label">송출 화면</div>
-
+                <div v-if="isReadOnly" class="player-placeholder">
+                  <img
+                    v-if="waitingScreenUrl && lifecycleStatus !== 'STOPPED'"
+                    class="player-placeholder__image"
+                    :src="waitingScreenUrl"
+                    alt="대기 화면"
+                    @error="handleImageError"
+                  />
+                  <p v-if="playerMessage" class="player-placeholder__message">{{ playerMessage }}</p>
+                </div>
+                <div v-else-if="!hasSubscriberStream" class="player-label">송출 화면</div>
               </div>
-
             </div>
 
-
-
-            <aside v-if="showChat" class="chat-panel ds-surface">
-
+            <aside v-if="showChat && !isStopRestricted" class="chat-panel ds-surface">
               <header class="chat-head">
-
-                <h4>실시간 채팅 ({{ isChatConnected ? '연결됨' : '연결 중...' }})</h4>
-
+                <h4>실시간 채팅</h4>
+                <button type="button" class="chat-close" @click="closeChat">×</button>
               </header>
-
               <div ref="chatListRef" class="chat-messages">
-
-                <div v-for="msg in chatMessages" :key="msg.id" class="chat-message"
-
-                     :class="{ 'chat-message--system': msg.kind === 'system' }"
-
-                     @contextmenu.prevent="openModeration(msg)">
-
+                <div
+                    v-for="msg in chatMessages"
+                    :key="msg.id"
+                    class="chat-message"
+                    :class="{ 'chat-message--system': msg.user === 'SYSTEM', 'chat-message--muted': moderatedUsers[msg.user] }"
+                    @contextmenu.prevent="openModeration(msg)"
+                >
                   <div class="chat-meta">
-
-                    <span class="chat-user">{{ formatChatUser(msg) }}</span>
-
+                    <span class="chat-user">{{ msg.user }}</span>
                     <span class="chat-time">{{ msg.time }}</span>
-
+                    <span v-if="msg.user !== 'SYSTEM' && moderatedUsers[msg.user]" class="chat-badge">{{ moderatedUsers[msg.user]?.type }}</span>
                   </div>
-
                   <p class="chat-text">{{ msg.text }}</p>
-
                 </div>
-
               </div>
-
               <div class="chat-input">
-
-                <input v-model="chatText" type="text" placeholder="관리자 메시지 입력" @keydown.enter="sendChat" :disabled="!isChatConnected" />
-
-                <button type="button" class="btn primary" @click="sendChat" :disabled="!isChatConnected">전송</button>
-
+                <input v-model="chatText" type="text" placeholder="메시지를 입력하세요" :disabled="isReadOnly" />
+                <button type="button" class="btn primary" :disabled="isReadOnly" @click="sendChat">전송</button>
               </div>
-
+              <p v-if="isReadOnly" class="chat-helper">방송 중에만 채팅을 이용할 수 있습니다.</p>
             </aside>
-
           </div>
-
         </div>
 
-
-
-        <div v-show="activePane === 'products'" class="products-pane ds-surface">
-
+        <div v-if="!isStopRestricted" v-show="activePane === 'products'" id="products-pane" class="products-pane ds-surface" :class="{ 'products-pane--readonly': isReadOnly }">
           <header class="products-head">
-
-            <h4>연결 상품 현황</h4>
-
+            <div>
+              <h4>상품 정보</h4>
+              <p class="ds-section-sub">방송에 연결된 상품 현황을 확인하세요.</p>
+            </div>
             <span class="pill">총 {{ liveProducts.length }}개</span>
-
           </header>
-
           <div class="product-list">
-
-            <article v-for="product in liveProducts" :key="product.id" class="product-row">
-
-              <div class="product-meta">
-
-                <p class="product-name">{{ product.name }}</p>
-
-                <p class="product-option">{{ product.option }}</p>
-
-                <p class="product-price"><span class="product-sale">{{ product.sale }}</span></p>
-
+            <article
+              v-for="product in sortedLiveProducts"
+              :key="product.id"
+              class="product-row"
+              :class="{ 'product-row--pinned': product.isPinned, 'product-row--soldout': product.status === '품절' }"
+            >
+              <span v-if="product.isPinned" class="product-pin">PIN</span>
+              <div class="product-thumb">
+                <img :src="product.thumb" :alt="product.name" loading="lazy" @error="handleImageError" />
               </div>
-
+              <div class="product-meta">
+                <p class="product-name">{{ product.name }}</p>
+                <p class="product-option">{{ product.option }}</p>
+                <p class="product-price">
+                  <span class="product-sale">{{ product.sale }}</span>
+                  <span class="product-origin">{{ product.price }}</span>
+                </p>
+                <p class="product-stats">판매 {{ product.sold }} · 재고 {{ product.stock }}</p>
+              </div>
               <span class="product-status" :class="{ 'is-soldout': product.status === '품절' }">{{ product.status }}</span>
             </article>
           </div>
@@ -605,31 +985,31 @@ const modalHostTarget = computed(() => (isFullscreen.value && stageRef.value ? s
       </div>
     </section>
 
-
-
     <Teleport :to="modalHostTarget">
       <div v-if="showStopModal" class="stop-modal">
         <div class="stop-modal__backdrop" @click="closeStopModal"></div>
         <div class="stop-modal__card ds-surface">
           <header class="stop-modal__head">
             <h3>방송 송출 중지</h3>
+            <button type="button" class="close-btn" @click="closeStopModal">×</button>
           </header>
-
           <div class="stop-modal__body">
             <label class="field">
-              <span class="field__label">사유 유형</span>
+              <span class="field__label">유형</span>
               <select v-model="stopReason" class="field-input">
                 <option value="">선택해주세요</option>
-                <option value="운영정책 위반">운영정책 위반</option>
-                <option value="부적절한 콘텐츠">부적절한 콘텐츠</option>
-                <option value="기타">기타</option>
+                <option v-for="option in reasonOptions" :key="option" :value="option">{{ option }}</option>
               </select>
             </label>
-            <textarea v-if="stopReason === '기타'" v-model="stopDetail" class="field-input" rows="3" placeholder="상세 사유 입력"></textarea>
+            <label v-if="stopReason === '기타'" class="field">
+              <span class="field__label">중지 사유(기타 선택 시)</span>
+              <textarea v-model="stopDetail" class="field-input" rows="4" placeholder="사유를 입력해주세요."></textarea>
+            </label>
+            <p v-if="error" class="error">{{ error }}</p>
           </div>
           <div class="stop-modal__actions">
-            <button class="btn ghost" @click="closeStopModal">취소</button>
-            <button class="btn primary" @click="handleStopSave">중지 실행</button>
+            <button type="button" class="btn ghost" @click="closeStopModal">취소</button>
+            <button type="button" class="btn primary" @click="handleStopSave">저장</button>
           </div>
         </div>
       </div>
@@ -637,19 +1017,28 @@ const modalHostTarget = computed(() => (isFullscreen.value && stageRef.value ? s
       <div v-if="showModerationModal" class="moderation-modal">
         <div class="moderation-modal__backdrop" @click="closeModeration"></div>
         <div class="moderation-modal__card ds-surface">
-          <header class="moderation-modal__head"><h3>채팅 유저 제재</h3></header>
+          <header class="moderation-modal__head">
+            <h3>채팅 관리</h3>
+            <button type="button" class="close-btn" @click="closeModeration">×</button>
+          </header>
           <div class="moderation-modal__body">
-            <p>대상: {{ moderationTarget?.user }}</p>
-            <select v-model="moderationType" class="field-input">
-              <option value="">제재 유형 선택</option>
-              <option value="채팅 금지">채팅 금지</option>
-              <option value="강제 퇴장">강제 퇴장</option>
-            </select>
-            <textarea v-model="moderationReason" class="field-input" rows="3" placeholder="제재 사유 입력"></textarea>
+            <p class="moderation-target">대상: {{ moderationTarget?.user }}</p>
+            <label class="field">
+              <span class="field__label">제재 유형</span>
+              <select v-model="moderationType" class="field-input">
+                <option value="">선택해주세요</option>
+                <option value="채팅 금지">채팅 금지</option>
+                <option value="강제 퇴장">강제 퇴장</option>
+              </select>
+            </label>
+            <label class="field">
+              <span class="field__label">제재 사유</span>
+              <textarea v-model="moderationReason" class="field-input" rows="4" placeholder="사유를 입력해주세요."></textarea>
+            </label>
           </div>
           <div class="moderation-modal__actions">
-            <button class="btn ghost" @click="closeModeration">취소</button>
-            <button class="btn primary" @click="saveModeration">저장</button>
+            <button type="button" class="btn ghost" @click="closeModeration">취소</button>
+            <button type="button" class="btn primary" @click="saveModeration">저장</button>
           </div>
         </div>
       </div>
@@ -763,6 +1152,20 @@ const modalHostTarget = computed(() => (isFullscreen.value && stageRef.value ? s
   justify-content: center;
 }
 
+.player-frame__viewer {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: #000;
+}
+
+.player-frame__viewer :deep(video) {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
 .player-frame--fullscreen {
   max-height: none;
   max-width: none;
@@ -790,6 +1193,34 @@ const modalHostTarget = computed(() => (isFullscreen.value && stageRef.value ? s
   letter-spacing: 0.08em;
 }
 
+.player-placeholder {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  text-align: center;
+  background: rgba(6, 10, 18, 0.92);
+  z-index: 1;
+}
+
+.player-placeholder__image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.player-placeholder__message {
+  color: #ffffff;
+  font-weight: 900;
+  text-shadow: 0 3px 12px rgba(0, 0, 0, 0.45);
+  max-width: min(520px, 100%);
+  font-size: 1.35rem;
+}
+
 .player-overlay {
   position: absolute;
   top: 14px;
@@ -802,6 +1233,7 @@ const modalHostTarget = computed(() => (isFullscreen.value && stageRef.value ? s
   border-radius: 12px;
   font-weight: 800;
   font-size: 0.9rem;
+  z-index: 2;
 }
 
 .overlay-item {
@@ -831,6 +1263,7 @@ const modalHostTarget = computed(() => (isFullscreen.value && stageRef.value ? s
   flex-direction: column;
   gap: 10px;
   align-items: flex-end;
+  z-index: 2;
 }
 
 .icon-circle {
@@ -863,7 +1296,7 @@ const modalHostTarget = computed(() => (isFullscreen.value && stageRef.value ? s
   height: 18px;
   stroke: currentColor;
   fill: none;
-  stroke-width: 1.8px;
+  stroke-width: 2px;
 }
 
 .chat-panel {
@@ -1226,6 +1659,17 @@ const modalHostTarget = computed(() => (isFullscreen.value && stageRef.value ? s
   border: 1px solid var(--border-color);
 }
 
+.products-pane--readonly {
+  opacity: 0.6;
+}
+
+.chat-helper {
+  margin: 8px 0 0;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
 .products-head {
   display: flex;
   align-items: center;
@@ -1265,6 +1709,28 @@ const modalHostTarget = computed(() => (isFullscreen.value && stageRef.value ? s
   padding: 12px;
   border-radius: 12px;
   border: 1px solid var(--border-color);
+  position: relative;
+}
+
+.product-row--pinned {
+  border-color: var(--primary-color);
+  box-shadow: 0 0 0 1px rgba(var(--primary-rgb), 0.2);
+}
+
+.product-row--soldout {
+  opacity: 0.65;
+}
+
+.product-pin {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(var(--primary-rgb), 0.12);
+  color: var(--primary-color);
+  font-size: 0.7rem;
+  font-weight: 700;
 }
 
 .product-thumb img {
@@ -1383,13 +1849,3 @@ const modalHostTarget = computed(() => (isFullscreen.value && stageRef.value ? s
   }
 }
 </style>
-
-
-
-
-
-
-
-
-
-

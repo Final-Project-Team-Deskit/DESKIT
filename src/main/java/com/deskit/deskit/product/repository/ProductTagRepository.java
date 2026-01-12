@@ -46,7 +46,9 @@ public interface ProductTagRepository extends JpaRepository<ProductTag, ProductT
          and t.deletedAt is null
          and tc.deletedAt is null
          and pt.product.id in :productIds
-       order by pt.product.id, tc.tagCode, t.tagName
+      order by pt.product.id, tc.tagCode, t.tagName
       """)
   List<ProductTagRow> findActiveTagsByProductIds(@Param("productIds") List<Long> productIds);
+
+  void deleteByProduct_Id(Long productId);
 }

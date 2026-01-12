@@ -40,6 +40,7 @@ public class BroadcastResultResponse {
     // vod
     private String vodUrl;
     private VodStatus vodStatus;
+    private boolean vodAdminLock;
     private boolean isEncoding;
 
     private List<ProductSalesStat> productStats;

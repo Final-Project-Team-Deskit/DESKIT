@@ -10,4 +10,6 @@ export const endpoints = {
   orders: '/api/orders',
   orderDetail: (id: string | number) => `/api/orders/${id}`,
   orderStatus: (id: string | number) => `/api/orders/${id}/status`,
+  orderCancel: (id: string | number) => `/api/orders/${id}/cancel`,
+  tossConfirm: '/api/payments/toss/confirm',
 }

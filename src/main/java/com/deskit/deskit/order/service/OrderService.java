@@ -1,13 +1,13 @@
 package com.deskit.deskit.order.service;
 
 import com.deskit.deskit.account.repository.MemberRepository;
+import com.deskit.deskit.order.dto.OrderCancelRequest;
+import com.deskit.deskit.order.dto.OrderCancelResponse;
 import com.deskit.deskit.order.dto.CreateOrderItemRequest;
 import com.deskit.deskit.order.dto.CreateOrderRequest;
 import com.deskit.deskit.order.dto.CreateOrderResponse;
 import com.deskit.deskit.order.dto.OrderDetailResponse;
 import com.deskit.deskit.order.dto.OrderItemResponse;
-import com.deskit.deskit.order.dto.OrderStatusUpdateRequest;
-import com.deskit.deskit.order.dto.OrderStatusUpdateResponse;
 import com.deskit.deskit.order.dto.OrderSummaryResponse;
 import com.deskit.deskit.order.entity.Order;
 import com.deskit.deskit.order.entity.OrderItem;
@@ -81,7 +81,7 @@ public class OrderService {
 
     Map<Long, Product> productsById = new HashMap<>();
     for (Long productId : productIds) {
-      Product product = productRepository.findByIdForUpdate(productId)
+      Product product = productRepository.findByIdForUpdateAndStatus(productId, Product.Status.ON_SALE)
         .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "product not found"));
       int requestedQty = quantityByProductId.get(productId);
       Integer stockQty = product.getStockQty();
@@ -100,7 +100,7 @@ public class OrderService {
       totalProductAmount += product.getPrice() * quantity;
     }
 
-    int shippingFee = 0;
+    int shippingFee = totalProductAmount >= 50000 ? 0 : 3000;
     int discountFee = 0;
     int orderAmount = totalProductAmount - discountFee + shippingFee;
     String orderNumber = generateOrderNumber();
@@ -182,7 +182,7 @@ public class OrderService {
     return OrderDetailResponse.from(order, items);
   }
 
-  public OrderStatusUpdateResponse updateOrderStatus(Long memberId, Long orderId, OrderStatusUpdateRequest request) {
+  public OrderCancelResponse requestCancel(Long memberId, Long orderId, OrderCancelRequest request) {
     if (memberId == null) {
       throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "member_id required");
     }
@@ -192,8 +192,8 @@ public class OrderService {
     if (orderId == null) {
       throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "order_id required");
     }
-    if (request == null || request.status() == null) {
-      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "status required");
+    if (request == null || request.reason() == null) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "reason required");
     }
 
     Order order = orderRepository.findById(orderId)
@@ -202,14 +202,14 @@ public class OrderService {
       throw new ResponseStatusException(HttpStatus.FORBIDDEN, "forbidden");
     }
 
-    OrderStatus newStatus = request.status();
-    if (newStatus == order.getStatus()) {
-      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "status unchanged");
+    try {
+      order.requestCancel(request.reason());
+    } catch (IllegalStateException ex) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, ex.getMessage());
     }
 
-    order.changeStatus(newStatus);
     orderRepository.save(order);
-    return new OrderStatusUpdateResponse(order.getId(), order.getStatus());
+    return new OrderCancelResponse(order.getId(), order.getStatus());
   }
 
   private int safeQuantity(Integer quantity) {

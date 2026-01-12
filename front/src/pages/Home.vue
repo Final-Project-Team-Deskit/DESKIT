@@ -1,18 +1,24 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
-import { liveItems, type ProductItem, type SetupItem } from '../lib/home-data'
+import { onBeforeUnmount, onMounted, ref } from 'vue'
+import { type ProductItem, type SetupItem } from '../lib/home-data'
 import { listPopularProducts, listPopularSetups } from '../api/home'
 import LiveCarousel from '../components/LiveCarousel.vue'
 import SetupCarousel from '../components/SetupCarousel.vue'
 import ProductCarousel from '../components/ProductCarousel.vue'
 import PageContainer from '../components/PageContainer.vue'
+import { fetchBroadcastStats, fetchPublicBroadcastOverview } from '../lib/live/api'
+import { getScheduledEndMs, normalizeBroadcastStatus } from '../lib/broadcastStatus'
+import type { LiveItem } from '../lib/live/types'
+import { parseLiveDate } from '../lib/live/utils'
 
+const liveItems = ref<LiveItem[]>([])
 const popularProducts = ref<ProductItem[]>([])
 const popularSetups = ref<SetupItem[]>([])
 const popularProductsLoading = ref(true)
 const popularSetupsLoading = ref(true)
 const popularProductsError = ref(false)
 const popularSetupsError = ref(false)
+let liveRefreshTimer: number | null = null
 
 const buildProductItems = (items: Awaited<ReturnType<typeof listPopularProducts>>) =>
   items.map((item) => ({
@@ -58,8 +64,89 @@ const loadPopulars = async () => {
   popularSetupsLoading.value = false
 }
 
+const mapToLiveItems = (items: Array<{ broadcastId: number; title: string; notice?: string; thumbnailUrl?: string; startAt?: string; endAt?: string; liveViewerCount?: number; viewerCount?: number; sellerName?: string; status?: string; totalLikes?: number; reportCount?: number }>) =>
+  items
+    .filter((item) => item.startAt)
+    .map((item) => ({
+      id: String(item.broadcastId),
+      title: item.title,
+      description: item.notice ?? '',
+      thumbnailUrl: item.thumbnailUrl ?? '',
+      startAt: item.startAt ?? '',
+      endAt: item.endAt ?? item.startAt ?? '',
+      status: item.status,
+      viewerCount: item.liveViewerCount ?? item.viewerCount ?? 0,
+      likeCount: item.totalLikes ?? 0,
+      reportCount: item.reportCount ?? 0,
+      sellerName: item.sellerName ?? '',
+    }))
+
+const loadLiveItems = async () => {
+  try {
+    const items = await fetchPublicBroadcastOverview()
+    liveItems.value = mapToLiveItems(items).slice(0, 8)
+  } catch {
+    liveItems.value = []
+  }
+}
+
+const isStatsTarget = (item: LiveItem) => {
+  const status = normalizeBroadcastStatus(item.status)
+  if (status === 'ON_AIR' || status === 'READY') return true
+  const startAtMs = parseLiveDate(item.startAt).getTime()
+  if (Number.isNaN(startAtMs)) return false
+  const endAtMs = parseLiveDate(item.endAt).getTime()
+  const normalizedEnd = Number.isNaN(endAtMs) ? getScheduledEndMs(startAtMs) : endAtMs
+  if (!normalizedEnd) return false
+  const now = Date.now()
+  return now >= startAtMs && now <= normalizedEnd
+}
+
+const updateLiveViewerCounts = async () => {
+  const targets = liveItems.value.filter((item) => isStatsTarget(item))
+  if (!targets.length) return
+  const updates = await Promise.allSettled(
+    targets.map(async (item) => ({
+      id: item.id,
+      stats: await fetchBroadcastStats(Number(item.id)),
+    })),
+  )
+  const statsMap = new Map<string, { viewerCount: number; likeCount: number; reportCount: number }>()
+  updates.forEach((result) => {
+    if (result.status === 'fulfilled') {
+      statsMap.set(result.value.id, {
+        viewerCount: result.value.stats.viewerCount ?? 0,
+        likeCount: result.value.stats.likeCount ?? 0,
+        reportCount: result.value.stats.reportCount ?? 0,
+      })
+    }
+  })
+  if (!statsMap.size) return
+  liveItems.value = liveItems.value.map((item) => {
+    const stats = statsMap.get(item.id)
+    if (!stats) return item
+    return {
+      ...item,
+      viewerCount: stats.viewerCount ?? item.viewerCount ?? 0,
+      likeCount: stats.likeCount ?? item.likeCount ?? 0,
+      reportCount: stats.reportCount ?? item.reportCount ?? 0,
+    }
+  })
+}
+
 onMounted(() => {
   loadPopulars()
+  loadLiveItems()
+  liveRefreshTimer = window.setInterval(() => {
+    if (document.visibilityState === 'visible') {
+      void updateLiveViewerCounts()
+    }
+  }, 5000)
+})
+
+onBeforeUnmount(() => {
+  if (liveRefreshTimer) window.clearInterval(liveRefreshTimer)
+  liveRefreshTimer = null
 })
 </script>
 

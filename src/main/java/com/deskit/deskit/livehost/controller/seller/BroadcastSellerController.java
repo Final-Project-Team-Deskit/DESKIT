@@ -8,6 +8,7 @@ import com.deskit.deskit.livehost.dto.request.BroadcastSearch;
 import com.deskit.deskit.livehost.dto.request.BroadcastUpdateRequest;
 import com.deskit.deskit.livehost.dto.request.MediaConfigRequest;
 import com.deskit.deskit.livehost.dto.request.SanctionRequest;
+import com.deskit.deskit.livehost.dto.request.VodStatusRequest;
 import com.deskit.deskit.livehost.dto.response.BroadcastResponse;
 import com.deskit.deskit.livehost.dto.response.BroadcastResultResponse;
 import com.deskit.deskit.livehost.dto.response.MediaConfigResponse;
@@ -144,6 +145,15 @@ public class BroadcastSellerController {
         return ResponseEntity.ok(ApiResult.success(token));
     }
 
+    @PostMapping("/{broadcastId}/recording/start")
+    public ResponseEntity<ApiResult<Void>> startRecording(
+            @PathVariable Long broadcastId
+    ) {
+        Seller seller = liveAuthUtils.getCurrentSeller();
+        broadcastService.startRecording(seller.getSellerId(), broadcastId);
+        return ResponseEntity.ok(ApiResult.success(null));
+    }
+
     @PostMapping("/{broadcastId}/end")
     public ResponseEntity<ApiResult<Void>> endBroadcast(
             @PathVariable Long broadcastId
@@ -160,6 +170,15 @@ public class BroadcastSellerController {
     ) {
         Seller seller = liveAuthUtils.getCurrentSeller();
         broadcastService.pinProduct(seller.getSellerId(), broadcastId, bpId);
+        return ResponseEntity.ok(ApiResult.success(null));
+    }
+
+    @DeleteMapping("/{broadcastId}/pin")
+    public ResponseEntity<ApiResult<Void>> unpinProduct(
+            @PathVariable Long broadcastId
+    ) {
+        Seller seller = liveAuthUtils.getCurrentSeller();
+        broadcastService.unpinProduct(seller.getSellerId(), broadcastId);
         return ResponseEntity.ok(ApiResult.success(null));
     }
 
@@ -190,5 +209,25 @@ public class BroadcastSellerController {
         return ResponseEntity.ok(ApiResult.success(
                 broadcastService.getBroadcastResult(broadcastId, seller.getSellerId(), false)
         ));
+    }
+
+    @PutMapping("/{broadcastId}/vod/visibility")
+    public ResponseEntity<ApiResult<String>> updateVodVisibility(
+            @PathVariable Long broadcastId,
+            @RequestBody @Valid VodStatusRequest request
+    ) {
+        Seller seller = liveAuthUtils.getCurrentSeller();
+        return ResponseEntity.ok(ApiResult.success(
+                broadcastService.updateVodVisibility(seller.getSellerId(), broadcastId, request.getStatus())
+        ));
+    }
+
+    @DeleteMapping("/{broadcastId}/vod")
+    public ResponseEntity<ApiResult<Void>> deleteVod(
+            @PathVariable Long broadcastId
+    ) {
+        Seller seller = liveAuthUtils.getCurrentSeller();
+        broadcastService.deleteVod(seller.getSellerId(), broadcastId);
+        return ResponseEntity.ok(ApiResult.success(null));
     }
 }

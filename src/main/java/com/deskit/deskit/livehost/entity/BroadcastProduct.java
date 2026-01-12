@@ -56,5 +56,16 @@ public class BroadcastProduct {
     @Column(name = "updated_at", nullable = false)
     @UpdateTimestamp
     private LocalDateTime updatedAt;
-}
 
+    public boolean markSoldOutIfNeeded(Integer remainingQuantity) {
+        int remaining = remainingQuantity == null ? 0 : remainingQuantity;
+        if (remaining > 0) {
+            return false;
+        }
+        if (status == BroadcastProductStatus.SOLDOUT) {
+            return false;
+        }
+        status = BroadcastProductStatus.SOLDOUT;
+        return true;
+    }
+}

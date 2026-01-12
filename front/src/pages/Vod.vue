@@ -3,26 +3,33 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import PageContainer from '../components/PageContainer.vue'
 import PageHeader from '../components/PageHeader.vue'
-import { liveItems } from '../lib/live/data'
 import { getLiveStatus, parseLiveDate } from '../lib/live/utils'
+import { getScheduledEndMs } from '../lib/broadcastStatus'
 import { useNow } from '../lib/live/useNow'
-import { getProductsForLive, type LiveProductItem } from '../lib/live/detail'
+import {
+  fetchBroadcastProducts,
+  fetchPublicBroadcastDetail,
+  recordVodView,
+  reportBroadcast,
+  toggleBroadcastLike,
+  type BroadcastProductItem,
+} from '../lib/live/api'
+import type { LiveItem } from '../lib/live/types'
+import { getAuthUser } from '../lib/auth'
+import { resolveViewerId } from '../lib/live/viewer'
 
 const route = useRoute()
 const router = useRouter()
 const { now } = useNow(1000)
+
+const FALLBACK_IMAGE = 'data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs='
 
 const vodId = computed(() => {
   const value = route.params.id
   return Array.isArray(value) ? value[0] : value
 })
 
-const vodItem = computed(() => {
-  if (!vodId.value) {
-    return undefined
-  }
-  return liveItems.find((entry) => entry.id === vodId.value)
-})
+const vodItem = ref<LiveItem | null>(null)
 
 const status = computed(() => {
   if (!vodItem.value) {
@@ -51,21 +58,66 @@ const statusBadgeClass = computed(() => {
   return `status-badge--${status.value.toLowerCase()}`
 })
 
-const playerPanelRef = ref<HTMLElement | null>(null)
-const chatPanelRef = ref<HTMLElement | null>(null)
-const playerHeight = ref<number | null>(null)
-let panelResizeObserver: ResizeObserver | null = null
+const handleImageError = (event: Event) => {
+  const target = event.target as HTMLImageElement | null
+  if (!target || target.dataset.fallbackApplied) return
+  target.dataset.fallbackApplied = 'true'
+  target.src = FALLBACK_IMAGE
+}
+
 
 const showChat = ref(true)
 const isFullscreen = ref(false)
 const stageRef = ref<HTMLElement | null>(null)
 const isLiked = ref(false)
+const likeCount = ref(0)
+const likeInFlight = ref(false)
+const reportInFlight = ref(false)
+const hasReported = ref(false)
 const isSettingsOpen = ref(false)
 const settingsButtonRef = ref<HTMLElement | null>(null)
 const settingsPanelRef = ref<HTMLElement | null>(null)
 
-const toggleLike = () => {
-  isLiked.value = !isLiked.value
+const isLoggedIn = computed(() => Boolean(getAuthUser()))
+
+const requireMemberAction = () => {
+  if (!isLoggedIn.value) {
+    alert('회원만 이용할 수 있습니다.')
+    return false
+  }
+  return true
+}
+
+const toggleLike = async () => {
+  if (!vodItem.value || likeInFlight.value || !requireMemberAction()) return
+  likeInFlight.value = true
+  try {
+    const result = await toggleBroadcastLike(Number(vodItem.value.id))
+    isLiked.value = result.liked
+    likeCount.value = result.likeCount
+  } catch {
+    return
+  } finally {
+    likeInFlight.value = false
+  }
+}
+
+const submitReport = async () => {
+  if (!vodItem.value || reportInFlight.value || !requireMemberAction()) return
+  reportInFlight.value = true
+  try {
+    const result = await reportBroadcast(Number(vodItem.value.id))
+    hasReported.value = hasReported.value || result.reported
+    if (result.reported) {
+      alert('신고가 접수되었습니다.')
+    } else {
+      alert('이미 신고한 VOD입니다.')
+    }
+  } catch {
+    return
+  } finally {
+    reportInFlight.value = false
+  }
 }
 
 const toggleChat = () => {
@@ -92,44 +144,11 @@ const toggleFullscreen = async () => {
   }
 }
 
-const syncChatHeight = () => {
-  if (!playerPanelRef.value) {
-    return
-  }
-  playerHeight.value = playerPanelRef.value.getBoundingClientRect().height
-}
 
-const products = computed<LiveProductItem[]>(() => {
-  if (!vodItem.value) {
-    return []
-  }
-  return getProductsForLive(vodItem.value.id)
-})
+const products = ref<BroadcastProductItem[]>([])
 
 const messages = ref(
-  [
-    {
-      id: 'sys-1',
-      user: 'system',
-      text: 'VOD 채팅 기록을 보고 계십니다.',
-      at: new Date(Date.now() - 1000 * 60 * 6),
-      kind: 'system',
-    },
-    {
-      id: 'msg-1',
-      user: 'desklover',
-      text: '이 라이브 제품 너무 좋았어요!',
-      at: new Date(Date.now() - 1000 * 60 * 4),
-      kind: 'user',
-    },
-    {
-      id: 'msg-2',
-      user: 'setup_master',
-      text: '배송도 빨랐습니다 👍',
-      at: new Date(Date.now() - 1000 * 60 * 2),
-      kind: 'user',
-    },
-  ] as Array<{ id: string; user: string; text: string; at: Date; kind?: 'system' | 'user' }>,
+  [] as Array<{ id: string; user: string; text: string; at: Date; kind?: 'system' | 'user' }>,
 )
 
 const chatListRef = ref<HTMLDivElement | null>(null)
@@ -151,6 +170,57 @@ const scheduledLabel = computed(() => {
   return `${month}.${date} (${day}) ${hours}:${minutes} 예정`
 })
 
+const buildVodItem = (detail: { broadcastId: number; title: string; notice?: string; thumbnailUrl?: string; scheduledAt?: string; startedAt?: string; sellerName?: string; vodUrl?: string }) => {
+  const startAt = detail.startedAt ?? detail.scheduledAt ?? ''
+  const startAtMs = startAt ? parseLiveDate(startAt).getTime() : NaN
+  const endAtMs = Number.isNaN(startAtMs) ? undefined : getScheduledEndMs(startAtMs)
+  const endAt = endAtMs ? new Date(endAtMs).toISOString() : ''
+  return {
+    id: String(detail.broadcastId),
+    title: detail.title,
+    description: detail.notice ?? '',
+    thumbnailUrl: detail.thumbnailUrl ?? '',
+    startAt,
+    endAt,
+    vodUrl: detail.vodUrl ?? '',
+    sellerName: detail.sellerName ?? '',
+  }
+}
+
+const loadVodDetail = async () => {
+  if (!vodId.value) return
+  const numeric = Number.parseInt(String(vodId.value).replace(/[^0-9]/g, ''), 10)
+  if (!Number.isFinite(numeric)) {
+    vodItem.value = null
+    return
+  }
+  try {
+    const detail = await fetchPublicBroadcastDetail(numeric)
+    vodItem.value = buildVodItem(detail)
+    likeCount.value = detail.totalLikes ?? 0
+    isLiked.value = false
+    hasReported.value = false
+    await loadProducts(numeric)
+    const viewerId = resolveViewerId(getAuthUser())
+    void recordVodView(numeric, viewerId)
+  } catch {
+    vodItem.value = null
+  }
+}
+
+const loadProducts = async (broadcastId?: number) => {
+  const numeric = broadcastId ?? (vodItem.value ? Number.parseInt(vodItem.value.id.replace(/[^0-9]/g, ''), 10) : NaN)
+  if (!Number.isFinite(numeric)) {
+    products.value = []
+    return
+  }
+  try {
+    products.value = await fetchBroadcastProducts(numeric)
+  } catch {
+    products.value = []
+  }
+}
+
 const formatSchedule = (startAt: string, endAt: string) => {
   const dayNames = ['일', '월', '화', '수', '목', '금', '토']
   const start = parseLiveDate(startAt)
@@ -171,6 +241,14 @@ const isEmbedUrl = (url: string) => url.includes('youtube.com/embed') || url.inc
 const handleProductClick = (productId: string) => {
   router.push({ name: 'product-detail', params: { id: productId } })
 }
+
+watch(
+  vodId,
+  () => {
+    void loadVodDetail()
+  },
+  { immediate: true },
+)
 
 watch(
   [status, vodItem],
@@ -198,18 +276,6 @@ const scrollChatToBottom = () => {
 
 onMounted(() => {
   scrollChatToBottom()
-})
-
-onMounted(() => {
-  panelResizeObserver = new ResizeObserver(() => {
-    syncChatHeight()
-  })
-  if (playerPanelRef.value) {
-    panelResizeObserver.observe(playerPanelRef.value)
-  }
-  nextTick(() => {
-    syncChatHeight()
-  })
 })
 
 const handleDocumentClick = (event: MouseEvent) => {
@@ -240,10 +306,6 @@ const handleFullscreenChange = () => {
 }
 
 onBeforeUnmount(() => {
-  if (panelResizeObserver && playerPanelRef.value) {
-    panelResizeObserver.unobserve(playerPanelRef.value)
-  }
-  panelResizeObserver?.disconnect()
   document.removeEventListener('click', handleDocumentClick)
   document.removeEventListener('keydown', handleDocumentKeydown)
   document.removeEventListener('fullscreenchange', handleFullscreenChange)
@@ -278,7 +340,7 @@ watch(showChat, (visible) => {
           gridTemplateColumns: showChat ? 'minmax(0, 1.6fr) minmax(0, 0.95fr)' : 'minmax(0, 1fr)',
         }"
       >
-        <section ref="playerPanelRef" class="panel panel--player">
+        <section class="panel panel--player live-detail-main__primary">
           <div class="player-meta">
             <div class="status-row">
               <span class="status-badge" :class="statusBadgeClass">{{ statusLabel }}</span>
@@ -304,35 +366,53 @@ watch(showChat, (visible) => {
               class="player-embed"
               :src="vodItem.vodUrl"
               title="VOD 플레이어"
-              frameborder="0"
               allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
               allowfullscreen
             />
             <video v-else class="player-video" :src="vodItem.vodUrl" controls />
 
             <div class="player-actions">
-              <button
-                type="button"
-                class="icon-circle"
-                :class="{ active: isLiked }"
-                aria-label="좋아요"
-                @click="toggleLike"
-              >
-                <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
-                  <path
-                    v-if="isLiked"
-                    d="M12.1 21.35l-1.1-1.02C5.14 15.24 2 12.39 2 8.99 2 6.42 4.02 4.5 6.58 4.5c1.54 0 3.04.74 3.92 1.91C11.38 5.24 12.88 4.5 14.42 4.5 16.98 4.5 19 6.42 19 8.99c0 3.4-3.14 6.25-8.9 11.34l-1.1 1.02z"
-                    fill="currentColor"
-                  />
-                  <path
-                    v-else
-                    d="M12.1 21.35l-1.1-1.02C5.14 15.24 2 12.39 2 8.99 2 6.42 4.02 4.5 6.58 4.5c1.54 0 3.04.74 3.92 1.91C11.38 5.24 12.88 4.5 14.42 4.5 16.98 4.5 19 6.42 19 8.99c0 3.4-3.14 6.25-8.9 11.34l-1.1 1.02z"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="1.8"
-                  />
-                </svg>
-              </button>
+              <div class="icon-action">
+                <button
+                  type="button"
+                  class="icon-circle"
+                  :class="{ active: isLiked }"
+                  aria-label="좋아요"
+                  :disabled="likeInFlight"
+                  @click="toggleLike"
+                >
+                  <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+                    <path
+                      v-if="isLiked"
+                      d="M12.1 21.35l-1.1-1.02C5.14 15.24 2 12.39 2 8.99 2 6.42 4.02 4.5 6.58 4.5c1.54 0 3.04.74 3.92 1.91C11.38 5.24 12.88 4.5 14.42 4.5 16.98 4.5 19 6.42 19 8.99c0 3.4-3.14 6.25-8.9 11.34l-1.1 1.02z"
+                      fill="currentColor"
+                    />
+                    <path
+                      v-else
+                      d="M12.1 21.35l-1.1-1.02C5.14 15.24 2 12.39 2 8.99 2 6.42 4.02 4.5 6.58 4.5c1.54 0 3.04.74 3.92 1.91C11.38 5.24 12.88 4.5 14.42 4.5 16.98 4.5 19 6.42 19 8.99c0 3.4-3.14 6.25-8.9 11.34l-1.1 1.02z"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="1.8"
+                    />
+                  </svg>
+                </button>
+                <span class="icon-count">{{ likeCount.toLocaleString('ko-KR') }}</span>
+              </div>
+              <div class="icon-action">
+                <button
+                  type="button"
+                  class="icon-circle"
+                  aria-label="신고하기"
+                  :disabled="reportInFlight || hasReported"
+                  @click="submitReport"
+                >
+                  <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M6 3v18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
+                    <path d="M6 4h11l-2 4 2 4H6z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" />
+                  </svg>
+                </button>
+                <span class="icon-label">신고</span>
+              </div>
               <button
                 type="button"
                 class="icon-circle"
@@ -400,12 +480,7 @@ watch(showChat, (visible) => {
           </div>
         </section>
 
-        <aside
-          v-if="showChat"
-          ref="chatPanelRef"
-          class="chat-panel ds-surface"
-        :style="{ height: playerHeight ? `${playerHeight}px` : undefined }"
-        >
+        <aside v-if="showChat" class="chat-panel ds-surface">
           <header class="chat-head">
             <h4>채팅 기록</h4>
             <button type="button" class="chat-close" aria-label="채팅 닫기" @click="toggleChat">×</button>
@@ -452,7 +527,7 @@ watch(showChat, (visible) => {
             :class="{ 'product-card--sold-out': product.isSoldOut }"
             @click="handleProductClick(product.id)"
           >
-            <img class="product-card__thumb" :src="product.imageUrl" :alt="product.name" />
+            <img class="product-card__thumb" :src="product.imageUrl" :alt="product.name" @error="handleImageError" />
             <div class="product-card__info">
               <p class="product-card__name">{{ product.name }}</p>
               <p class="product-card__price">{{ formatPrice(product.price) }}</p>
@@ -478,6 +553,10 @@ watch(showChat, (visible) => {
   grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr);
   gap: 18px;
   align-items: start;
+}
+
+.live-detail-main__primary {
+  height: 100%;
 }
 
 .panel {
@@ -742,6 +821,19 @@ watch(showChat, (visible) => {
   z-index: 3;
 }
 
+.icon-action {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #fff;
+  font-weight: 700;
+}
+
+.icon-count,
+.icon-label {
+  font-size: 0.85rem;
+}
+
 .player-settings {
   position: relative;
   display: flex;
@@ -829,7 +921,7 @@ watch(showChat, (visible) => {
   height: 18px;
   stroke: currentColor;
   fill: none;
-  stroke-width: 1.7px;
+  stroke-width: 2px;
 }
 
 .chat-panel {
@@ -837,6 +929,7 @@ watch(showChat, (visible) => {
   max-width: 100%;
   display: flex;
   flex-direction: column;
+  align-self: stretch;
   border-radius: 16px;
   padding: 12px;
   gap: 10px;
