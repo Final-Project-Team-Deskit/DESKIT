@@ -117,6 +117,7 @@ public class BroadcastService {
     private final SanctionRepository sanctionRepository;
     private final ViewHistoryRepository viewHistoryRepository;
     private final LiveChatRepository liveChatRepository;
+    private final VodStatsService vodStatsService;
 
     private final RedisService redisService;
     private final SseService sseService;
@@ -684,6 +685,8 @@ public class BroadcastService {
         if (vod.getVodUrl() != null && !vod.getVodUrl().isBlank()) {
             s3Service.deleteObjectByUrl(vod.getVodUrl());
         }
+        vodStatsService.flushVodStats(broadcastId);
+        redisService.deleteVodKeys(broadcastId);
         vod.markDeleted();
     }
 
@@ -699,6 +702,7 @@ public class BroadcastService {
         if (broadcast.getStatus() == BroadcastStatus.STOPPED && nextStatus == VodStatus.PUBLIC) {
             validateTransition(broadcast.getStatus(), BroadcastStatus.VOD);
             broadcast.changeStatus(BroadcastStatus.VOD);
+            redisService.persistVodReactionKeys(broadcastId);
         }
         return nextStatus.name();
     }
@@ -712,6 +716,8 @@ public class BroadcastService {
         if (vod.getVodUrl() != null && !vod.getVodUrl().isBlank()) {
             s3Service.deleteObjectByUrl(vod.getVodUrl());
         }
+        vodStatsService.flushVodStats(broadcastId);
+        redisService.deleteVodKeys(broadcastId);
         vod.markDeleted();
     }
 
@@ -862,7 +868,8 @@ public class BroadcastService {
         }
         broadcastResultRepository.save(result);
 
-        redisService.deleteBroadcastKeys(broadcastId);
+        redisService.persistVodReactionKeys(broadcastId);
+        redisService.deleteBroadcastRuntimeKeys(broadcastId);
         if (isStopped || broadcast.getStatus() == BroadcastStatus.ENDED) {
             validateTransition(broadcast.getStatus(), BroadcastStatus.VOD);
             broadcast.changeStatus(BroadcastStatus.VOD);
