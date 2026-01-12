@@ -149,6 +149,8 @@ const MAX_START_RETRIES = 3
 const START_RETRY_DELAY_MS = 1500
 const publisherToken = ref<string | null>(null)
 const publisherTokenInFlight = ref(false)
+const publisherConnectInFlight = ref(false)
+const sessionClosing = ref(false)
 const openviduInstance = ref<OpenVidu | null>(null)
 const openviduSession = ref<Session | null>(null)
 const openviduPublisher = ref<Publisher | null>(null)
@@ -295,9 +297,16 @@ const streamPlaceholderMessage = computed(() => {
     return '방송이 종료되었습니다.'
   }
   if (lifecycleStatus.value === 'READY') {
-    return readyCountdownLabel.value || '방송 시작 대기 중'
+    return '방송 시작 대기 중'
   }
   return '송출 화면 (WebRTC Stream)'
+})
+const showPlaceholderMessage = computed(() => {
+  if (lifecycleStatus.value === 'STOPPED') return true
+  if (['READY', 'ENDED', 'ON_AIR'].includes(lifecycleStatus.value)) {
+    return !waitingScreenUrl.value
+  }
+  return true
 })
 
 const resolveMediaSelection = (value: string, fallback: string) => {
@@ -310,7 +319,9 @@ const hasPersistedMediaConfig = (mediaConfig?: MediaConfig | null) => {
   if (!mediaConfig) return false
   const cameraId = mediaConfig.cameraId?.trim()
   const microphoneId = mediaConfig.microphoneId?.trim()
-  return (cameraId && cameraId !== 'default') || (microphoneId && microphoneId !== 'default')
+  return Boolean(
+    (cameraId && cameraId !== 'default') || (microphoneId && microphoneId !== 'default'),
+  )
 }
 
 const toMediaId = (value: string, fallback: string) => {
@@ -365,6 +376,8 @@ const clearPublisherRestartTimer = () => {
 
 const resetOpenViduState = () => {
   openviduConnected.value = false
+  publisherConnectInFlight.value = false
+  sessionClosing.value = false
   publisherToken.value = null
   openviduPublisher.value = null
   openviduSession.value = null
@@ -377,8 +390,9 @@ const resetOpenViduState = () => {
 const disconnectOpenVidu = () => {
   if (openviduSession.value) {
     try {
+      sessionClosing.value = true
       if (openviduPublisher.value) {
-        openviduSession.value.unpublish(openviduPublisher.value)
+        openviduSession.value.unpublish(openviduPublisher.value as Publisher)
       }
       openviduSession.value.disconnect()
     } catch {
@@ -421,7 +435,7 @@ const restartPublisher = async () => {
   if (!openviduSession.value || !openviduInstance.value || !publisherContainerRef.value) return
   try {
     if (openviduPublisher.value) {
-      openviduSession.value.unpublish(openviduPublisher.value)
+      openviduSession.value.unpublish(openviduPublisher.value as Publisher)
     }
     publisherContainerRef.value.innerHTML = ''
     openviduPublisher.value = openviduInstance.value.initPublisher(
@@ -436,10 +450,12 @@ const restartPublisher = async () => {
 }
 
 const connectPublisher = async (broadcastId: number, token: string) => {
-  if (openviduConnected.value) return
+  if (openviduConnected.value || publisherConnectInFlight.value || sessionClosing.value) return
+  publisherConnectInFlight.value = true
   const container = await waitForPublisherContainer()
   if (!container) {
     scheduleStartRetry(broadcastId, '방송 화면 준비 중입니다. 잠시 후 다시 시도합니다.')
+    publisherConnectInFlight.value = false
     return
   }
   try {
@@ -458,11 +474,13 @@ const connectPublisher = async (broadcastId: number, token: string) => {
     startRetryCount.value = 0
     if (startRetryTimer.value) window.clearTimeout(startRetryTimer.value)
     startRetryTimer.value = null
+    publisherConnectInFlight.value = false
   } catch {
     disconnectOpenVidu()
     if (['READY', 'ON_AIR'].includes(lifecycleStatus.value)) {
       scheduleStartRetry(broadcastId, '방송 송출 연결에 실패했습니다. 다시 연결을 시도합니다.')
     }
+    publisherConnectInFlight.value = false
   }
 }
 
@@ -482,7 +500,7 @@ const requestPublisherToken = async (broadcastId: number) => {
 }
 
 const ensurePublisherConnected = async (broadcastId: number) => {
-  if (openviduConnected.value) return
+  if (openviduConnected.value || publisherConnectInFlight.value || sessionClosing.value) return
   await ensureLocalMediaAccess()
   if (!publisherToken.value) {
     const token = await requestPublisherToken(broadcastId)
@@ -632,6 +650,7 @@ const requestStartBroadcast = async (broadcastId: number) => {
 
 const scheduleStartRetry = (broadcastId: number, message?: string) => {
   if (!['READY', 'ON_AIR'].includes(lifecycleStatus.value)) return
+  if (publisherConnectInFlight.value || sessionClosing.value) return
   if (startRetryCount.value >= MAX_START_RETRIES) {
     if (message) {
       alert(message)
@@ -1491,7 +1510,10 @@ const toggleFullscreen = async () => {
     <header class="stream-header">
       <div>
         <h2 class="section-title">{{ displayTitle }}</h2>
-        <p class="ds-section-sub">{{ displayDatetime }}</p>
+        <p class="ds-section-sub">
+          {{ displayDatetime }}
+          <span v-if="readyCountdownLabel" class="stream-countdown">{{ readyCountdownLabel }}</span>
+        </p>
       </div>
       <div class="stream-actions">
         <button type="button" class="stream-btn" :disabled="!stream || isStopped" @click="showBasicInfo = true">기본정보 수정</button>
@@ -1655,7 +1677,7 @@ const toggleFullscreen = async () => {
                 :src="waitingScreenUrl"
                 alt="대기 화면"
               />
-              <p class="stream-title">{{ streamPlaceholderMessage }}</p>
+              <p v-if="showPlaceholderMessage" class="stream-title">{{ streamPlaceholderMessage }}</p>
               <p v-if="lifecycleStatus === 'ON_AIR'" class="stream-sub">현재 송출 중인 화면이 표시됩니다.</p>
               <p v-else-if="!waitingScreenUrl && lifecycleStatus !== 'STOPPED'" class="stream-sub">대기 화면 이미지가 없습니다.</p>
             </div>
@@ -2299,6 +2321,19 @@ const toggleFullscreen = async () => {
 .stream-btn.primary {
   border-color: var(--primary-color);
   color: var(--primary-color);
+}
+
+.stream-countdown {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 10px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(59, 130, 246, 0.12);
+  color: #2563eb;
+  font-weight: 800;
+  font-size: 0.85rem;
 }
 
 
