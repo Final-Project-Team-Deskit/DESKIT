@@ -1138,9 +1138,8 @@ watch(streamToken, () => {
 
 .player-frame {
   position: relative;
-  width: 100%;
+  width: min(100%, calc((100vh - 120px) * (16 / 9)));
   height: auto;
-  max-width: calc((100vh - 120px) * (16 / 9));
   max-height: calc(100vh - 120px);
   min-height: clamp(360px, auto, 760px);
   aspect-ratio: 16 / 9;
