@@ -61,7 +61,6 @@ public class OpenAIService {
                         - 질문이 이해되지 않으면 다시 한 번 설명해 주세요.
                         
                         
-                        
                         """
         ));
 

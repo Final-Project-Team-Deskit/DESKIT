@@ -46,6 +46,13 @@ const chatId = ref<number | null>(null)
 const isAdminChat = computed(() => statusLabel.value === 'ADMIN_ACTIVE')
 const isEscalated = computed(() => statusLabel.value === 'ESCALATED')
 const isClosed = computed(() => statusLabel.value === 'CLOSED')
+const statusLabelMap: Record<string, string> = {
+  BOT_ACTIVE: '챗봇',
+  ADMIN_ACTIVE: '관리자',
+  ESCALATED: '관리자 연결 요청',
+  CLOSED: '종료',
+}
+const displayStatusLabel = computed(() => statusLabelMap[statusLabel.value] ?? statusLabel.value)
 let stompClient: SimpleStompClient | null = null
 let statusPoller: number | null = null
 
@@ -349,9 +356,9 @@ onBeforeUnmount(() => {
     <section class="chat-shell">
       <header class="chat-head">
         <div class="chat-meta">
-          <span class="badge">Status</span>
+          <span class="badge">상태:</span>
           <span class="status" :class="{ 'status--locked': isLocked }">
-            {{ statusLabel }}
+            {{ displayStatusLabel }}
           </span>
         </div>
         <p class="hint">
