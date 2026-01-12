@@ -347,6 +347,7 @@ const submitReport = async () => {
 const isSettingsOpen = ref(false)
 const settingsButtonRef = ref<HTMLElement | null>(null)
 const settingsPanelRef = ref<HTMLElement | null>(null)
+const volume = ref(60)
 const selectedQuality = ref<'auto' | '1080p' | '720p' | '480p'>('auto')
 const qualityObserver = ref<MutationObserver | null>(null)
 
@@ -364,11 +365,31 @@ const qualityOptions: QualityOption[] = [
   { value: '480p', label: '480p', width: 854, height: 480 },
 ]
 
+const applySubscriberVolume = () => {
+  const container = stageRef.value
+  if (!container) return
+  const video = container.querySelector('video') as HTMLVideoElement | null
+  if (!video) return
+  video.muted = false
+  video.volume = Math.min(1, Math.max(0, volume.value / 100))
+}
+
 const applyVideoQuality = async (value: typeof selectedQuality.value) => {
   try {
     const container = stageRef.value
     if (!container) return
     container.dataset.quality = value
+    const subscriber = openviduSubscriber.value as { setPreferredResolution?: (width: number, height: number) => void } | null
+    if (subscriber?.setPreferredResolution) {
+      if (value === 'auto') {
+        subscriber.setPreferredResolution(0, 0)
+      } else {
+        const option = qualityOptions.find((item) => item.value === value)
+        if (option?.width && option?.height) {
+          subscriber.setPreferredResolution(option.width, option.height)
+        }
+      }
+    }
     const video = container.querySelector('video') as HTMLVideoElement | null
     if (!video) return
     const stream = video.srcObject
@@ -431,9 +452,11 @@ const connectSubscriber = async (token: string) => {
         openviduSubscriber.value = null
         clearViewerContainer()
       }
-    openviduSubscriber.value = openviduSession.value.subscribe(event.stream, viewerContainerRef.value, {
-      insertMode: 'append',
-    })
+      openviduSubscriber.value = openviduSession.value.subscribe(event.stream, viewerContainerRef.value, {
+        insertMode: 'append',
+      })
+      applySubscriberVolume()
+      void applyVideoQuality(selectedQuality.value)
     })
     openviduSession.value.on('streamDestroyed', () => {
       openviduSubscriber.value = null
@@ -1038,6 +1061,7 @@ onMounted(() => {
   qualityObserver.value?.disconnect()
   qualityObserver.value = new MutationObserver(() => {
     void applyVideoQuality(selectedQuality.value)
+    applySubscriberVolume()
   })
   qualityObserver.value.observe(stageRef.value, { childList: true, subtree: true })
 })
@@ -1145,6 +1169,14 @@ watch(
   selectedQuality,
   (value) => {
     void applyVideoQuality(value)
+  },
+  { immediate: true },
+)
+
+watch(
+  volume,
+  () => {
+    applySubscriberVolume()
   },
   { immediate: true },
 )
@@ -1330,7 +1362,7 @@ onBeforeUnmount(() => {
                       type="range"
                       min="0"
                       max="100"
-                      value="60"
+                      v-model.number="volume"
                       aria-label="볼륨 조절"
                     />
                   </label>
@@ -1667,13 +1699,13 @@ onBeforeUnmount(() => {
   object-fit: contain;
 }
 
-.player-frame[data-quality='720p'] video,
-.player-frame[data-quality='720p'] img {
+.player-frame[data-quality='720p'] :deep(video),
+.player-frame[data-quality='720p'] :deep(img) {
   filter: blur(0.3px);
 }
 
-.player-frame[data-quality='480p'] video,
-.player-frame[data-quality='480p'] img {
+.player-frame[data-quality='480p'] :deep(video),
+.player-frame[data-quality='480p'] :deep(img) {
   filter: blur(0.6px);
   image-rendering: pixelated;
 }
