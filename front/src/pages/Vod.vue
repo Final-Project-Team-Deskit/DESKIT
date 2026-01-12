@@ -284,6 +284,9 @@ const scrollChatToBottom = () => {
 
 onMounted(() => {
   scrollChatToBottom()
+  refreshTimerId.value = window.setInterval(() => {
+    void loadVodDetail()
+  }, 30000)
 })
 
 watchEffect((onCleanup) => {
@@ -766,7 +769,6 @@ watch(isLoggedIn, (next) => {
   flex-direction: column;
   align-items: flex-end;
   gap: 12px;
-  z-index: 3;
 }
 
 .player-reactions {
