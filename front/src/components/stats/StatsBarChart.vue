@@ -232,10 +232,11 @@ const barLayoutStyle = computed(() => ({
   font-size: 0.8rem;
   color: var(--text-muted, #666);
   font-weight: 600;
-  /* 긴 라벨 말줄임 처리 */
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  line-height: 1.2;
+  min-height: 2.4em;
+  white-space: normal;
+  word-break: break-word;
+  overflow-wrap: anywhere;
   width: 100%;
 }
 
