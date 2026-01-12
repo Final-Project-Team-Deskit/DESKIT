@@ -1259,7 +1259,7 @@ public class BroadcastService {
         return dsl.select(productIdField, productNameField, salesExpr)
                 .from(orderItemTable)
                 .join(orderTable).on(orderItemOrderIdField.eq(orderIdField))
-                .join(productTable).on(bpProductIdField.eq(productIdField))
+                .join(productTable).on(orderItemProductIdField.eq(productIdField))
                 .where(
                         orderStatusField.in(OrderStatus.PAID.name(), OrderStatus.COMPLETED.name()),
                         orderPaidAtField.isNotNull(),
