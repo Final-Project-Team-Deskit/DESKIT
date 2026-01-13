@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+import DOMPurify from 'dompurify'
+import { marked } from 'marked'
 import PageContainer from '../components/PageContainer.vue'
 import PageHeader from '../components/PageHeader.vue'
 import { getAuthUser, hydrateSessionUser } from '../lib/auth'
@@ -72,6 +74,11 @@ const scrollToBottom = async () => {
   if (chatListRef.value) {
     chatListRef.value.scrollTop = chatListRef.value.scrollHeight
   }
+}
+
+const renderMarkdown = (content: string) => {
+  if (!content) return ''
+  return DOMPurify.sanitize(marked.parse(content, { breaks: true }))
 }
 
 const appendMessage = (role: ChatRole, content: string, sources?: string[]) => {
@@ -462,7 +469,7 @@ const handleVisibilityChange = () => {
             class="chat-message"
             :class="`chat-message--${message.role}`"
           >
-            <p class="chat-text">{{ message.content }}</p>
+            <div class="chat-text markdown" v-html="renderMarkdown(message.content)" />
             <div v-if="message.sources?.length" class="chat-sources">
               <span class="chat-source" v-for="(source, index) in message.sources" :key="`${message.id}-${index}`">
                 {{ source }}
@@ -609,6 +616,50 @@ const handleVisibilityChange = () => {
 .chat-text {
   margin: 0;
   font-weight: 600;
+}
+
+.chat-text :deep(p) {
+  margin: 0 0 8px;
+}
+
+.chat-text :deep(p:last-child) {
+  margin-bottom: 0;
+}
+
+.chat-text :deep(ul),
+.chat-text :deep(ol) {
+  margin: 0 0 8px 18px;
+  padding: 0;
+}
+
+.chat-text :deep(h1),
+.chat-text :deep(h2),
+.chat-text :deep(h3),
+.chat-text :deep(h4),
+.chat-text :deep(h5),
+.chat-text :deep(h6) {
+  margin: 8px 0 6px;
+  font-size: 1em;
+  font-weight: 800;
+}
+
+.chat-text :deep(code) {
+  font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+  background: rgba(15, 23, 42, 0.06);
+  padding: 2px 6px;
+  border-radius: 6px;
+}
+
+.chat-text :deep(pre) {
+  background: rgba(15, 23, 42, 0.06);
+  padding: 10px 12px;
+  border-radius: 10px;
+  overflow-x: auto;
+}
+
+.chat-text :deep(pre code) {
+  background: transparent;
+  padding: 0;
 }
 
 .chat-sources {
