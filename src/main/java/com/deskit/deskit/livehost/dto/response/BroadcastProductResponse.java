@@ -14,6 +14,7 @@ public class BroadcastProductResponse {
     private String name;          // 상품명 (Product API 연동 필요)
     private String imageUrl;      // 상품 이미지 (Product API 연동 필요)
     private int originalPrice;    // 원가
+    private Integer originalCostPrice; // 방송 시작 전 판매 원가
     private int stockQty;         // 방송 판매 수량 기준 재고
     private int safetyStock;      // 안전 재고
     private int productStockQty;  // 상품 원본 재고 수량
@@ -25,10 +26,14 @@ public class BroadcastProductResponse {
     private BroadcastProductStatus status;        // 상품 상태 (SELLING, SOLDOUT, DELETED)
 
     public static BroadcastProductResponse fromEntity(BroadcastProduct bp) {
-        return fromEntity(bp, bp.getBpQuantity());
+        return fromEntity(bp, bp.getBpQuantity(), null);
     }
 
     public static BroadcastProductResponse fromEntity(BroadcastProduct bp, Integer remainingQuantity) {
+        return fromEntity(bp, remainingQuantity, null);
+    }
+
+    public static BroadcastProductResponse fromEntity(BroadcastProduct bp, Integer remainingQuantity, Integer originalCostPrice) {
         Product p = bp.getProduct();
         int remaining = remainingQuantity != null ? remainingQuantity : bp.getBpQuantity();
 
@@ -38,6 +43,7 @@ public class BroadcastProductResponse {
                 .name(p.getProductName())
 //                .imageUrl(p.getProductThumbUrl())   // 추후 ProductImage 구현되면 추가 예정
                 .originalPrice(p.getPrice())
+                .originalCostPrice(originalCostPrice)
                 .stockQty(remaining)
                 .safetyStock(p.getSafetyStock())
                 .productStockQty(p.getStockQty())
