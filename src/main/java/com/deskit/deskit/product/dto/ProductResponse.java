@@ -81,7 +81,7 @@ public class ProductResponse {
     if (product.isLimitedSale()) {
       status = Product.Status.LIMITED_SALE;
     }
-    return fromWithCostPrice(product, tags, tagsFlat, product.getCostPrice(), status);
+    return fromWithOverrides(product, tags, tagsFlat, null, product.getCostPrice(), status);
   }
 
   public static ProductResponse fromWithCostPrice(Product product, ProductTags tags, List<String> tagsFlat,
