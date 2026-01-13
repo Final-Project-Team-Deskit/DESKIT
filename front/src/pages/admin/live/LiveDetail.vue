@@ -49,6 +49,7 @@ type LiveChatMessageDTO = {
   sender: string
   content: string
   senderRole?: string
+  connectionId?: string
   vodPlayTime: number
   sentAt?: number
 }
@@ -61,6 +62,7 @@ type ChatMessageUI = {
   kind?: 'system' | 'user'
   senderRole?: string
   memberLoginId?: string
+  connectionId?: string
 }
 
 // --- State ---
@@ -103,7 +105,7 @@ const nickname = ref("관리자")
 
 // Moderation State
 const showModerationModal = ref(false)
-const moderationTarget = ref<{ user: string; memberLoginId?: string } | null>(null)
+const moderationTarget = ref<{ user: string; memberLoginId?: string; connectionId?: string } | null>(null)
 const moderationType = ref('')
 const moderationReason = ref('')
 const moderatedUsers = ref<Record<string, { type: string; reason: string; at: string }>>({})
@@ -288,6 +290,7 @@ const handleIncomingMessage = (payload: LiveChatMessageDTO) => {
     kind: payload.type === 'TALK' ? 'user' : 'system',
     senderRole: payload.senderRole,
     memberLoginId: payload.memberEmail,
+    connectionId: payload.connectionId,
   })
 
   nextTick(() => {
@@ -322,6 +325,7 @@ const fetchRecentMessages = async () => {
             kind: 'user',
             senderRole: item.senderRole,
             memberLoginId: item.memberEmail,
+            connectionId: item.connectionId,
           }
         })
     nextTick(() => {
@@ -969,11 +973,11 @@ const closeChat = () => {
 }
 
 // Moderation
-const openModeration = (msg: { user: string; kind?: string; memberLoginId?: string }) => {
+const openModeration = (msg: { user: string; kind?: string; memberLoginId?: string; connectionId?: string }) => {
   if (!isInteractive.value) return
   if (msg.user === 'SYSTEM' || msg.kind === 'system' || msg.user === '관리자') return
   console.log('[admin chat] moderation open', msg.user)
-  moderationTarget.value = { user: msg.user, memberLoginId: msg.memberLoginId }
+  moderationTarget.value = { user: msg.user, memberLoginId: msg.memberLoginId, connectionId: msg.connectionId }
   moderationType.value = ''
   moderationReason.value = ''
   showModerationModal.value = true
@@ -1006,6 +1010,7 @@ const saveModeration = async () => {
       memberLoginId: target.memberLoginId,
       status: sanctionType,
       reason: moderationReason.value.trim(),
+      connectionId: target.connectionId,
     })
   } catch (error) {
     const message = (error as { message?: string } | null)?.message ?? '제재 처리에 실패했습니다.'

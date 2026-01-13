@@ -54,6 +54,7 @@ type StreamChat = {
   time?: string
   senderRole?: string
   memberLoginId?: string
+  connectionId?: string
 }
 
 type StreamData = {
@@ -137,7 +138,7 @@ const confirmAction = ref<() => void>(() => {})
 const confirmCancelAction = ref<() => void>(() => {})
 
 const pinnedProductId = ref<string | null>(null)
-const sanctionTarget = ref<string | null>(null)
+const sanctionTarget = ref<{ loginId: string; connectionId?: string } | null>(null)
 const sanctionedUsers = ref<Record<string, { type: string; reason: string }>>({})
 const broadcastInfo = ref<(EditableBroadcastInfo & { qCards: string[] }) | null>(null)
 const latestDetail = ref<BroadcastDetailResponse | null>(null)
@@ -290,6 +291,7 @@ type LiveChatMessageDTO = {
   sender: string
   content: string
   senderRole?: string
+  connectionId?: string
   vodPlayTime: number
   sentAt?: number
 }
@@ -302,6 +304,7 @@ const appendMessage = (payload: LiveChatMessageDTO) => {
     message: payload.content ?? '',
     senderRole: payload.senderRole,
     memberLoginId: payload.memberEmail,
+    connectionId: payload.connectionId,
     time: payload.sentAt
       ? new Date(payload.sentAt).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })
       : formatChatTime(),
@@ -1499,7 +1502,7 @@ const openSanction = (item: StreamChat) => {
     alert('로그인된 시청자만 제재할 수 있습니다.')
     return
   }
-  sanctionTarget.value = item.memberLoginId
+  sanctionTarget.value = { loginId: item.memberLoginId, connectionId: item.connectionId }
   showSanctionModal.value = true
 }
 
@@ -1508,15 +1511,16 @@ const applySanction = (payload: { type: string; reason: string }) => {
   if (!broadcastId.value) return
   const sanctionType = payload.type === '채팅 금지' ? 'MUTE' : 'OUT'
   void sanctionSellerViewer(broadcastId.value, {
-    memberLoginId: sanctionTarget.value,
+    memberLoginId: sanctionTarget.value.loginId,
     status: sanctionType,
     reason: payload.reason,
+    connectionId: sanctionTarget.value.connectionId,
   })
   sanctionedUsers.value = {
     ...sanctionedUsers.value,
-    [sanctionTarget.value]: { type: payload.type, reason: payload.reason },
+    [sanctionTarget.value.loginId]: { type: payload.type, reason: payload.reason },
   }
-  alert(`${sanctionTarget.value}님에게 제재가 적용되었습니다.`)
+  alert(`${sanctionTarget.value.loginId}님에게 제재가 적용되었습니다.`)
   sanctionTarget.value = null
   const now = new Date()
   const at = `${now.getHours()}시 ${String(now.getMinutes()).padStart(2, '0')}분`
@@ -2093,7 +2097,7 @@ const toggleFullscreen = async () => {
       />
       <QCardModal v-model="showQCards" :q-cards="qCards" :initial-index="qCardIndex" @update:initialIndex="qCardIndex = $event" />
       <BasicInfoEditModal v-if="broadcastInfo" v-model="showBasicInfo" :broadcast="broadcastInfo" @save="handleBasicInfoSave" />
-      <ChatSanctionModal v-model="showSanctionModal" :username="sanctionTarget" @save="applySanction" />
+      <ChatSanctionModal v-model="showSanctionModal" :username="sanctionTarget?.loginId ?? null" @save="applySanction" />
     </Teleport>
     <DeviceSetupModal
       v-model="showDeviceModal"
