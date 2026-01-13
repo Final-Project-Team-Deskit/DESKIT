@@ -144,6 +144,34 @@ export const setAllSelected = (selected: boolean): StoredCartItem[] => {
   return updated
 }
 
+export const updateCartItemsPricing = (
+  patches: Array<{
+    productId: string
+    price: number
+    originalPrice: number
+    discountRate: number
+    stock: number
+  }>,
+): StoredCartItem[] => {
+  if (!Array.isArray(patches) || patches.length === 0) return loadCart()
+  const patchMap = new Map(patches.map((patch) => [String(patch.productId), patch]))
+  const updated = loadCart().map((item) => {
+    const patch = patchMap.get(item.productId)
+    if (!patch) return item
+    const stock = Math.max(1, Number(patch.stock ?? item.stock) || item.stock)
+    return {
+      ...item,
+      price: patch.price,
+      originalPrice: patch.originalPrice,
+      discountRate: patch.discountRate,
+      stock,
+      quantity: clamp(item.quantity, 1, stock),
+    }
+  })
+  saveCart(updated)
+  return updated
+}
+
 export const removeCartItemsByProductIds = (productIds: string[]): StoredCartItem[] => {
   if (!Array.isArray(productIds) || productIds.length === 0) return loadCart()
   const set = new Set(productIds.map((id) => String(id)))

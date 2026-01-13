@@ -3,6 +3,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } 
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import PageContainer from '../components/PageContainer.vue'
 import PageHeader from '../components/PageHeader.vue'
+import { getProductDetail } from '../api/products'
 import {
   loadCheckout,
   updateShipping,
@@ -10,6 +11,7 @@ import {
   type CheckoutItem,
   type ShippingInfo,
   type PaymentMethod,
+  updateCheckoutItemsPricing,
 } from '../lib/checkout/checkout-storage'
 import { createOrder } from '../api/orders'
 import {
@@ -26,6 +28,9 @@ const TOSS_CLIENT_KEY =
 
 const draft = ref<CheckoutDraft | null>(null)
 const isSubmitting = ref(false)
+const priceNotice = ref('')
+const priceSyncTimer = ref<number | null>(null)
+const priceSyncInFlight = ref(false)
 let inflight: Promise<void> | null = null
 
 const form = reactive<ShippingInfo>({
@@ -91,6 +96,59 @@ const refreshDraft = () => {
   form.zipcode = draft.value.shipping?.zipcode ?? ''
   form.address1 = draft.value.shipping?.address1 ?? ''
   form.address2 = draft.value.shipping?.address2 ?? ''
+}
+
+const resolvePricing = (product: any) => {
+  const price = Number(product?.price ?? 0) || 0
+  const candidateOriginal = Number(product?.cost_price ?? product?.costPrice ?? price) || price
+  const originalPrice = candidateOriginal > price ? candidateOriginal : price
+  const discountRate = originalPrice > price ? Math.round((1 - price / originalPrice) * 100) : 0
+  const stock = Math.max(1, Number(product?.stock_qty ?? product?.stock ?? 99) || 99)
+  return { price, originalPrice, discountRate, stock }
+}
+
+const syncPrices = async () => {
+  if (priceSyncInFlight.value) return
+  const current = loadCheckout()
+  if (!current || current.items.length === 0) return
+  priceSyncInFlight.value = true
+  try {
+    const results = await Promise.all(
+      current.items.map(async (item) => {
+        try {
+          const detail = await getProductDetail(item.productId)
+          return { item, detail }
+        } catch {
+          return { item, detail: null }
+        }
+      }),
+    )
+    const patches: Array<{
+      productId: string
+      price: number
+      originalPrice: number
+      discountRate: number
+      stock: number
+    }> = []
+    results.forEach(({ item, detail }) => {
+      if (!detail) return
+      const pricing = resolvePricing(detail)
+      if (
+        item.price !== pricing.price ||
+        item.originalPrice !== pricing.originalPrice ||
+        item.discountRate !== pricing.discountRate ||
+        item.stock !== pricing.stock
+      ) {
+        patches.push({ productId: item.productId, ...pricing })
+      }
+    })
+    if (patches.length > 0) {
+      draft.value = updateCheckoutItemsPricing(patches)
+      priceNotice.value = '가격이 변경된 상품이 있어 결제 금액을 업데이트했습니다.'
+    }
+  } finally {
+    priceSyncInFlight.value = false
+  }
 }
 
 const persistField = (field: keyof ShippingInfo, value: string) => {
@@ -462,11 +520,16 @@ onMounted(() => {
   refreshDraft()
   window.addEventListener('deskit-checkout-updated', storageRefreshHandler)
   window.addEventListener('storage', storageRefreshHandler)
+  syncPrices()
+  priceSyncTimer.value = window.setInterval(syncPrices, 15000)
 })
 
 onBeforeUnmount(() => {
   window.removeEventListener('deskit-checkout-updated', storageRefreshHandler)
   window.removeEventListener('storage', storageRefreshHandler)
+  if (priceSyncTimer.value) {
+    window.clearInterval(priceSyncTimer.value)
+  }
 })
 </script>
 
@@ -488,6 +551,10 @@ onBeforeUnmount(() => {
     </div>
 
     <div v-else class="checkout-layout">
+      <div v-if="priceNotice" class="price-notice">
+        <span>{{ priceNotice }}</span>
+        <button type="button" class="price-notice__close" @click="priceNotice = ''">닫기</button>
+      </div>
       <div v-if="step === 'shipping'" class="left-col">
         <div class="left-stack">
           <section class="panel panel--form">
@@ -689,6 +756,28 @@ onBeforeUnmount(() => {
   grid-template-columns: minmax(0, 1.35fr) minmax(280px, 0.65fr);
   gap: 18px;
   align-items: start;
+}
+
+.price-notice {
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  background: var(--surface-weak);
+  border-radius: 12px;
+  border: 1px solid var(--border-color);
+  font-weight: 600;
+  color: var(--text-strong);
+}
+
+.price-notice__close {
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-weight: 700;
+  cursor: pointer;
 }
 
 .panel {
