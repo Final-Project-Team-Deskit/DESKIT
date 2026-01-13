@@ -1,6 +1,6 @@
 export type SellerProduct = {
   id: string
-  sellerId: number
+  sellerId?: number
   name: string
   shortDesc: string
   costPrice: number
@@ -40,7 +40,7 @@ const isSellerProduct = (value: any): value is SellerProduct => {
   return (
     value &&
     typeof value.id === 'string' &&
-    typeof value.sellerId === 'number' &&
+    (value.sellerId == null || typeof value.sellerId === 'number') &&
     typeof value.name === 'string' &&
     typeof value.shortDesc === 'string' &&
     typeof value.costPrice === 'number' &&
@@ -62,8 +62,8 @@ const writeAll = (items: SellerProduct[]) => {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(items))
 }
 
-export const getSellerProducts = (sellerId: number): SellerProduct[] => {
-  return readAll().filter((item) => item.sellerId === sellerId)
+export const getSellerProducts = (): SellerProduct[] => {
+  return readAll()
 }
 
 export const getProductById = (id: string): SellerProduct | null => {

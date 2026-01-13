@@ -127,6 +127,13 @@ public class Product extends BaseEntity {
     this.status = next;
   }
 
+  public void changeDetailHtml(String detailHtml) {
+    if (detailHtml == null) {
+      throw new IllegalArgumentException("detail_html required");
+    }
+    this.detailHtml = detailHtml;
+  }
+
   // LIMITED_SALE is derived from ON_SALE + low stock; it is not a persisted transition target.
   public boolean isLimitedSale() {
     if (this.status != Status.ON_SALE) {

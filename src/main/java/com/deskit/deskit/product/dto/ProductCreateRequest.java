@@ -15,7 +15,6 @@ public record ProductCreateRequest(
   String shortDesc,
 
   @JsonProperty("detail_html")
-  @NotBlank
   String detailHtml,
 
   @JsonProperty("price")
