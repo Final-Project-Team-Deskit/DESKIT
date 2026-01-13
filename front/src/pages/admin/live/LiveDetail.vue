@@ -235,6 +235,7 @@ const mapLiveProduct = (item: {
   id: string
   name: string
   price: number
+  originalPrice?: number
   isSoldOut: boolean
   isPinned?: boolean
   imageUrl?: string
@@ -244,11 +245,12 @@ const mapLiveProduct = (item: {
   const totalQty = item.totalQty ?? item.stockQty ?? 0
   const stockQty = item.stockQty ?? totalQty
   const sold = Math.max(0, totalQty - stockQty)
+  const originalPrice = item.originalPrice && item.originalPrice > item.price ? item.originalPrice : item.price
   return {
     id: item.id,
     name: item.name,
     option: item.name,
-    price: `₩${item.price.toLocaleString('ko-KR')}`,
+    price: `₩${originalPrice.toLocaleString('ko-KR')}`,
     sale: `₩${item.price.toLocaleString('ko-KR')}`,
     status: item.isSoldOut ? '품절' : '판매중',
     thumb: item.imageUrl ?? '',

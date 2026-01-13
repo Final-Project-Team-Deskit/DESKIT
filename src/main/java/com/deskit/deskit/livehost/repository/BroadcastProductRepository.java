@@ -58,6 +58,16 @@ public interface BroadcastProductRepository extends JpaRepository<BroadcastProdu
             """)
     List<Integer> findLiveBpPriceByProductId(@Param("productId") Long productId);
 
+    @Query("""
+            SELECT b.broadcastId
+            FROM BroadcastProduct bp
+            JOIN bp.broadcast b
+            WHERE b.status = 'ON_AIR'
+              AND bp.status <> 'DELETED'
+              AND bp.product.id = :productId
+            """)
+    List<Long> findOnAirBroadcastIdsByProductId(@Param("productId") Long productId);
+
     interface LivePriceRow {
         Long getProductId();
 

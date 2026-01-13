@@ -67,6 +67,7 @@ export type BroadcastProductItem = {
   name: string
   imageUrl: string
   price: number
+  originalPrice?: number
   totalQty?: number
   isPinned?: boolean
   isSoldOut: boolean
@@ -346,7 +347,9 @@ export const fetchBroadcastProducts = async (broadcastId: number): Promise<Broad
         productId: number
         name: string
         imageUrl?: string
+        originalPrice?: number
         bpPrice: number
+        originalCostPrice?: number
         bpQuantity: number
         stockQty?: number
         status: string
@@ -361,6 +364,7 @@ export const fetchBroadcastProducts = async (broadcastId: number): Promise<Broad
     name: item.name,
     imageUrl: item.imageUrl ?? '',
     price: item.bpPrice,
+    originalPrice: item.originalPrice ?? item.bpPrice,
     totalQty: item.bpQuantity,
     isPinned: item.isPinned ?? item.pinned ?? false,
     isSoldOut: item.status === 'SOLDOUT' || item.bpQuantity <= 0,

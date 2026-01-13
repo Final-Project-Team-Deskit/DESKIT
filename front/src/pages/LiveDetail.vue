@@ -1566,7 +1566,15 @@ onBeforeUnmount(() => {
             <img class="product-card__thumb" :src="product.imageUrl" :alt="product.name" @error="handleImageError" />
             <div class="product-card__info">
               <p class="product-card__name">{{ product.name }}</p>
-              <p class="product-card__price">{{ formatPrice(product.price) }}</p>
+              <p class="product-card__price">
+                <span
+                  v-if="product.originalPrice && product.originalPrice > product.price"
+                  class="product-card__price--original"
+                >
+                  {{ formatPrice(product.originalPrice) }}
+                </span>
+                <span class="product-card__price--sale">{{ formatPrice(product.price) }}</span>
+              </p>
               <span v-if="product.isSoldOut" class="product-card__badge">품절</span>
             </div>
           </button>
@@ -1712,6 +1720,21 @@ onBeforeUnmount(() => {
   margin: 0;
   color: var(--text-muted);
   font-size: 0.95rem;
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+}
+
+.product-card__price--original {
+  color: var(--text-soft);
+  font-weight: 600;
+  text-decoration: line-through;
+  font-size: 0.85rem;
+}
+
+.product-card__price--sale {
+  color: var(--text-strong);
+  font-weight: 700;
 }
 
 .product-card__badge {

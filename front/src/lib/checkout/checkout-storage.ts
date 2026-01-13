@@ -144,6 +144,36 @@ export const updatePaymentMethod = (method: PaymentMethod | null): CheckoutDraft
   return current
 }
 
+export const updateCheckoutItemsPricing = (
+  patches: Array<{
+    productId: string
+    price: number
+    originalPrice: number
+    discountRate: number
+    stock: number
+  }>,
+): CheckoutDraft | null => {
+  if (!Array.isArray(patches) || patches.length === 0) return loadCheckout()
+  const current = loadCheckout()
+  if (!current) return null
+  const patchMap = new Map(patches.map((patch) => [String(patch.productId), patch]))
+  current.items = current.items.map((item) => {
+    const patch = patchMap.get(item.productId)
+    if (!patch) return item
+    const stock = Math.max(1, Number(patch.stock ?? item.stock) || item.stock)
+    return {
+      ...item,
+      price: patch.price,
+      originalPrice: patch.originalPrice,
+      discountRate: patch.discountRate,
+      stock,
+      quantity: clamp(item.quantity, 1, stock),
+    }
+  })
+  saveCheckout(current)
+  return current
+}
+
 export const createCheckoutFromCart = (selectedCartItems: StoredCartItem[]): CheckoutDraft => {
   const items: CheckoutItem[] = selectedCartItems
     .filter((item) => item.isSelected)
