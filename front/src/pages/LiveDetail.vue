@@ -81,6 +81,8 @@ const stopConfirmMessage = ref('')
 
 const isChatEnabled = computed(() => lifecycleStatus.value === 'ON_AIR')
 const hasChatPermission = ref(true)
+const viewerSanctionType = ref<'MUTE' | 'OUT' | null>(null)
+const lastSanctionMessage = ref<string | null>(null)
 const isChatAvailable = computed(() => isChatEnabled.value && hasChatPermission.value)
 const isProductEnabled = computed(() => {
   if (lifecycleStatus.value === 'ON_AIR') return true
@@ -464,6 +466,11 @@ const connectSubscriber = async (token: string) => {
       openviduSubscriber.value = null
       clearViewerContainer()
     })
+    openviduSession.value.on('sessionDisconnected', (event) => {
+      if (event.reason === 'forceDisconnectByServer') {
+        notifyViewerSanction('OUT')
+      }
+    })
     await openviduSession.value.connect(token)
     openviduConnectionId.value = openviduSession.value.connection?.connectionId ?? null
     openviduConnected.value = true
@@ -688,9 +695,48 @@ const refreshChatPermission = async () => {
   }
 }
 
-watch(hasChatPermission, (next) => {
+const notifyViewerSanction = (type: 'MUTE' | 'OUT', actorLabel?: string) => {
+  if (viewerSanctionType.value === type) {
+    return
+  }
+  viewerSanctionType.value = type
+  const actorSuffix = actorLabel ? `${actorLabel}에 의해 ` : '관리자/판매자에 의해 '
+  if (type === 'MUTE') {
+    hasChatPermission.value = false
+    input.value = ''
+    const message = `${actorSuffix}채팅이 금지되었습니다.`
+    if (lastSanctionMessage.value !== message) {
+      lastSanctionMessage.value = message
+      alert(message)
+      appendMessage({
+        id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+        user: 'system',
+        text: message,
+        at: new Date(),
+        kind: 'system',
+      })
+    }
+    return
+  }
+  const message = `${actorSuffix}강제 퇴장되었습니다.`
+  if (lastSanctionMessage.value !== message) {
+    lastSanctionMessage.value = message
+    alert(message)
+  }
+  void sendLeaveSignal()
+  disconnectChat()
+  disconnectOpenVidu()
+  sseSource.value?.close()
+  sseSource.value = null
+  router.push({ name: 'live' }).catch(() => {})
+}
+
+watch(hasChatPermission, (next, prev) => {
   if (!next) {
     input.value = ''
+    if (prev && viewerSanctionType.value !== 'MUTE') {
+      notifyViewerSanction('MUTE')
+    }
   }
 })
 
@@ -719,28 +765,12 @@ const handleSseEvent = (event: MessageEvent) => {
         const sanctionType = String((data as { type?: string }).type || '').toUpperCase()
         const actorType = String((data as { actorType?: string }).actorType || '').toUpperCase()
         const actorLabel = actorType === 'ADMIN' ? '관리자' : actorType === 'SELLER' ? '판매자' : ''
-        const actorSuffix = actorLabel ? `${actorLabel}에 의해 ` : ''
         if (sanctionType === 'MUTE') {
-          hasChatPermission.value = false
-          const message = `${actorSuffix}채팅이 금지되었습니다.`
-          alert(message)
-          appendMessage({
-            id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
-            user: 'system',
-            text: message,
-            at: new Date(),
-            kind: 'system',
-          })
+          notifyViewerSanction('MUTE', actorLabel || undefined)
           break
         }
         if (sanctionType === 'OUT') {
-          alert(`${actorSuffix}강제 퇴장되었습니다.`)
-          void sendLeaveSignal()
-          disconnectChat()
-          disconnectOpenVidu()
-          sseSource.value?.close()
-          sseSource.value = null
-          router.push({ name: 'live' }).catch(() => {})
+          notifyViewerSanction('OUT', actorLabel || undefined)
           break
         }
       }
@@ -849,7 +879,7 @@ const requestJoinToken = async () => {
   } catch (error) {
     const code = (error as { code?: string } | null)?.code
     if (code === 'B007') {
-      alert('관리자(판매자)에 의해 퇴장 처리되어 방송에 입장할 수 없습니다.')
+      alert('관리자/판매자에 의해 방송 방 입장이 금지되었습니다.')
       router.push({ name: 'live' }).catch(() => {})
     }
     return
