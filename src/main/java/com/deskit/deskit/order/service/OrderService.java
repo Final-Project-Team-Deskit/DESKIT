@@ -17,6 +17,9 @@ import com.deskit.deskit.order.repository.OrderItemRepository;
 import com.deskit.deskit.order.repository.OrderRepository;
 import com.deskit.deskit.product.entity.Product;
 import com.deskit.deskit.product.repository.ProductRepository;
+import com.deskit.deskit.livehost.repository.BroadcastProductRepository;
+import com.deskit.deskit.livehost.service.BroadcastService;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -24,7 +27,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.stream.Collectors;
-
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -41,6 +43,8 @@ public class OrderService {
   private final ProductRepository productRepository;
   private final MemberRepository memberRepository;
   private final TossPaymentService tossPaymentService;
+  private final BroadcastProductRepository broadcastProductRepository;
+  private final BroadcastService broadcastService;
 
   public CreateOrderResponse createOrder(Long memberId, CreateOrderRequest request) {
     if (memberId == null) {
@@ -206,10 +210,36 @@ public class OrderService {
     if (order.getStatus() == OrderStatus.REFUND_REQUESTED) {
       tossPaymentService.cancelPayment(order, request.reason());
       order.approveRefund();
+      updateBroadcastSalesAfterRefund(order);
     }
 
     orderRepository.save(order);
     return new OrderCancelResponse(order.getId(), order.getStatus());
+  }
+
+  private void updateBroadcastSalesAfterRefund(Order order) {
+    if (order == null) {
+      return;
+    }
+    LocalDateTime paidAt = order.getPaidAt();
+    if (paidAt == null) {
+      return;
+    }
+    List<OrderItem> items = orderItemRepository.findByOrder_Id(order.getId());
+    if (items.isEmpty()) {
+      return;
+    }
+    List<Long> productIds = items.stream()
+      .map(OrderItem::getProductId)
+      .distinct()
+      .toList();
+    if (productIds.isEmpty()) {
+      return;
+    }
+    List<Long> broadcastIds = broadcastProductRepository.findBroadcastIdsByProductIdsAndPaidAt(productIds, paidAt);
+    for (Long broadcastId : broadcastIds) {
+      broadcastService.refreshBroadcastTotalSales(broadcastId);
+    }
   }
 
   private int safeQuantity(Integer quantity) {

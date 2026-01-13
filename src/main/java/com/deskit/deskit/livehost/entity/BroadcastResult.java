@@ -73,6 +73,10 @@ public class BroadcastResult {
         this.totalSales = totalSales;
     }
 
+    public void updateTotalSales(BigDecimal totalSales) {
+        this.totalSales = totalSales;
+    }
+
     public void applyVodStatsDelta(int viewDelta, int likeDelta, int reportDelta) {
         this.totalViews = Math.max(0, this.totalViews + viewDelta);
         this.totalLikes = Math.max(0, this.totalLikes + likeDelta);
