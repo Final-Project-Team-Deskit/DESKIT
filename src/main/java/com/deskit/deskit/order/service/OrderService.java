@@ -16,6 +16,7 @@ import com.deskit.deskit.order.payment.service.TossPaymentService;
 import com.deskit.deskit.order.repository.OrderItemRepository;
 import com.deskit.deskit.order.repository.OrderRepository;
 import com.deskit.deskit.livehost.repository.BroadcastProductRepository;
+import com.deskit.deskit.livehost.service.BroadcastService;
 import com.deskit.deskit.product.entity.Product;
 import com.deskit.deskit.product.repository.ProductRepository;
 import java.util.ArrayList;
@@ -43,6 +44,7 @@ public class OrderService {
   private final BroadcastProductRepository broadcastProductRepository;
   private final MemberRepository memberRepository;
   private final TossPaymentService tossPaymentService;
+  private final BroadcastService broadcastService;
 
   public CreateOrderResponse createOrder(Long memberId, CreateOrderRequest request) {
     if (memberId == null) {
@@ -87,6 +89,7 @@ public class OrderService {
         throw new ResponseStatusException(HttpStatus.CONFLICT, "insufficient stock: product_id=" + productId);
       }
       product.decreaseStock(requestedQty);
+      broadcastService.restoreCostPriceIfSoldOut(productId);
       productsById.put(productId, product);
     }
 

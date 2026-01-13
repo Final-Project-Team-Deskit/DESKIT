@@ -21,6 +21,8 @@ const cartItems = ref<StoredCartItem[]>(loadCart())
 const priceNotice = ref('')
 const priceSyncTimer = ref<number | null>(null)
 const priceSyncInFlight = ref(false)
+const priceChangePending = ref(false)
+const priceChangeModalOpen = ref(false)
 
 const formatPrice = (value: number) => `${value.toLocaleString('ko-KR')}원`
 
@@ -60,9 +62,9 @@ const resolvePricing = (product: any) => {
 }
 
 const syncPrices = async () => {
-  if (priceSyncInFlight.value) return
+  if (priceSyncInFlight.value) return false
   const current = loadCart()
-  if (current.length === 0) return
+  if (current.length === 0) return false
   priceSyncInFlight.value = true
   try {
     const results = await Promise.all(
@@ -98,7 +100,11 @@ const syncPrices = async () => {
       updateCartItemsPricing(patches)
       refresh()
       priceNotice.value = '가격이 변경된 상품이 있어 금액을 최신으로 업데이트했습니다.'
+      priceChangePending.value = true
+      priceChangeModalOpen.value = true
+      return true
     }
+    return false
   } finally {
     priceSyncInFlight.value = false
   }
@@ -150,11 +156,22 @@ const clearCart = () => {
   refresh()
 }
 
-const handleCheckout = () => {
+const handleCheckout = async () => {
   if (selectedCount.value === 0) return
+  const hasUpdates = await syncPrices()
+  if (hasUpdates) return
+  if (priceChangePending.value) {
+    priceChangeModalOpen.value = true
+    return
+  }
   const draft = createCheckoutFromCart(selectedItems.value)
   saveCheckout(draft)
   router.push({ name: 'checkout' }).catch(() => router.push('/checkout'))
+}
+
+const confirmPriceChange = () => {
+  priceChangePending.value = false
+  priceChangeModalOpen.value = false
 }
 
 const storageRefreshHandler = () => refresh()
@@ -162,6 +179,8 @@ const storageRefreshHandler = () => refresh()
 onMounted(() => {
   window.addEventListener('deskit-cart-updated', storageRefreshHandler)
   window.addEventListener('storage', storageRefreshHandler)
+  window.addEventListener('focus', syncPrices)
+  document.addEventListener('visibilitychange', syncPrices)
   refresh()
   syncPrices()
   priceSyncTimer.value = window.setInterval(syncPrices, 15000)
@@ -170,6 +189,8 @@ onMounted(() => {
 onBeforeUnmount(() => {
   window.removeEventListener('deskit-cart-updated', storageRefreshHandler)
   window.removeEventListener('storage', storageRefreshHandler)
+  window.removeEventListener('focus', syncPrices)
+  document.removeEventListener('visibilitychange', syncPrices)
   if (priceSyncTimer.value) {
     window.clearInterval(priceSyncTimer.value)
   }
@@ -271,13 +292,23 @@ onBeforeUnmount(() => {
         <button
             type="button"
             class="summary-cta"
-            :disabled="selectedCount === 0"
+            :disabled="selectedCount === 0 || priceChangePending"
             @click="handleCheckout"
         >
           {{ selectedCount === 0 ? '상품을 선택해주세요' : `총 ${selectedQuantity}개 상품 구매하기` }}
         </button>
       </aside>
     </section>
+
+    <div v-if="priceChangeModalOpen" class="modal-overlay" role="dialog" aria-modal="true">
+      <div class="modal-card">
+        <h3>가격 변경 안내</h3>
+        <p>상품 가격이 변경되어 장바구니 금액을 갱신했습니다. 확인 후 계속 진행해주세요.</p>
+        <div class="modal-actions">
+          <button type="button" class="btn primary" @click="confirmPriceChange">확인</button>
+        </div>
+      </div>
+    </div>
   </PageContainer>
 </template>
 
@@ -332,6 +363,39 @@ onBeforeUnmount(() => {
   color: var(--text-muted);
   font-weight: 700;
   cursor: pointer;
+}
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.4);
+  display: grid;
+  place-items: center;
+  z-index: 1300;
+}
+
+.modal-card {
+  width: min(420px, 90vw);
+  background: var(--surface);
+  border-radius: 16px;
+  padding: 20px;
+  border: 1px solid var(--border-color);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.2);
+}
+
+.modal-card h3 {
+  margin: 0 0 10px;
+}
+
+.modal-card p {
+  margin: 0;
+  color: var(--text-muted);
+}
+
+.modal-actions {
+  margin-top: 16px;
+  display: flex;
+  justify-content: flex-end;
 }
 
 .cart-left {

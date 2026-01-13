@@ -1893,6 +1893,40 @@ public class BroadcastService {
         redisService.removeOriginalCostPrice(broadcast.getBroadcastId(), bp.getProduct().getId());
     }
 
+    @Transactional
+    public void restoreCostPriceIfSoldOut(Long productId) {
+        if (productId == null) {
+            return;
+        }
+        List<Long> broadcastIds = broadcastProductRepository.findOnAirBroadcastIdsByProductId(productId);
+        if (broadcastIds == null || broadcastIds.isEmpty()) {
+            return;
+        }
+        List<BroadcastProduct> products = broadcastProductRepository.findAllWithProductByBroadcastIdIn(broadcastIds);
+        Map<Long, List<BroadcastProduct>> productsByBroadcast = products.stream()
+                .collect(Collectors.groupingBy(bp -> bp.getBroadcast().getBroadcastId()));
+        for (Long broadcastId : broadcastIds) {
+            Broadcast broadcast = broadcastRepository.findById(broadcastId).orElse(null);
+            if (broadcast == null || broadcast.getStatus() != BroadcastStatus.ON_AIR) {
+                continue;
+            }
+            List<BroadcastProduct> broadcastProducts = productsByBroadcast.getOrDefault(broadcastId, List.of());
+            if (broadcastProducts.isEmpty()) {
+                continue;
+            }
+            Map<Long, Integer> remainingQuantities = calculateRemainingQuantities(broadcast, broadcastProducts);
+            for (BroadcastProduct bp : broadcastProducts) {
+                if (!bp.getProduct().getId().equals(productId)) {
+                    continue;
+                }
+                Integer remaining = remainingQuantities.get(bp.getProduct().getId());
+                if (remaining == null || remaining <= 0) {
+                    restoreOriginalCostPriceIfNeeded(broadcast, bp);
+                }
+            }
+        }
+    }
+
     private List<QcardResponse> getQcardListResponse(Broadcast broadcast) {
         return broadcast.getQcards().stream()
                 .map(q -> QcardResponse.builder()
