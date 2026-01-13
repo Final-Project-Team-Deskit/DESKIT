@@ -4,7 +4,7 @@ import { RouterLink, useRouter } from 'vue-router'
 import PageContainer from '../components/PageContainer.vue'
 import PageHeader from '../components/PageHeader.vue'
 import { cancelOrder, getMyOrderDetail, getMyOrders } from '../api/orders'
-import { productsData } from '../lib/products-data'
+import { productsData, type DbProduct } from '../lib/products-data'
 
 type OrderStatus =
   | 'CREATED'
@@ -185,7 +185,9 @@ const modalTitle = (orderId: string) => {
 }
 
 const productImageOf = (productId: string) => {
-  const p = productsData.find((x: any) => String(x.product_id) === String(productId))
+  const p = productsData.find((x: any) => String(x.product_id) === String(productId)) as
+    | (DbProduct & { image?: string; thumbnail?: string; thumb?: string; imageUrl?: string })
+    | undefined
   return String(p?.imageUrl ?? p?.image ?? p?.thumbnail ?? p?.thumb ?? '')
 }
 

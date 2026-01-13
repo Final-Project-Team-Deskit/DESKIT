@@ -55,8 +55,11 @@ const productById = computed(() => new Map(uiProducts.value.map((p) => [Number(p
 
 const setupProducts = computed<UiProduct[]>(() => {
   if (!setup.value) return []
-  return setup.value.product_ids
-    .map((id) => productById.value.get(id))
+  const productIds: Array<number | string> = Array.isArray(setup.value.product_ids)
+    ? (setup.value.product_ids as Array<number | string>)
+    : []
+  return productIds
+    .map((id: number | string) => productById.value.get(Number(id)))
     .filter((p): p is UiProduct => Boolean(p))
 })
 </script>

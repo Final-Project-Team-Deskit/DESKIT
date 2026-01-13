@@ -175,6 +175,7 @@ const handleTrapFocus = (event: KeyboardEvent) => {
 
   const first = focusables[0]
   const last = focusables[focusables.length - 1]
+  if (!first || !last) return
   const active = document.activeElement as HTMLElement | null
 
   if (!event.shiftKey && active === last) {

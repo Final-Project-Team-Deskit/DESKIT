@@ -182,6 +182,7 @@ export type LiveChatMessage = {
   type?: string
   sender: string
   content: string
+  senderRole?: string
   vodPlayTime?: number
   sentAt: number
 }

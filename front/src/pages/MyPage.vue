@@ -27,7 +27,6 @@ const EMPTY_USER: UserInfo = {
 }
 
 const router = useRouter()
-const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080'
 const user = ref<UserInfo | null>(null)
 const profileImageFailed = ref(false)
 
@@ -56,8 +55,10 @@ const initials = computed(() => {
   const name = display.value.name || ''
   if (!name.trim()) return 'D'
   const parts = name.trim().split(/\s+/)
-  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase()
-  return `${parts[0][0]}${parts[1][0]}`.toUpperCase()
+  const first = parts[0] ?? ''
+  if (parts.length === 1) return first.slice(0, 2).toUpperCase()
+  const second = parts[1] ?? ''
+  return `${first.charAt(0)}${second.charAt(0)}`.toUpperCase()
 })
 
 const profileImageUrl = computed(() => (display.value.profileUrl || '').trim())
@@ -126,7 +127,8 @@ const recommendedProducts = computed(() => {
     .map((x) => x.product)
 
   const top = sorted.filter((_, idx) => idx < 4)
-  if (top.length > 0 && top[0].tagsFlat?.some((t) => keywords.includes(t))) return top
+  const topItem = top[0]
+  if (topItem?.tagsFlat?.some((t) => keywords.includes(t))) return top
 
   return productsData
     .slice()

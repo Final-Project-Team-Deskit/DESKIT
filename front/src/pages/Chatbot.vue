@@ -63,9 +63,10 @@ const resolveMemberId = () => {
   memberId.value = resolveViewerId(user) ?? resolveViewerId(null)
 }
 const fallbackChatId = computed(() => {
-  const numeric = Number.parseInt(memberId.value, 10)
+  const numeric = Number.parseInt(memberId.value ?? '', 10)
   return Number.isFinite(numeric) ? numeric : 1
 })
+void fallbackChatId
 
 const scrollToBottom = async () => {
   await nextTick()
@@ -328,6 +329,7 @@ const checkConversationStatus = async () => {
     console.error('status check failed', error)
   }
 }
+void checkConversationStatus
 
 const sendMessage = async () => {
   const text = inputText.value.trim()

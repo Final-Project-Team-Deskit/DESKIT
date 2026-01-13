@@ -55,18 +55,18 @@ public class CustomSuccessHandler extends SimpleUrlAuthenticationSuccessHandler 
             response.addCookie(createCookie("access", signupToken, Math.toIntExact(300000L / 1000)));
             // Encoded token for safe query parameter transport.
             String encodedToken = URLEncoder.encode(signupToken, StandardCharsets.UTF_8);
-            response.sendRedirect("http://localhost:5173/signup?token=" + encodedToken);
+            response.sendRedirect("http://ssg.deskit.o-r.kr/signup?token=" + encodedToken);
             return;
         }
 
         if ("ROLE_ADMIN".equals(role)) {
             Admin admin = adminRepository.findByLoginId(user.getEmail());
             if (admin == null) {
-                response.sendRedirect("http://localhost:5173/login");
+                response.sendRedirect("http://ssg.deskit.o-r.kr/login");
                 return;
             }
             adminAuthService.startSession(admin, request.getSession(true));
-            response.sendRedirect("http://localhost:5173/admin/verify");
+            response.sendRedirect("http://ssg.deskit.o-r.kr/admin/verify");
             return;
         }
 
@@ -97,9 +97,9 @@ public class CustomSuccessHandler extends SimpleUrlAuthenticationSuccessHandler 
 
     private String resolveRedirectUrl(String role) {
         if (role != null && role.startsWith("ROLE_SELLER")) {
-            return "http://localhost:5173/seller";
+            return "http://ssg.deskit.o-r.kr/seller";
         }
-        return "http://localhost:5173/";
+        return "http://ssg.deskit.o-r.kr/";
     }
 
 }

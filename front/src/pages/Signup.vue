@@ -201,11 +201,6 @@ const jobOptions: JobOption[] = [
   { value: 'ADMIN_PLAN_TYPE', label: '기획/관리' },
 ]
 
-const jobLabelMap = jobOptions.reduce<Record<string, string>>((acc, option) => {
-  acc[option.value] = option.label
-  return acc
-}, {})
-
 const isInviteSignup = computed(() => !!inviteToken.value)
 
 const requiredAgreed = computed(
@@ -298,7 +293,8 @@ const renderMarkdown = (value: string) => {
         htmlParts.push('<ol>')
         inOrderedList = true
       }
-      htmlParts.push(`<li>${escapeHtml(listMatch[1])}</li>`)
+      const listItem = listMatch[1] ?? ''
+      htmlParts.push(`<li>${escapeHtml(listItem)}</li>`)
       continue
     }
 

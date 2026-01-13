@@ -90,7 +90,10 @@ const handleInput = () => {
 const parseDataUrl = (dataUrl: string) => {
   const match = /^data:([^;]+);base64,(.+)$/.exec(dataUrl)
   if (!match) return null
-  return { mime: match[1], data: match[2] }
+  const mime = match[1]
+  const data = match[2]
+  if (!mime || !data) return null
+  return { mime, data }
 }
 
 const dataUrlToFile = (dataUrl: string, fileName: string) => {

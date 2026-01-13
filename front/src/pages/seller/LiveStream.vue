@@ -87,6 +87,7 @@ const streamCenterRef = ref<HTMLElement | null>(null)
 const publisherContainerRef = ref<HTMLElement | null>(null)
 const isFullscreen = ref(false)
 const modalHostTarget = computed(() => (isFullscreen.value && monitorRef.value ? monitorRef.value : 'body'))
+void streamCenterRef
 const micEnabled = ref(true)
 const videoEnabled = ref(true)
 const volume = ref(43)
@@ -502,7 +503,7 @@ const hasPersistedMediaConfig = (mediaConfig?: MediaConfig | null) => {
   if (!mediaConfig) return false
   const cameraId = mediaConfig.cameraId?.trim()
   const microphoneId = mediaConfig.microphoneId?.trim()
-  return (cameraId && cameraId !== 'default') || (microphoneId && microphoneId !== 'default')
+  return Boolean((cameraId && cameraId !== 'default') || (microphoneId && microphoneId !== 'default'))
 }
 
 const toMediaId = (value: string, fallback: string) => {
@@ -570,7 +571,7 @@ const disconnectOpenVidu = () => {
   if (openviduSession.value) {
     try {
       if (openviduPublisher.value) {
-        openviduSession.value.unpublish(openviduPublisher.value)
+        openviduSession.value.unpublish(openviduPublisher.value as Publisher)
       }
       openviduSession.value.disconnect()
     } catch {
@@ -613,14 +614,14 @@ const restartPublisher = async () => {
   if (!openviduSession.value || !openviduInstance.value || !publisherContainerRef.value) return
   try {
     if (openviduPublisher.value) {
-      openviduSession.value.unpublish(openviduPublisher.value)
+      openviduSession.value.unpublish(openviduPublisher.value as Publisher)
     }
     publisherContainerRef.value.innerHTML = ''
     openviduPublisher.value = openviduInstance.value.initPublisher(
       publisherContainerRef.value,
       buildPublisherOptions(),
     )
-    await openviduSession.value.publish(openviduPublisher.value)
+    await openviduSession.value.publish(openviduPublisher.value as Publisher)
     applyPublisherVolume()
   } catch {
     disconnectOpenVidu()
@@ -643,7 +644,7 @@ const connectPublisher = async (broadcastId: number, token: string) => {
       container,
       buildPublisherOptions(),
     )
-    await openviduSession.value.publish(openviduPublisher.value)
+    await openviduSession.value.publish(openviduPublisher.value as Publisher)
     openviduConnected.value = true
     applyPublisherVolume()
     await requestStartRecording(broadcastId)

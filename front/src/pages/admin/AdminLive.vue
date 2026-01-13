@@ -497,7 +497,7 @@ const updateLiveViewerCounts = async () => {
     }
   })
   if (!statsMap.size) return
-  const applyStats = (items: LiveItem[]) =>
+  const applyStats = <T extends LiveItem>(items: T[]): T[] =>
     items.map((item) => {
       const stats = statsMap.get(item.id)
       if (!stats) return item
@@ -665,6 +665,9 @@ const { sentinelRef: vodSentinelRef } = useInfiniteScroll({
   },
   enabled: () => activeTab.value === 'vod',
 })
+void liveSentinelRef
+void scheduledSentinelRef
+void vodSentinelRef
 
 const categoryOptions = computed(() => categories.value)
 

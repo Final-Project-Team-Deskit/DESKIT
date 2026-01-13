@@ -24,12 +24,6 @@ const searchQuery = ref('')
 const statusMap = ref<Record<string, ProductStatus>>({})
 const baseProducts = ref<DbProduct[]>([])
 
-const statusLabelMap: Record<ProductStatus, string> = {
-  selling: '판매중',
-  soldout: '품절',
-  hidden: '숨김',
-}
-
 const deriveSellerId = () => {
   const user = getAuthUser() as any
   const candidates = [user?.seller_id, user?.sellerId, user?.id, user?.user_id, user?.userId]

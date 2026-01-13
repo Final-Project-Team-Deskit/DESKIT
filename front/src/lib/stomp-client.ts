@@ -19,8 +19,11 @@ export class SimpleStompClient {
   private connecting: Promise<void> | null = null
   private subscriptions = new Map<string, Set<StompSubscription['callback']>>()
   private pendingSubs: StompSubscription[] = []
+  private url: string
 
-  constructor(private url: string) {}
+  constructor(url: string) {
+    this.url = url
+  }
 
   connect(): Promise<void> {
     if (this.connected) return Promise.resolve()
@@ -97,12 +100,15 @@ export class SimpleStompClient {
       const headers: StompHeaders = {}
       for (; index < lines.length; index += 1) {
         const line = lines[index]
+        if (line === undefined) break
         if (line === '') {
           index += 1
           break
         }
         const [key, ...rest] = line.split(':')
-        headers[key] = rest.join(':')
+        if (key) {
+          headers[key] = rest.join(':')
+        }
       }
       const body = lines.slice(index).join('\n')
 

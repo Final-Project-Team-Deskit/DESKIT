@@ -712,6 +712,8 @@ const { sentinelRef: vodSentinelRef } = useInfiniteScroll({
   },
   enabled: () => activeTab.value === 'vod',
 })
+void scheduledSentinelRef
+void vodSentinelRef
 
 const loopItemsFor = (kind: LoopKind) => (kind === 'scheduled' ? scheduledLoopItems.value : vodLoopItems.value)
 const baseItemsFor = (kind: LoopKind) => (kind === 'scheduled' ? scheduledSummary.value : vodSummary.value)
