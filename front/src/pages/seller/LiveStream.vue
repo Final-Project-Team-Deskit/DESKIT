@@ -1403,7 +1403,7 @@ const handleKeydown = (event: KeyboardEvent) => {
     window.addEventListener('deskit-user-updated', handleAuthUpdate)
     viewerId.value = resolveViewerId(getAuthUser())
     refreshAuth()
-    monitorRef.value = streamGridRef.value
+    monitorRef.value = streamGridRef.value ?? streamCenterRef.value
     updateGridWidth()
     void loadMediaDevices()
     if (navigator.mediaDevices?.addEventListener) {

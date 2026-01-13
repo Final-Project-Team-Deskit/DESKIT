@@ -155,7 +155,7 @@ onMounted(() => {
         <template #extra-fields>
           <label class="field">
             <span class="field__label">원가</span>
-            <input v-model.number="costPrice" type="number" min="0"/>
+            <input v-model.number="costPrice" type="number" min="0" class="basic-input"/>
           </label>
         </template>
       </ProductBasicFields>
