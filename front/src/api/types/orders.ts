@@ -7,6 +7,10 @@ export interface CreateOrderItemRequest {
 
 export interface CreateOrderRequest {
   items: CreateOrderItemRequest[]
+  receiver: string
+  postcode: string
+  addr_detail: string
+  is_default?: boolean
 }
 
 export interface CreateOrderResponse {

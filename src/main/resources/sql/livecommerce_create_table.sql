@@ -1,7 +1,8 @@
 -- =========================================================
 -- DESKIT & LIVE COMMERCE INTEGRATED DB SCHEMA
--- 최근작성일: 2026-01-06
+-- 최근작성일: 2026-01-13
 -- 수정사항:
+-- order 테이블 컬럼 추가, address 테이블 추가 (26.01.13)
 -- chat_info, chat_handoff 테이블 updated_at 컬럼 추가 (26.01.06)
 -- broadcast_result, view_history 테이블 컬럼 수정 (26.01.05)
 -- seller_grade 테이블 컬럼(grade) 수정 : enum 요소 추가 (26.01.04)
@@ -60,6 +61,7 @@ DROP TABLE IF EXISTS company_registered;
 DROP TABLE IF EXISTS seller_register;
 DROP TABLE IF EXISTS seller;
 DROP TABLE IF EXISTS admin;
+DROP TABLE IF EXISTS address;
 DROP TABLE IF EXISTS member;
 
 -- [Payment & CS]
@@ -98,6 +100,21 @@ CREATE TABLE member
     PRIMARY KEY (member_id)
 ) ENGINE = InnoDB
   DEFAULT CHARSET = utf8mb4 COMMENT ='회원';
+
+CREATE TABLE address
+(
+    address_id  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '배송지 ID',
+    member_id   BIGINT UNSIGNED NOT NULL COMMENT '회원 ID(논리 FK: member)',
+    receiver    VARCHAR(20)     NOT NULL COMMENT '수령인',
+    postcode    VARCHAR(10)     NOT NULL COMMENT '우편번호',
+    addr_detail VARCHAR(255)    NOT NULL COMMENT '주소',
+    is_default  TINYINT         NOT NULL DEFAULT 0 COMMENT '기본 배송지 여부',
+    created_at  DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '생성 시각',
+    updated_at  DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '수정 시각',
+    PRIMARY KEY (address_id),
+    KEY idx_address_member (member_id)
+) ENGINE = InnoDB
+  DEFAULT CHARSET = utf8mb4 COMMENT ='배송지';
 
 CREATE TABLE seller
 (
@@ -289,6 +306,7 @@ CREATE TABLE `order`
 (
     order_id             BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '주문 ID',
     member_id            BIGINT UNSIGNED NOT NULL COMMENT '회원 ID(논리 FK: member)',
+    addr_detail          VARCHAR(255)    NULL COMMENT '배송지 주소',
     order_number         VARCHAR(50)     NOT NULL COMMENT '구매자 노출 주문번호(유니크)',
     total_product_amount INT UNSIGNED    NOT NULL COMMENT '상품 총액(상품가 합)',
     shipping_fee         INT UNSIGNED    NOT NULL DEFAULT 0 COMMENT '배송비(추후 확장)',
@@ -704,6 +722,10 @@ ALTER TABLE cart_item
     ADD CONSTRAINT FK_cart_item_cart FOREIGN KEY (cart_id) REFERENCES cart (cart_id);
 ALTER TABLE cart_item
     ADD CONSTRAINT FK_cart_item_product FOREIGN KEY (product_id) REFERENCES product (product_id);
+
+-- [Address Relations]
+ALTER TABLE address
+    ADD CONSTRAINT FK_address_member FOREIGN KEY (member_id) REFERENCES member (member_id);
 
 -- [Order Relations] (테이블명 `order`에 백틱 사용)
 ALTER TABLE `order`
