@@ -1946,6 +1946,12 @@ public class BroadcastService {
                 || status == BroadcastStatus.STOPPED;
     }
 
+    private boolean shouldUseRealtimeStats(BroadcastStatus status) {
+        return status == BroadcastStatus.ON_AIR
+                || status == BroadcastStatus.READY
+                || status == BroadcastStatus.ENDED;
+    }
+
     private boolean isJoinableGroup(BroadcastStatus status) {
         return status == BroadcastStatus.ON_AIR || status == BroadcastStatus.READY;
     }
@@ -1984,7 +1990,7 @@ public class BroadcastService {
         Integer reports = 0;
         String vodUrl = null;
 
-        if (isLiveGroup(broadcast.getStatus())) {
+        if (shouldUseRealtimeStats(broadcast.getStatus())) {
             views = redisService.getRealtimeViewerCount(broadcast.getBroadcastId());
             likes = redisService.getLikeCount(broadcast.getBroadcastId());
             reports = redisService.getReportCount(broadcast.getBroadcastId());
@@ -2041,7 +2047,7 @@ public class BroadcastService {
 
     private void injectLiveStats(List<BroadcastListResponse> list) {
         list.forEach(item -> {
-            if (isLiveGroup(item.getStatus())) {
+            if (shouldUseRealtimeStats(item.getStatus())) {
                 item.setLiveViewerCount(redisService.getRealtimeViewerCount(item.getBroadcastId()));
                 item.setTotalLikes(redisService.getLikeCount(item.getBroadcastId()));
                 item.setReportCount(redisService.getReportCount(item.getBroadcastId()));
@@ -2065,9 +2071,11 @@ public class BroadcastService {
 
         list.forEach(item -> {
             if (isLiveGroup(item.getStatus())) {
-                item.setLiveViewerCount(redisService.getRealtimeViewerCount(item.getBroadcastId()));
-                item.setTotalLikes(redisService.getLikeCount(item.getBroadcastId()));
-                item.setReportCount(redisService.getReportCount(item.getBroadcastId()));
+                if (shouldUseRealtimeStats(item.getStatus())) {
+                    item.setLiveViewerCount(redisService.getRealtimeViewerCount(item.getBroadcastId()));
+                    item.setTotalLikes(redisService.getLikeCount(item.getBroadcastId()));
+                    item.setReportCount(redisService.getReportCount(item.getBroadcastId()));
+                }
 
                 List<BroadcastProduct> products = productMap.getOrDefault(item.getBroadcastId(), List.of());
                 Broadcast broadcast = broadcastMap.get(item.getBroadcastId());
