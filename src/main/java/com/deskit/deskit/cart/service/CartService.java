@@ -8,6 +8,7 @@ import com.deskit.deskit.cart.entity.Cart;
 import com.deskit.deskit.cart.entity.CartItem;
 import com.deskit.deskit.cart.repository.CartItemRepository;
 import com.deskit.deskit.cart.repository.CartRepository;
+import com.deskit.deskit.livehost.repository.BroadcastProductRepository;
 import com.deskit.deskit.product.entity.Product;
 import com.deskit.deskit.product.repository.ProductRepository;
 import jakarta.persistence.EntityManager;
@@ -25,17 +26,20 @@ public class CartService {
   private final CartRepository cartRepository;
   private final CartItemRepository cartItemRepository;
   private final ProductRepository productRepository;
+  private final BroadcastProductRepository broadcastProductRepository;
   private final MemberRepository memberRepository;
   private final EntityManager entityManager; // getReference()로 Member 프록시를 만들 때 사용
 
   public CartService(CartRepository cartRepository,
                      CartItemRepository cartItemRepository,
                      ProductRepository productRepository,
+                     BroadcastProductRepository broadcastProductRepository,
                      MemberRepository memberRepository,
                      EntityManager entityManager) {
     this.cartRepository = cartRepository;
     this.cartItemRepository = cartItemRepository;
     this.productRepository = productRepository;
+    this.broadcastProductRepository = broadcastProductRepository;
     this.memberRepository = memberRepository;
     this.entityManager = entityManager;
   }
@@ -64,7 +68,13 @@ public class CartService {
     List<CartItemResponse> items = cartItemRepository
             .findAllByCart_IdAndDeletedAtIsNullOrderByIdAsc(cart.getId())
             .stream()
-            .map(CartItemResponse::from)
+            .map(item -> {
+              int currentPrice = resolveCurrentPrice(item.getProduct());
+              if (!Integer.valueOf(currentPrice).equals(item.getPriceSnapshot())) {
+                item.updatePriceSnapshot(currentPrice);
+              }
+              return CartItemResponse.from(item);
+            })
             .collect(Collectors.toList());
 
     return new CartResponse(cart.getId(), items);
@@ -97,7 +107,8 @@ public class CartService {
     }
 
     // 새 아이템 추가(담는 시점 가격 스냅샷 저장)
-    cartItemRepository.save(new CartItem(cart, product, quantity, product.getPrice()));
+    int currentPrice = resolveCurrentPrice(product);
+    cartItemRepository.save(new CartItem(cart, product, quantity, currentPrice));
     return getCart(memberId);
   }
 
@@ -167,5 +178,16 @@ public class CartService {
       throw new ResponseStatusException(HttpStatus.NOT_FOUND, "member not found");
     }
     return entityManager.getReference(Member.class, memberId);
+  }
+
+  private int resolveCurrentPrice(Product product) {
+    if (product == null) {
+      return 0;
+    }
+    Integer livePrice = broadcastProductRepository.findLiveBpPriceByProductId(product.getId())
+            .stream()
+            .findFirst()
+            .orElse(null);
+    return livePrice != null ? livePrice : product.getPrice();
   }
 }

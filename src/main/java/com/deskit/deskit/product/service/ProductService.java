@@ -12,6 +12,7 @@ import com.deskit.deskit.product.entity.Product;
 import com.deskit.deskit.product.repository.ProductRepository;
 import com.deskit.deskit.product.repository.ProductTagRepository;
 import com.deskit.deskit.product.repository.ProductTagRepository.ProductTagRow;
+import com.deskit.deskit.livehost.repository.BroadcastProductRepository;
 import com.deskit.deskit.tag.entity.TagCategory.TagCode;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -31,12 +32,15 @@ public class ProductService {
 
   private final ProductRepository productRepository; // Product 조회용 JPA Repository
   private final ProductTagRepository productTagRepository; // Product-Tag 매핑 조회용 JPA Repository
+  private final BroadcastProductRepository broadcastProductRepository;
 
   // 생성자 주입: 테스트/대체 구현에 유리하고, final 필드와 잘 맞음
   public ProductService(ProductRepository productRepository,
-                        ProductTagRepository productTagRepository) {
+                        ProductTagRepository productTagRepository,
+                        BroadcastProductRepository broadcastProductRepository) {
     this.productRepository = productRepository;
     this.productTagRepository = productTagRepository;
+    this.broadcastProductRepository = broadcastProductRepository;
   }
 
   // 상품 목록 조회: deleted_at IS NULL인 상품만 가져오고, 태그는 productIds로 한 번에 batch 조회 (N+1 방지)
@@ -52,6 +56,13 @@ public class ProductService {
             .map(Product::getId)
             .collect(Collectors.toList());
 
+    Map<Long, Integer> liveCostPrices = broadcastProductRepository.findLiveBpPrices(productIds).stream()
+            .collect(Collectors.toMap(
+                    BroadcastProductRepository.LivePriceRow::getProductId,
+                    BroadcastProductRepository.LivePriceRow::getBpPrice,
+                    (left, right) -> left
+            ));
+
     // (product_id, tagCode, tagName) 형태의 projection row들
     List<ProductTagRow> rows = productTagRepository.findActiveTagsByProductIds(productIds);
 
@@ -64,7 +75,8 @@ public class ProductService {
               TagsBundle bundle = tagsByProductId.get(product.getId());
               ProductTags tags = bundle == null ? ProductTags.empty() : bundle.getTags();
               List<String> tagsFlat = bundle == null ? Collections.emptyList() : bundle.getTagsFlat();
-              return ProductResponse.from(product, tags, tagsFlat);
+              Integer costPriceOverride = liveCostPrices.get(product.getId());
+              return ProductResponse.fromWithCostPrice(product, tags, tagsFlat, costPriceOverride);
             })
             .collect(Collectors.toList());
   }
@@ -85,7 +97,10 @@ public class ProductService {
     ProductTags tags = bundle == null ? ProductTags.empty() : bundle.getTags();
     List<String> tagsFlat = bundle == null ? Collections.emptyList() : bundle.getTagsFlat();
 
-    return Optional.of(ProductResponse.from(product.get(), tags, tagsFlat));
+    Integer costPriceOverride = broadcastProductRepository.findLiveBpPriceByProductId(id).stream()
+            .findFirst()
+            .orElse(null);
+    return Optional.of(ProductResponse.fromWithCostPrice(product.get(), tags, tagsFlat, costPriceOverride));
   }
 
   public List<SellerProductListResponse> getSellerProducts(Long sellerId) {

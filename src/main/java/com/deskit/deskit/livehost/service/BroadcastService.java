@@ -280,7 +280,7 @@ public class BroadcastService {
         var productTable = table(name("product")).as("p");
         var productId = field(name("p", "product_id"), Long.class);
         var productName = field(name("p", "product_name"), String.class);
-        var price = field(name("p", "price"), Integer.class);
+        var costPrice = field(name("p", "cost_price"), Integer.class);
         var stockQty = field(name("p", "stock_qty"), Integer.class);
         var safetyStock = field(name("p", "safety_stock"), Integer.class);
         var sellerField = field(name("p", "seller_id"), Long.class);
@@ -324,7 +324,7 @@ public class BroadcastService {
             condition = condition.and(productName.containsIgnoreCase(keyword));
         }
 
-        return dsl.select(productId, productName, price, stockQty, safetyStock, org.jooq.impl.DSL.coalesce(reservedQty, 0).as("reserved_qty"))
+        return dsl.select(productId, productName, costPrice, stockQty, safetyStock, org.jooq.impl.DSL.coalesce(reservedQty, 0).as("reserved_qty"))
                 .from(productTable)
                 .leftJoin(reservedSubquery).on(productId.eq(reservedProductId))
                 .where(condition)
@@ -332,7 +332,7 @@ public class BroadcastService {
                 .fetch(record -> ProductSelectResponse.builder()
                         .productId(record.get(productId))
                         .productName(record.get(productName))
-                        .price(record.get(price))
+                        .price(record.get(costPrice))
                         .stockQty(record.get(stockQty))
                         .safetyStock(record.get(safetyStock))
                         .reservedBroadcastQty(record.get("reserved_qty", Integer.class))
