@@ -2,6 +2,7 @@ package com.deskit.deskit.product.repository;
 
 import com.deskit.deskit.product.entity.ProductImage;
 import com.deskit.deskit.product.entity.ProductImage.ImageType;
+import java.util.List;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface ProductImageRepository extends JpaRepository<ProductImage, Long> {
@@ -13,4 +14,6 @@ public interface ProductImageRepository extends JpaRepository<ProductImage, Long
     ImageType imageType,
     Integer slotIndex
   );
+
+  List<ProductImage> findAllByProductIdAndDeletedAtIsNullOrderBySlotIndexAsc(Long productId);
 }

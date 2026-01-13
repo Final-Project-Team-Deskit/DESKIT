@@ -3,37 +3,20 @@ import { onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import PageContainer from '../../components/PageContainer.vue'
 import PageHeader from '../../components/PageHeader.vue'
-import {
-  clearProductDraft,
-  getProductById,
-  loadProductDraft,
-  saveProductDraft,
-  upsertProduct,
-  type SellerProductDraft,
-} from '../../composables/useSellerProducts'
-import { productsData } from '../../lib/products-data'
-import { getAuthUser } from '../../lib/auth'
 
 const router = useRouter()
 const route = useRoute()
+const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080'
 
 const editorRef = ref<HTMLDivElement | null>(null)
 const detailHtml = ref('')
 const error = ref('')
-const draft = ref<SellerProductDraft | null>(null)
-const createdAt = ref<string>('')
+const isSaving = ref(false)
 
-const deriveSellerId = () => {
-  const user = getAuthUser() as any
-  const candidates = [user?.seller_id, user?.sellerId, user?.id, user?.user_id, user?.userId]
-  for (const value of candidates) {
-    if (typeof value === 'number' && Number.isFinite(value)) return value
-    if (typeof value === 'string') {
-      const parsed = Number.parseInt(value, 10)
-      if (!Number.isNaN(parsed)) return parsed
-    }
-  }
-  return null
+const buildAuthHeaders = (): Record<string, string> => {
+  const access = localStorage.getItem('access') || sessionStorage.getItem('access')
+  if (!access) return {}
+  return { Authorization: `Bearer ${access}` }
 }
 
 const exec = (command: string, value?: string) => {
@@ -57,14 +40,6 @@ const formatBlock = (tag: 'p' | 'h1' | 'h2' | 'h3') => {
   exec('formatBlock', `<${tag}>`)
 }
 
-const saveDraftOnly = () => {
-  if (!draft.value) return
-  saveProductDraft({
-    ...draft.value,
-    detailHtml: detailHtml.value,
-  })
-}
-
 const syncFromEditor = () => {
   detailHtml.value = editorRef.value?.innerHTML ?? ''
 }
@@ -72,131 +47,100 @@ const syncFromEditor = () => {
 const syncFromEditorSoon = () => {
   window.setTimeout(() => {
     syncFromEditor()
-    saveDraftOnly()
   }, 0)
 }
 
 const handleInput = () => {
   syncFromEditor()
-  saveDraftOnly()
 }
 
 const goBack = () => {
-  saveDraftOnly()
   const id = typeof route.params.id === 'string' ? route.params.id : ''
-  router.push(`/seller/products/${id}/edit`).catch(() => {})
+  router.push({ name: 'seller-products-edit', params: { id } }).catch(() => {})
 }
 
-const loadFromProductsData = (id: string): SellerProductDraft | null => {
-  const pid = Number.parseInt(id, 10)
-  if (Number.isNaN(pid)) return null
-  const product = productsData.find((item) => item.product_id === pid)
-  if (!product) return null
-  createdAt.value = product.created_dt
-  return {
-    id,
-    sellerId: product.seller_id,
-    name: product.name,
-    shortDesc: product.short_desc,
-    costPrice: product.cost_price,
-    price: product.price,
-    stock: product.salesVolume ?? 0,
-    images: product.imageUrl ? [product.imageUrl] : [],
-    detailHtml: '',
-  }
-}
-
-const handleSubmit = () => {
+const handleSubmit = async () => {
   error.value = ''
-  if (!draft.value) {
-    error.value = '기본 정보를 먼저 입력해주세요.'
-    return
-  }
-
-  const name = (draft.value.name || '').trim()
-  const shortDesc = (draft.value.shortDesc || '').trim()
-
-  const costPrice = Number(draft.value.costPrice)
-  const price = Number(draft.value.price)
-  const stock = Number(draft.value.stock)
-
-  if (!name) {
-    error.value = '상품명을 입력해주세요.'
-    return
-  }
-  if (!Number.isFinite(costPrice) || costPrice < 0 || !Number.isFinite(price) || price < 0) {
-    error.value = '원가/판매가를 올바르게 입력해주세요.'
-    return
-  }
-  if (!Number.isFinite(stock) || stock < 0) {
-    error.value = '재고를 올바르게 입력해주세요.'
-    return
-  }
-
-  const sellerId = draft.value.sellerId ?? deriveSellerId()
-  if (!sellerId) {
-    error.value = '판매자 정보를 확인할 수 없습니다.'
+  const id = typeof route.params.id === 'string' ? route.params.id : ''
+  if (!id) {
+    error.value = '상품 정보를 확인할 수 없습니다.'
     return
   }
 
   syncFromEditor()
-  const now = new Date().toISOString()
-  const id = draft.value.id || (typeof route.params.id === 'string' ? route.params.id : '')
-
-  upsertProduct({
-    id,
-    sellerId,
-    name,
-    shortDesc,
-    costPrice,
-    price,
-    stock,
-    images: Array.isArray(draft.value.images) ? draft.value.images : [],
-    detailHtml: detailHtml.value,
-    createdAt: createdAt.value || now,
-    updatedAt: now,
-  })
-
-  clearProductDraft()
-  router.push('/seller/products').catch(() => {})
+  isSaving.value = true
+  try {
+    const response = await fetch(`${apiBase}/api/seller/products/${id}`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        ...buildAuthHeaders(),
+      },
+      credentials: 'include',
+      body: JSON.stringify({ detail_html: detailHtml.value }),
+    })
+    if (response.status === 401 || response.status === 403) {
+      error.value = '권한이 없습니다. 다시 로그인해주세요.'
+      return
+    }
+    if (response.status === 404) {
+      window.alert('이미 삭제되었거나 상품을 찾을 수 없습니다.')
+      router.push({ name: 'seller-products' }).catch(() => {})
+      return
+    }
+    if (!response.ok) {
+      error.value = '상세 정보를 저장하지 못했습니다.'
+      return
+    }
+    router.push({ name: 'seller-products' }).catch(() => {})
+  } catch {
+    error.value = '상세 정보를 저장하지 못했습니다.'
+  } finally {
+    isSaving.value = false
+  }
 }
 
 onMounted(() => {
   const id = typeof route.params.id === 'string' ? route.params.id : ''
-  const draftLoaded = loadProductDraft()
-  if (draftLoaded && draftLoaded.id === id) {
-    draft.value = draftLoaded
-    detailHtml.value = draftLoaded.detailHtml || ''
-  } else {
-    const stored = getProductById(id)
-    if (stored) {
-      createdAt.value = stored.createdAt
-      draft.value = {
-        id: stored.id,
-        sellerId: stored.sellerId,
-        name: stored.name,
-        shortDesc: stored.shortDesc,
-        costPrice: stored.costPrice,
-        price: stored.price,
-        stock: stored.stock,
-        images: stored.images,
-        detailHtml: stored.detailHtml,
-      }
-    } else {
-      draft.value = loadFromProductsData(id)
-    }
-  }
-
-  if (!draft.value) {
-    error.value = '기본 정보를 먼저 입력해주세요.'
+  if (!id) {
+    error.value = '상품 정보를 확인할 수 없습니다.'
     return
   }
 
-  detailHtml.value = draft.value.detailHtml || ''
-  window.setTimeout(() => {
-    if (!editorRef.value) return
-    editorRef.value.innerHTML = detailHtml.value || ''
-  }, 0)
+  const load = async () => {
+    try {
+      const response = await fetch(`${apiBase}/api/seller/products/${id}`, {
+        method: 'GET',
+        headers: {
+          ...buildAuthHeaders(),
+        },
+        credentials: 'include',
+      })
+      if (response.status === 401 || response.status === 403) {
+        error.value = '권한이 없습니다. 다시 로그인해주세요.'
+        return
+      }
+      if (response.status === 404) {
+        window.alert('이미 삭제되었거나 상품을 찾을 수 없습니다.')
+        router.push({ name: 'seller-products' }).catch(() => {})
+        return
+      }
+      if (!response.ok) {
+        error.value = '상세 정보를 불러올 수 없습니다.'
+        return
+      }
+      const data = (await response.json()) as { detail_html?: string | null }
+      detailHtml.value = data.detail_html ?? ''
+      window.setTimeout(() => {
+        if (!editorRef.value) return
+        editorRef.value.innerHTML = detailHtml.value || ''
+      }, 0)
+    } catch {
+      error.value = '상세 정보를 불러올 수 없습니다.'
+    }
+  }
+
+  load()
 })
 </script>
 
@@ -248,7 +192,7 @@ onMounted(() => {
 
       <div class="actions">
         <button type="button" class="btn" @click="goBack">이전</button>
-        <button type="button" class="btn primary" @click="handleSubmit">저장</button>
+        <button type="button" class="btn primary" :disabled="isSaving" @click="handleSubmit">저장</button>
       </div>
     </section>
   </PageContainer>
