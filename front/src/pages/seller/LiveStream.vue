@@ -704,7 +704,7 @@ const restartPublisher = async () => {
       publisherContainerRef.value,
       buildPublisherOptions(),
     )
-    attachPublisherHandlers(openviduPublisher.value)
+    attachPublisherHandlers(openviduPublisher.value as Publisher)
     await openviduSession.value.publish(openviduPublisher.value as Publisher)
     applyPublisherVolume()
   } catch {
@@ -728,7 +728,7 @@ const connectPublisher = async (broadcastId: number, token: string) => {
       container,
       buildPublisherOptions(),
     )
-    attachPublisherHandlers(openviduPublisher.value)
+    attachPublisherHandlers(openviduPublisher.value as Publisher)
     await openviduSession.value.publish(openviduPublisher.value as Publisher)
     openviduConnected.value = true
     applyPublisherVolume()
