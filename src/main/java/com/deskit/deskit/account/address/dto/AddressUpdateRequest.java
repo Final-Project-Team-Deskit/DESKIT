@@ -1,18 +1,11 @@
-package com.deskit.deskit.order.dto;
+package com.deskit.deskit.account.address.dto;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
-import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
-import java.util.List;
 
-public record CreateOrderRequest(
-  @JsonProperty("items")
-  @NotNull
-  @Size(min = 1)
-  List<CreateOrderItemRequest> items,
-
+public record AddressUpdateRequest(
   @JsonProperty("receiver")
   @NotBlank
   @Size(max = 20)

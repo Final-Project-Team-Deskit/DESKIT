@@ -1,6 +1,7 @@
 package com.deskit.deskit.order.service;
 
 import com.deskit.deskit.account.repository.MemberRepository;
+import com.deskit.deskit.account.address.service.AddressService;
 import com.deskit.deskit.order.dto.OrderCancelRequest;
 import com.deskit.deskit.order.dto.OrderCancelResponse;
 import com.deskit.deskit.order.dto.CreateOrderItemRequest;
@@ -41,6 +42,7 @@ public class OrderService {
   private final ProductRepository productRepository;
   private final MemberRepository memberRepository;
   private final TossPaymentService tossPaymentService;
+  private final AddressService addressService;
 
   public CreateOrderResponse createOrder(Long memberId, CreateOrderRequest request) {
     if (memberId == null) {
@@ -57,6 +59,10 @@ public class OrderService {
     if (items == null || items.isEmpty()) {
       throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "items required");
     }
+
+    String receiver = normalizeReceiver(request.receiver());
+    String postcode = normalizePostcode(request.postcode());
+    String addrDetail = normalizeAddrDetail(request.addrDetail());
 
     Map<Long, Integer> quantityByProductId = new HashMap<>();
     for (CreateOrderItemRequest item : items) {
@@ -102,6 +108,7 @@ public class OrderService {
 
     Order order = Order.create(
       memberId,
+      addrDetail,
       orderNumber,
       totalProductAmount,
       shippingFee,
@@ -110,6 +117,7 @@ public class OrderService {
       OrderStatus.CREATED
     );
     Order savedOrder = orderRepository.save(order);
+    addressService.saveAddressFromOrder(memberId, receiver, postcode, addrDetail, request.isDefault());
 
     for (CreateOrderItemRequest item : items) {
       int quantity = safeQuantity(item.quantity());
@@ -217,6 +225,30 @@ public class OrderService {
       throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "quantity must be >= 1");
     }
     return quantity;
+  }
+
+  private String normalizeReceiver(String receiver) {
+    String normalized = receiver == null ? "" : receiver.trim();
+    if (normalized.isEmpty()) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "receiver required");
+    }
+    return normalized.length() > 20 ? normalized.substring(0, 20) : normalized;
+  }
+
+  private String normalizePostcode(String postcode) {
+    String normalized = postcode == null ? "" : postcode.trim();
+    if (!normalized.matches("\\d{5}")) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "postcode invalid");
+    }
+    return normalized;
+  }
+
+  private String normalizeAddrDetail(String addrDetail) {
+    String normalized = addrDetail == null ? "" : addrDetail.trim();
+    if (normalized.isEmpty()) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "addr_detail required");
+    }
+    return normalized.length() > 255 ? normalized.substring(0, 255) : normalized;
   }
 
   private String generateOrderNumber() {

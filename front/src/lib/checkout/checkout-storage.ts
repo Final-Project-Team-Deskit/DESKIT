@@ -18,6 +18,7 @@ export type ShippingInfo = {
   zipcode: string
   address1: string
   address2: string
+  isDefault?: boolean
 }
 
 export type PaymentMethod = 'CARD' | 'EASY_PAY' | 'TRANSFER'
@@ -69,6 +70,7 @@ const normalizeShipping = (raw: any): ShippingInfo => ({
   zipcode: typeof raw?.zipcode === 'string' ? raw.zipcode : '',
   address1: typeof raw?.address1 === 'string' ? raw.address1 : '',
   address2: typeof raw?.address2 === 'string' ? raw.address2 : '',
+  isDefault: typeof raw?.isDefault === 'boolean' ? raw.isDefault : undefined,
 })
 
 const normalizeDraft = (raw: any): CheckoutDraft | null => {
@@ -126,6 +128,9 @@ export const updateShipping = (patch: Partial<ShippingInfo>): CheckoutDraft | nu
   }
   if ('address2' in patch) {
     nextPatch.address2 = (patch.address2 ?? '').trim()
+  }
+  if ('isDefault' in patch) {
+    nextPatch.isDefault = Boolean(patch.isDefault)
   }
 
   current.shipping = {
