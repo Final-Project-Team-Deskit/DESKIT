@@ -81,6 +81,21 @@ public class ProductResponse {
     if (product.isLimitedSale()) {
       status = Product.Status.LIMITED_SALE;
     }
+    return fromWithCostPrice(product, tags, tagsFlat, product.getCostPrice(), status);
+  }
+
+  public static ProductResponse fromWithCostPrice(Product product, ProductTags tags, List<String> tagsFlat,
+                                                  Integer costPriceOverride) {
+    Product.Status status = product.getStatus();
+    if (product.isLimitedSale()) {
+      status = Product.Status.LIMITED_SALE;
+    }
+    return fromWithCostPrice(product, tags, tagsFlat, costPriceOverride, status);
+  }
+
+  private static ProductResponse fromWithCostPrice(Product product, ProductTags tags, List<String> tagsFlat,
+                                                   Integer costPriceOverride, Product.Status status) {
+    Integer resolvedCostPrice = costPriceOverride != null ? costPriceOverride : product.getCostPrice();
     return new ProductResponse(
             product.getId(),
             product.getSellerId(),
@@ -88,7 +103,7 @@ public class ProductResponse {
             product.getShortDesc(),
             product.getDetailHtml(),
             product.getPrice(),
-            product.getCostPrice(),
+            resolvedCostPrice,
             status,
             product.getStockQty(),
             product.getSafetyStock(),

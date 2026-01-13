@@ -15,6 +15,7 @@ import com.deskit.deskit.order.enums.OrderStatus;
 import com.deskit.deskit.order.payment.service.TossPaymentService;
 import com.deskit.deskit.order.repository.OrderItemRepository;
 import com.deskit.deskit.order.repository.OrderRepository;
+import com.deskit.deskit.livehost.repository.BroadcastProductRepository;
 import com.deskit.deskit.product.entity.Product;
 import com.deskit.deskit.product.repository.ProductRepository;
 import java.util.ArrayList;
@@ -39,6 +40,7 @@ public class OrderService {
   private final OrderRepository orderRepository;
   private final OrderItemRepository orderItemRepository;
   private final ProductRepository productRepository;
+  private final BroadcastProductRepository broadcastProductRepository;
   private final MemberRepository memberRepository;
   private final TossPaymentService tossPaymentService;
 
@@ -92,7 +94,8 @@ public class OrderService {
     for (CreateOrderItemRequest item : items) {
       int quantity = safeQuantity(item.quantity());
       Product product = productsById.get(item.productId());
-      totalProductAmount += product.getPrice() * quantity;
+      int unitPrice = resolveCurrentPrice(product);
+      totalProductAmount += unitPrice * quantity;
     }
 
     int shippingFee = totalProductAmount >= 50000 ? 0 : 3000;
@@ -114,7 +117,7 @@ public class OrderService {
     for (CreateOrderItemRequest item : items) {
       int quantity = safeQuantity(item.quantity());
       Product product = productsById.get(item.productId());
-      int unitPrice = product.getPrice();
+      int unitPrice = resolveCurrentPrice(product);
       int subtotal = unitPrice * quantity;
       OrderItem orderItem = OrderItem.create(
         savedOrder,
@@ -134,6 +137,17 @@ public class OrderService {
       savedOrder.getStatus(),
       savedOrder.getOrderAmount()
     );
+  }
+
+  int resolveCurrentPrice(Product product) {
+    if (product == null) {
+      return 0;
+    }
+    Integer livePrice = broadcastProductRepository.findLiveBpPriceByProductId(product.getId())
+      .stream()
+      .findFirst()
+      .orElse(null);
+    return livePrice != null ? livePrice : product.getPrice();
   }
 
   @Transactional(readOnly = true)
