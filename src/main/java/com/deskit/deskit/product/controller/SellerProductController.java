@@ -23,6 +23,7 @@ import java.util.List;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -145,6 +146,16 @@ public class SellerProductController {
     Long sellerId = resolveSellerId(user);
     productTagService.updateProductTags(sellerId, productId, request);
     return ResponseEntity.ok().build();
+  }
+
+  @DeleteMapping("/{productId}")
+  public ResponseEntity<Void> deleteProduct(
+          @AuthenticationPrincipal CustomOAuth2User user,
+          @PathVariable("productId") Long productId
+  ) {
+    Long sellerId = resolveSellerId(user);
+    productService.softDeleteProduct(sellerId, productId);
+    return ResponseEntity.noContent().build();
   }
 
   private Long resolveSellerId(CustomOAuth2User user) {

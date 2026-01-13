@@ -18,6 +18,7 @@ const stock = ref(0)
 const images = ref<string[]>(['', '', '', '', ''])
 const error = ref('')
 const status = ref<ProductStatus | null>(null)
+const isDeleting = ref(false)
 
 const statusLabelMap: Record<ProductStatus, string> = {
   DRAFT: '작성중',
@@ -97,7 +98,47 @@ const clearImageAt = (index: number) => {
 }
 
 const cancel = () => {
-  router.push('/seller/products').catch(() => {})
+  router.push({ name: 'seller-products' }).catch(() => {})
+}
+
+const handleDelete = async () => {
+  const id = typeof route.params.id === 'string' ? route.params.id : ''
+  if (!id) {
+    error.value = '상품 정보를 확인할 수 없습니다.'
+    return
+  }
+  if (!window.confirm('정말 삭제하시겠습니까?')) return
+
+  error.value = ''
+  isDeleting.value = true
+  try {
+    const response = await fetch(`${apiBase}/api/seller/products/${id}`, {
+      method: 'DELETE',
+      headers: {
+        ...buildAuthHeaders(),
+      },
+      credentials: 'include',
+    })
+    if (response.status === 401 || response.status === 403) {
+      error.value = '권한이 없습니다. 다시 로그인해주세요.'
+      return
+    }
+    if (response.status === 404) {
+      window.alert('이미 삭제되었거나 상품을 찾을 수 없습니다.')
+      router.push({ name: 'seller-products' }).catch(() => {})
+      return
+    }
+    if (!response.ok && response.status !== 204) {
+      error.value = '상품 삭제에 실패했습니다.'
+      return
+    }
+    window.alert('상품이 삭제되었습니다.')
+    router.push({ name: 'seller-products' }).catch(() => {})
+  } catch {
+    error.value = '상품 삭제에 실패했습니다.'
+  } finally {
+    isDeleting.value = false
+  }
 }
 
 const canEditAll = computed(() => {
@@ -172,7 +213,7 @@ const handleSubmit = async () => {
       error.value = '상품 수정에 실패했습니다.'
       return
     }
-    router.push('/seller/products').catch(() => {})
+    router.push({ name: 'seller-products' }).catch(() => {})
   } catch {
     error.value = '상품 수정에 실패했습니다.'
   }
@@ -226,6 +267,7 @@ onMounted(() => {
       <p v-if="error" class="error">{{ error }}</p>
       <div class="actions">
         <button type="button" class="btn" @click="cancel">취소</button>
+        <button type="button" class="btn danger" :disabled="isDeleting" @click="handleDelete">삭제</button>
         <button type="button" class="btn primary" @click="handleSubmit">저장</button>
       </div>
     </section>
