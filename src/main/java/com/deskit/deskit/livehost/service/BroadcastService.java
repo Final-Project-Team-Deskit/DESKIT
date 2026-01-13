@@ -352,17 +352,17 @@ public class BroadcastService {
                 .orderBy(productId.asc())
                 .fetch(record -> {
                     Long currentBroadcastId = record.get(liveBroadcastId);
-                    Integer resolvedCostPrice = record.get(price);
+                    Integer resolvedPrice = record.get(price);
                     if (currentBroadcastId != null) {
-                        Integer originalCostPrice = redisService.getOriginalCostPrice(currentBroadcastId, record.get(productId));
-                        if (originalCostPrice != null) {
-                            resolvedCostPrice = originalCostPrice;
+                        Integer originalPrice = redisService.getOriginalPrice(currentBroadcastId, record.get(productId));
+                        if (originalPrice != null) {
+                            resolvedPrice = originalPrice;
                         }
                     }
                     return ProductSelectResponse.builder()
                             .productId(record.get(productId))
                             .productName(record.get(productName))
-                            .price(resolvedCostPrice)
+                            .price(resolvedPrice)
                             .stockQty(record.get(stockQty))
                             .safetyStock(record.get(safetyStock))
                             .reservedBroadcastQty(record.get("reserved_qty", Integer.class))
@@ -553,7 +553,7 @@ public class BroadcastService {
 
             validateTransition(broadcast.getStatus(), BroadcastStatus.ON_AIR);
             broadcast.startBroadcast("session-" + broadcastId);
-            applyLiveProductCostPrice(broadcast);
+            applyLiveProductPrice(broadcast);
             sseService.notifyBroadcastUpdate(broadcastId, "BROADCAST_STARTED", "started");
 
             try {
@@ -743,7 +743,7 @@ public class BroadcastService {
         if (broadcast.getStatus() == BroadcastStatus.STOPPED && nextStatus == VodStatus.PUBLIC) {
             validateTransition(broadcast.getStatus(), BroadcastStatus.VOD);
             broadcast.changeStatus(BroadcastStatus.VOD);
-            restoreOriginalProductCostPrice(broadcast);
+            restoreOriginalProductPrice(broadcast);
             redisService.persistVodReactionKeys(broadcastId);
         }
         return nextStatus.name();
@@ -1056,7 +1056,7 @@ public class BroadcastService {
             Integer remaining = remainingQuantities.get(bp.getProduct().getId());
             boolean soldOut = bp.markSoldOutIfNeeded(remaining);
             if (remaining == null || remaining <= 0) {
-                restoreOriginalCostPriceIfNeeded(broadcast, bp);
+                restoreOriginalPriceIfNeeded(broadcast, bp);
             }
             if (soldOut) {
                 soldOutProductIds.add(bp.getProduct().getId());
@@ -1078,7 +1078,7 @@ public class BroadcastService {
                 .map(bp -> BroadcastProductResponse.fromEntity(
                         bp,
                         remainingQuantities.getOrDefault(bp.getProduct().getId(), bp.getBpQuantity()),
-                        resolveOriginalCostPrice(broadcast, bp)
+                        resolveOriginalPrice(broadcast, bp)
                 ))
                 .collect(Collectors.toList());
     }
@@ -1581,7 +1581,7 @@ public class BroadcastService {
                     if (broadcast != null && broadcast.getStatus() == BroadcastStatus.ENDED) {
                         validateTransition(broadcast.getStatus(), BroadcastStatus.VOD);
                         broadcast.changeStatus(BroadcastStatus.VOD);
-                        restoreOriginalProductCostPrice(broadcast);
+                        restoreOriginalProductPrice(broadcast);
                     }
                     if (broadcast != null) {
                         saveBroadcastResultSnapshot(broadcast);
@@ -1813,7 +1813,7 @@ public class BroadcastService {
         saveQcards(broadcast, qcards);
     }
 
-    void applyLiveProductCostPrice(Broadcast broadcast) {
+    void applyLiveProductPrice(Broadcast broadcast) {
         List<BroadcastProduct> products = broadcastProductRepository.findAllWithProductByBroadcastId(broadcast.getBroadcastId());
         for (BroadcastProduct bp : products) {
             Integer bpPrice = bp.getBpPrice();
@@ -1821,21 +1821,21 @@ public class BroadcastService {
                 continue;
             }
             Product product = bp.getProduct();
-            redisService.storeOriginalCostPrice(broadcast.getBroadcastId(), product.getId(), product.getCostPrice());
-            product.changeCostPrice(bpPrice);
+            redisService.storeOriginalPrice(broadcast.getBroadcastId(), product.getId(), product.getPrice());
+            product.changePrice(bpPrice);
         }
     }
 
-    void restoreOriginalProductCostPrice(Broadcast broadcast) {
+    void restoreOriginalProductPrice(Broadcast broadcast) {
         List<BroadcastProduct> products = broadcastProductRepository.findAllWithProductByBroadcastId(broadcast.getBroadcastId());
         for (BroadcastProduct bp : products) {
-            Integer originalCostPrice = redisService.getOriginalCostPrice(broadcast.getBroadcastId(), bp.getProduct().getId());
-            if (originalCostPrice == null) {
+            Integer originalPrice = redisService.getOriginalPrice(broadcast.getBroadcastId(), bp.getProduct().getId());
+            if (originalPrice == null) {
                 continue;
             }
-            bp.getProduct().changeCostPrice(originalCostPrice);
+            bp.getProduct().changePrice(originalPrice);
         }
-        redisService.clearOriginalCostPrices(broadcast.getBroadcastId());
+        redisService.clearOriginalPrices(broadcast.getBroadcastId());
     }
 
     private void validateTransition(BroadcastStatus from, BroadcastStatus to) {
@@ -1865,32 +1865,32 @@ public class BroadcastService {
                 .map(bp -> BroadcastProductResponse.fromEntity(
                         bp,
                         remainingQuantities.getOrDefault(bp.getProduct().getId(), bp.getBpQuantity()),
-                        resolveOriginalCostPrice(broadcast, bp)
+                        resolveOriginalPrice(broadcast, bp)
                 ))
                 .collect(Collectors.toList());
     }
 
-    private Integer resolveOriginalCostPrice(Broadcast broadcast, BroadcastProduct bp) {
+    private Integer resolveOriginalPrice(Broadcast broadcast, BroadcastProduct bp) {
         if (broadcast == null || bp == null) {
             return null;
         }
-        Integer originalCostPrice = redisService.getOriginalCostPrice(broadcast.getBroadcastId(), bp.getProduct().getId());
-        return originalCostPrice != null ? originalCostPrice : bp.getProduct().getCostPrice();
+        Integer originalPrice = redisService.getOriginalPrice(broadcast.getBroadcastId(), bp.getProduct().getId());
+        return originalPrice != null ? originalPrice : bp.getProduct().getPrice();
     }
 
-    private void restoreOriginalCostPriceIfNeeded(Broadcast broadcast, BroadcastProduct bp) {
+    private void restoreOriginalPriceIfNeeded(Broadcast broadcast, BroadcastProduct bp) {
         if (broadcast == null || bp == null) {
             return;
         }
         if (broadcast.getStatus() != BroadcastStatus.ON_AIR) {
             return;
         }
-        Integer originalCostPrice = redisService.getOriginalCostPrice(broadcast.getBroadcastId(), bp.getProduct().getId());
-        if (originalCostPrice == null) {
+        Integer originalPrice = redisService.getOriginalPrice(broadcast.getBroadcastId(), bp.getProduct().getId());
+        if (originalPrice == null) {
             return;
         }
-        bp.getProduct().changeCostPrice(originalCostPrice);
-        redisService.removeOriginalCostPrice(broadcast.getBroadcastId(), bp.getProduct().getId());
+        bp.getProduct().changePrice(originalPrice);
+        redisService.removeOriginalPrice(broadcast.getBroadcastId(), bp.getProduct().getId());
     }
 
     @Transactional
@@ -1921,7 +1921,7 @@ public class BroadcastService {
                 }
                 Integer remaining = remainingQuantities.get(bp.getProduct().getId());
                 if (remaining == null || remaining <= 0) {
-                    restoreOriginalCostPriceIfNeeded(broadcast, bp);
+                    restoreOriginalPriceIfNeeded(broadcast, bp);
                 }
             }
         }

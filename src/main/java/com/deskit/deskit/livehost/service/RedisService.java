@@ -93,8 +93,8 @@ public class RedisService {
         return "broadcast:" + broadcastId + ":notice:" + type;
     }
 
-    public String getOriginalCostPriceKey(Long broadcastId) {
-        return "broadcast:" + broadcastId + ":original_cost_price";
+    public String getOriginalPriceKey(Long broadcastId) {
+        return "broadcast:" + broadcastId + ":original_price";
     }
 
     public String getRecordingRetryQueueKey() {
@@ -189,29 +189,29 @@ public class RedisService {
         redisTemplate.delete(getRecordingStartRetryAttemptKey(broadcastId));
     }
 
-    public void storeOriginalCostPrice(Long broadcastId, Long productId, Integer costPrice) {
-        if (costPrice == null) {
+    public void storeOriginalPrice(Long broadcastId, Long productId, Integer price) {
+        if (price == null) {
             return;
         }
         redisTemplate.opsForHash().putIfAbsent(
-                getOriginalCostPriceKey(broadcastId),
+                getOriginalPriceKey(broadcastId),
                 productId.toString(),
-                costPrice
+                price
         );
     }
 
-    public Integer getOriginalCostPrice(Long broadcastId, Long productId) {
+    public Integer getOriginalPrice(Long broadcastId, Long productId) {
         Object value = redisTemplate.opsForHash()
-                .get(getOriginalCostPriceKey(broadcastId), productId.toString());
+                .get(getOriginalPriceKey(broadcastId), productId.toString());
         return value != null ? Integer.valueOf(value.toString()) : null;
     }
 
-    public void removeOriginalCostPrice(Long broadcastId, Long productId) {
-        redisTemplate.opsForHash().delete(getOriginalCostPriceKey(broadcastId), productId.toString());
+    public void removeOriginalPrice(Long broadcastId, Long productId) {
+        redisTemplate.opsForHash().delete(getOriginalPriceKey(broadcastId), productId.toString());
     }
 
-    public void clearOriginalCostPrices(Long broadcastId) {
-        redisTemplate.delete(getOriginalCostPriceKey(broadcastId));
+    public void clearOriginalPrices(Long broadcastId) {
+        redisTemplate.delete(getOriginalPriceKey(broadcastId));
     }
 
     public void enterLiveRoom(Long broadcastId, String uuid) {
