@@ -48,6 +48,7 @@ public class AdminService {
 
             validateTransition(broadcast.getStatus(), BroadcastStatus.STOPPED);
             broadcast.forceStopByAdmin(reason);
+            broadcastService.restoreOriginalProductCostPrice(broadcast);
 
             broadcastService.saveBroadcastResultSnapshot(broadcast);
             openViduService.closeSession(broadcastId);

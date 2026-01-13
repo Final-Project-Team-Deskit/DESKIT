@@ -12,7 +12,7 @@ import lombok.NoArgsConstructor;
 public class ProductSelectResponse {
     private Long productId;
     private String productName;
-    private Integer price;      // 정가
+    private Integer price;      // 원가
     private Integer stockQty;   // 현재 재고
     private Integer safetyStock;   // 안전 재고
     private Integer reservedBroadcastQty;   // 예약 방송 판매 수량
