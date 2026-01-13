@@ -15,6 +15,7 @@ import com.deskit.deskit.product.repository.ProductRepository;
 import com.deskit.deskit.product.repository.ProductTagRepository;
 import com.deskit.deskit.product.repository.ProductTagRepository.ProductTagRow;
 import com.deskit.deskit.tag.entity.TagCategory.TagCode;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.EnumMap;
@@ -337,6 +338,28 @@ public class ProductService {
       throw new ResponseStatusException(HttpStatus.BAD_REQUEST, ex.getMessage());
     }
 
+    productRepository.save(product);
+  }
+
+  public void softDeleteProduct(Long sellerId, Long productId) {
+    if (sellerId == null) {
+      throw new ResponseStatusException(HttpStatus.FORBIDDEN, "seller_id required");
+    }
+    if (productId == null) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "product_id required");
+    }
+
+    Product product = productRepository.findById(productId)
+      .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "product not found"));
+
+    if (!Objects.equals(product.getSellerId(), sellerId)) {
+      throw new ResponseStatusException(HttpStatus.FORBIDDEN, "forbidden");
+    }
+    if (product.getDeletedAt() != null) {
+      return;
+    }
+
+    product.setDeletedAt(LocalDateTime.now());
     productRepository.save(product);
   }
 
