@@ -138,7 +138,7 @@ const timeLabel = computed(() => {
     return '송출 중지'
   }
   if (status.value === 'VOD') {
-    return totalDurationLabel.value ? `총 재생 ${totalDurationLabel.value}` : 'VOD'
+    return totalDurationLabel.value ? `재생 시간 ${totalDurationLabel.value}` : '재생 시간'
   }
   return endedDurationLabel.value ? `경과 ${endedDurationLabel.value}` : '방송 종료'
 })

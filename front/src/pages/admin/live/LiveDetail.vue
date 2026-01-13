@@ -1317,7 +1317,12 @@ watch(
                       alt="대기 화면"
                       @error="handleImageError"
                   />
-                  <p v-if="playerMessage" class="player-placeholder__message">{{ playerMessage }}</p>
+                  <p
+                    v-if="playerMessage && (!waitingScreenUrl || lifecycleStatus === 'STOPPED')"
+                    class="player-placeholder__message"
+                  >
+                    {{ playerMessage }}
+                  </p>
                 </div>
                 <div v-else-if="!hasSubscriberStream" class="player-label">송출 화면</div>
               </div>
