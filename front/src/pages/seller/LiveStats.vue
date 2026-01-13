@@ -13,6 +13,7 @@ type RankGroup = { best: RankItem[]; worst: RankItem[] }
 
 const revenueRange = ref<StatsRange>('monthly')
 const perViewerRange = ref<StatsRange>('monthly')
+const rankRange = ref<StatsRange>('monthly')
 const revenueRankView = ref<RankView>('best')
 const viewerRankView = ref<RankView>('best')
 
@@ -65,12 +66,8 @@ const loadRevenueStats = async () => {
   try {
     const payload = await fetchSellerStatistics(periodMap[revenueRange.value])
     revenueChart.value = mapChart(payload.salesChart ?? [])
-    revenueRanks.value = mapRankGroup(payload.bestBroadcasts ?? [], payload.worstBroadcasts ?? [])
-    viewerRanks.value = mapViewerRankGroup(payload.topViewerBroadcasts ?? [], payload.worstViewerBroadcasts ?? [])
   } catch {
     revenueChart.value = []
-    revenueRanks.value = { best: [], worst: [] }
-    viewerRanks.value = { best: [], worst: [] }
   }
 }
 
@@ -83,12 +80,27 @@ const loadViewerStats = async () => {
   }
 }
 
+const loadRankStats = async () => {
+  try {
+    const payload = await fetchSellerStatistics(periodMap[rankRange.value])
+    revenueRanks.value = mapRankGroup(payload.bestBroadcasts ?? [], payload.worstBroadcasts ?? [])
+    viewerRanks.value = mapViewerRankGroup(payload.topViewerBroadcasts ?? [], payload.worstViewerBroadcasts ?? [])
+  } catch {
+    revenueRanks.value = { best: [], worst: [] }
+    viewerRanks.value = { best: [], worst: [] }
+  }
+}
+
 watch(revenueRange, () => {
   loadRevenueStats()
 }, { immediate: true })
 
 watch(perViewerRange, () => {
   loadViewerStats()
+}, { immediate: true })
+
+watch(rankRange, () => {
+  loadRankStats()
 }, { immediate: true })
 </script>
 
@@ -165,6 +177,35 @@ watch(perViewerRange, () => {
     </section>
 
     <section class="stats-section stats-section--ranks">
+      <div class="stats-section__head">
+        <h3 class="stats-section__title">순위 리스트</h3>
+        <div class="toggle-group" role="tablist" aria-label="순위 기간">
+          <button
+            type="button"
+            class="toggle-btn"
+            :class="{ 'toggle-btn--active': rankRange === 'daily' }"
+            @click="rankRange = 'daily'"
+          >
+            일별
+          </button>
+          <button
+            type="button"
+            class="toggle-btn"
+            :class="{ 'toggle-btn--active': rankRange === 'monthly' }"
+            @click="rankRange = 'monthly'"
+          >
+            월별
+          </button>
+          <button
+            type="button"
+            class="toggle-btn"
+            :class="{ 'toggle-btn--active': rankRange === 'yearly' }"
+            @click="rankRange = 'yearly'"
+          >
+            연도별
+          </button>
+        </div>
+      </div>
       <article class="ds-surface stats-card">
         <header class="stats-card__head">
           <h3 class="stats-card__title">매출 베스트/워스트 방송 5순위</h3>
@@ -235,6 +276,21 @@ watch(perViewerRange, () => {
   grid-template-columns: repeat(auto-fit, minmax(380px, 1fr));
 }
 
+.stats-section__head {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.stats-section__title {
+  margin: 0;
+  font-size: 1.1rem;
+  font-weight: 800;
+}
+
 .stats-card {
   padding: 18px;
   border-radius: 16px;
@@ -282,6 +338,11 @@ watch(perViewerRange, () => {
 
 @media (max-width: 640px) {
   .stats-card__head {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .stats-section__head {
     flex-direction: column;
     align-items: flex-start;
   }

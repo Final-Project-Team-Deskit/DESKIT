@@ -11,6 +11,7 @@ type RankItem = { rank: number; title: string; value: number }
 
 const stopMetric = ref<Metric>('daily')
 const viewerMetric = ref<Metric>('daily')
+const rankMetric = ref<Metric>('daily')
 
 const periodMap: Record<Metric, string> = {
   daily: 'DAILY',
@@ -59,12 +60,8 @@ const loadStopStats = async () => {
   try {
     const payload = await fetchSanctionStatistics(periodMap[stopMetric.value])
     stopChart.value = mapChart(payload.forceStopChart ?? [])
-    topSellerStops.value = mapSellerRanks(payload.worstSellers ?? [])
-    topViewerSanctions.value = mapViewerRanks(payload.worstViewers ?? [])
   } catch {
     stopChart.value = []
-    topSellerStops.value = []
-    topViewerSanctions.value = []
   }
 }
 
@@ -77,12 +74,27 @@ const loadViewerStats = async () => {
   }
 }
 
+const loadRankStats = async () => {
+  try {
+    const payload = await fetchSanctionStatistics(periodMap[rankMetric.value])
+    topSellerStops.value = mapSellerRanks(payload.worstSellers ?? [])
+    topViewerSanctions.value = mapViewerRanks(payload.worstViewers ?? [])
+  } catch {
+    topSellerStops.value = []
+    topViewerSanctions.value = []
+  }
+}
+
 watch(stopMetric, () => {
   loadStopStats()
 }, { immediate: true })
 
 watch(viewerMetric, () => {
   loadViewerStats()
+}, { immediate: true })
+
+watch(rankMetric, () => {
+  loadRankStats()
 }, { immediate: true })
 </script>
 
@@ -142,6 +154,35 @@ watch(viewerMetric, () => {
     </section>
 
     <section class="ranks-grid">
+      <div class="ranks-grid__head">
+        <h3 class="ranks-grid__title">순위 리스트</h3>
+        <div class="toggle-group" role="tablist" aria-label="순위 기간">
+          <button
+            type="button"
+            class="toggle-btn"
+            :class="{ 'toggle-btn--active': rankMetric === 'daily' }"
+            @click="rankMetric = 'daily'"
+          >
+            일별
+          </button>
+          <button
+            type="button"
+            class="toggle-btn"
+            :class="{ 'toggle-btn--active': rankMetric === 'monthly' }"
+            @click="rankMetric = 'monthly'"
+          >
+            월별
+          </button>
+          <button
+            type="button"
+            class="toggle-btn"
+            :class="{ 'toggle-btn--active': rankMetric === 'yearly' }"
+            @click="rankMetric = 'yearly'"
+          >
+            연도별
+          </button>
+        </div>
+      </div>
       <article class="ds-surface panel">
         <h3 class="panel__title">송출 중지 횟수 많은 판매자 TOP 5</h3>
         <StatsRankList :items="topSellerStops" />
@@ -188,9 +229,25 @@ watch(viewerMetric, () => {
 
 .ranks-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(380px, 1fr));
   gap: 14px;
   margin-top: 14px;
+}
+
+.ranks-grid__head {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.ranks-grid__title {
+  margin: 0;
+  font-size: 1.1rem;
+  font-weight: 900;
+  color: var(--text-strong);
 }
 
 .panel {
@@ -234,5 +291,17 @@ watch(viewerMetric, () => {
   border-color: var(--primary-color);
   color: var(--primary-color);
   background: rgba(var(--primary-rgb), 0.08);
+}
+
+@media (max-width: 640px) {
+  .ranks-grid__head {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .toggle-group {
+    width: 100%;
+    flex-wrap: wrap;
+  }
 }
 </style>

@@ -1,6 +1,9 @@
 package com.deskit.deskit.order.service;
 
 import com.deskit.deskit.account.repository.MemberRepository;
+import com.deskit.deskit.account.address.service.AddressService;
+import com.deskit.deskit.livehost.repository.BroadcastProductRepository;
+import com.deskit.deskit.livehost.service.BroadcastService;
 import com.deskit.deskit.order.dto.OrderCancelRequest;
 import com.deskit.deskit.order.dto.OrderCancelResponse;
 import com.deskit.deskit.order.dto.CreateOrderItemRequest;
@@ -12,10 +15,13 @@ import com.deskit.deskit.order.dto.OrderSummaryResponse;
 import com.deskit.deskit.order.entity.Order;
 import com.deskit.deskit.order.entity.OrderItem;
 import com.deskit.deskit.order.enums.OrderStatus;
+import com.deskit.deskit.order.payment.service.TossPaymentService;
 import com.deskit.deskit.order.repository.OrderItemRepository;
 import com.deskit.deskit.order.repository.OrderRepository;
 import com.deskit.deskit.product.entity.Product;
 import com.deskit.deskit.product.repository.ProductRepository;
+
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -23,6 +29,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.stream.Collectors;
+
+import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -30,22 +38,17 @@ import org.springframework.web.server.ResponseStatusException;
 
 @Service
 @Transactional
+@RequiredArgsConstructor
 public class OrderService {
 
   private final OrderRepository orderRepository;
   private final OrderItemRepository orderItemRepository;
   private final ProductRepository productRepository;
   private final MemberRepository memberRepository;
-
-  public OrderService(OrderRepository orderRepository,
-                      OrderItemRepository orderItemRepository,
-                      ProductRepository productRepository,
-                      MemberRepository memberRepository) {
-    this.orderRepository = orderRepository;
-    this.orderItemRepository = orderItemRepository;
-    this.productRepository = productRepository;
-    this.memberRepository = memberRepository;
-  }
+  private final TossPaymentService tossPaymentService;
+  private final AddressService addressService;
+  private final BroadcastProductRepository broadcastProductRepository;
+  private final BroadcastService broadcastService;
 
   public CreateOrderResponse createOrder(Long memberId, CreateOrderRequest request) {
     if (memberId == null) {
@@ -62,6 +65,10 @@ public class OrderService {
     if (items == null || items.isEmpty()) {
       throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "items required");
     }
+
+    String receiver = normalizeReceiver(request.receiver());
+    String postcode = normalizePostcode(request.postcode());
+    String addrDetail = normalizeAddrDetail(request.addrDetail());
 
     Map<Long, Integer> quantityByProductId = new HashMap<>();
     for (CreateOrderItemRequest item : items) {
@@ -107,6 +114,7 @@ public class OrderService {
 
     Order order = Order.create(
       memberId,
+      addrDetail,
       orderNumber,
       totalProductAmount,
       shippingFee,
@@ -115,6 +123,7 @@ public class OrderService {
       OrderStatus.CREATED
     );
     Order savedOrder = orderRepository.save(order);
+    addressService.saveAddressFromOrder(memberId, receiver, postcode, addrDetail, request.isDefault());
 
     for (CreateOrderItemRequest item : items) {
       int quantity = safeQuantity(item.quantity());
@@ -196,7 +205,7 @@ public class OrderService {
       throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "reason required");
     }
 
-    Order order = orderRepository.findById(orderId)
+    Order order = orderRepository.findByIdForUpdate(orderId)
       .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "order not found"));
     if (!order.getMemberId().equals(memberId)) {
       throw new ResponseStatusException(HttpStatus.FORBIDDEN, "forbidden");
@@ -208,8 +217,39 @@ public class OrderService {
       throw new ResponseStatusException(HttpStatus.BAD_REQUEST, ex.getMessage());
     }
 
+    if (order.getStatus() == OrderStatus.REFUND_REQUESTED) {
+      tossPaymentService.cancelPayment(order, request.reason());
+      order.approveRefund();
+      updateBroadcastSalesAfterRefund(order);
+    }
+
     orderRepository.save(order);
     return new OrderCancelResponse(order.getId(), order.getStatus());
+  }
+
+  private void updateBroadcastSalesAfterRefund(Order order) {
+    if (order == null) {
+      return;
+    }
+    LocalDateTime paidAt = order.getPaidAt();
+    if (paidAt == null) {
+      return;
+    }
+    List<OrderItem> items = orderItemRepository.findByOrder_Id(order.getId());
+    if (items.isEmpty()) {
+      return;
+    }
+    List<Long> productIds = items.stream()
+            .map(OrderItem::getProductId)
+            .distinct()
+            .toList();
+    if (productIds.isEmpty()) {
+      return;
+    }
+    List<Long> broadcastIds = broadcastProductRepository.findBroadcastIdsByProductIdsAndPaidAt(productIds, paidAt);
+    for (Long broadcastId : broadcastIds) {
+      broadcastService.refreshBroadcastTotalSales(broadcastId);
+    }
   }
 
   private int safeQuantity(Integer quantity) {
@@ -217,6 +257,30 @@ public class OrderService {
       throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "quantity must be >= 1");
     }
     return quantity;
+  }
+
+  private String normalizeReceiver(String receiver) {
+    String normalized = receiver == null ? "" : receiver.trim();
+    if (normalized.isEmpty()) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "receiver required");
+    }
+    return normalized.length() > 20 ? normalized.substring(0, 20) : normalized;
+  }
+
+  private String normalizePostcode(String postcode) {
+    String normalized = postcode == null ? "" : postcode.trim();
+    if (!normalized.matches("\\d{5}")) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "postcode invalid");
+    }
+    return normalized;
+  }
+
+  private String normalizeAddrDetail(String addrDetail) {
+    String normalized = addrDetail == null ? "" : addrDetail.trim();
+    if (normalized.isEmpty()) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "addr_detail required");
+    }
+    return normalized.length() > 255 ? normalized.substring(0, 255) : normalized;
   }
 
   private String generateOrderNumber() {

@@ -149,6 +149,7 @@ export type BroadcastDetailResponse = {
     originalPrice: number
     stockQty?: number
     safetyStock?: number
+    productStockQty?: number
     bpPrice: number
     bpQuantity: number
     displayOrder: number
@@ -340,7 +341,19 @@ export const fetchPublicBroadcastDetail = async (broadcastId: number): Promise<B
 
 export const fetchBroadcastProducts = async (broadcastId: number): Promise<BroadcastProductItem[]> => {
   const { data } = await http.get<
-    ApiResult<Array<{ productId: number; name: string; imageUrl?: string; bpPrice: number; bpQuantity: number; stockQty?: number; status: string; isPinned?: boolean }>>
+    ApiResult<
+      Array<{
+        productId: number
+        name: string
+        imageUrl?: string
+        bpPrice: number
+        bpQuantity: number
+        stockQty?: number
+        status: string
+        isPinned?: boolean
+        pinned?: boolean
+      }>
+    >
   >(`/api/broadcasts/${broadcastId}/products`)
   const payload = ensureSuccess(data)
   return payload.map((item) => ({
@@ -349,7 +362,7 @@ export const fetchBroadcastProducts = async (broadcastId: number): Promise<Broad
     imageUrl: item.imageUrl ?? '',
     price: item.bpPrice,
     totalQty: item.bpQuantity,
-    isPinned: item.isPinned ?? false,
+    isPinned: item.isPinned ?? item.pinned ?? false,
     isSoldOut: item.status === 'SOLDOUT' || item.bpQuantity <= 0,
     stockQty: item.stockQty ?? item.bpQuantity,
   }))
@@ -394,6 +407,11 @@ export const recordVodView = async (broadcastId: number, viewerId?: string | nul
 
 export const toggleBroadcastLike = async (broadcastId: number): Promise<BroadcastLikeResponse> => {
   const { data } = await http.post<ApiResult<BroadcastLikeResponse>>(`/api/member/broadcasts/${broadcastId}/like`)
+  return ensureSuccess(data)
+}
+
+export const fetchBroadcastLikeStatus = async (broadcastId: number): Promise<BroadcastLikeResponse> => {
+  const { data } = await http.get<ApiResult<BroadcastLikeResponse>>(`/api/member/broadcasts/${broadcastId}/like-status`)
   return ensureSuccess(data)
 }
 
@@ -478,6 +496,28 @@ export const fetchAdminStatistics = async (period: string): Promise<StatisticsRe
 
 export const fetchSanctionStatistics = async (period: string): Promise<SanctionStatisticsResponse> => {
   const { data } = await http.get<ApiResult<SanctionStatisticsResponse>>('/api/admin/sanctions/statistics', { params: { period } })
+  return ensureSuccess(data)
+}
+
+export const sanctionSellerViewer = async (
+  broadcastId: number,
+  payload: { memberLoginId: string; status: 'MUTE' | 'OUT'; reason?: string; connectionId?: string },
+): Promise<void> => {
+  const { data } = await http.post<ApiResult<void>>(`/api/seller/broadcasts/${broadcastId}/sanctions`, {
+    ...payload,
+    actorType: 'SELLER',
+  })
+  return ensureSuccess(data)
+}
+
+export const sanctionAdminViewer = async (
+  broadcastId: number,
+  payload: { memberLoginId: string; status: 'MUTE' | 'OUT'; reason?: string; connectionId?: string },
+): Promise<void> => {
+  const { data } = await http.post<ApiResult<void>>(`/api/admin/broadcasts/${broadcastId}/sanctions`, {
+    ...payload,
+    actorType: 'ADMIN',
+  })
   return ensureSuccess(data)
 }
 

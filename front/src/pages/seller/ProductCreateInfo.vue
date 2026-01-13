@@ -3,7 +3,7 @@ import {onMounted, ref} from 'vue'
 import {useRoute, useRouter} from 'vue-router'
 import PageContainer from '../../components/PageContainer.vue'
 import PageHeader from '../../components/PageHeader.vue'
-import {getAuthUser} from '../../lib/auth'
+import ProductBasicFields from '../../components/seller/ProductBasicFields.vue'
 import {clearProductDraft, loadProductDraft, saveProductDraft} from '../../composables/useSellerProducts'
 
 const route = useRoute()
@@ -18,25 +18,10 @@ const stock = ref(0)
 const images = ref<string[]>(['', '', '', '', ''])
 const error = ref('')
 
-const sellerId = ref<number | null>(null)
-
 const buildAuthHeaders = (): Record<string, string> => {
   const access = localStorage.getItem('access') || sessionStorage.getItem('access')
   if (!access) return {}
   return {Authorization: `Bearer ${access}`}
-}
-
-const deriveSellerId = () => {
-  const user = getAuthUser() as any
-  const candidates = [user?.seller_id, user?.sellerId, user?.id, user?.user_id, user?.userId]
-  for (const value of candidates) {
-    if (typeof value === 'number' && Number.isFinite(value)) return value
-    if (typeof value === 'string') {
-      const parsed = Number.parseInt(value, 10)
-      if (!Number.isNaN(parsed)) return parsed
-    }
-  }
-  return null
 }
 
 const loadDraft = () => {
@@ -58,7 +43,6 @@ const loadDraft = () => {
 const saveDraft = (productId?: number) => {
   saveProductDraft({
     id: productId ? String(productId) : undefined,
-    sellerId: sellerId.value ?? undefined,
     name: name.value.trim(),
     shortDesc: shortDesc.value.trim(),
     costPrice: costPrice.value,
@@ -142,7 +126,6 @@ const cancel = () => {
 }
 
 onMounted(() => {
-  sellerId.value = deriveSellerId()
   const resume = route.query.resume
   const shouldResume = resume === '1' || (Array.isArray(resume) && resume[0] === '1')
   if (shouldResume) {
@@ -163,10 +146,19 @@ onMounted(() => {
   <PageContainer>
     <PageHeader eyebrow="DESKIT" title="상품 등록 - 기본 정보"/>
     <section class="create-card ds-surface">
-      <label class="field">
-        <span class="field__label">상품명</span>
-        <input v-model="name" type="text" placeholder="예: 모던 데스크 매트"/>
-      </label>
+      <ProductBasicFields
+        v-model:name="name"
+        v-model:shortDesc="shortDesc"
+        v-model:price="price"
+        v-model:stock="stock"
+      >
+        <template #extra-fields>
+          <label class="field">
+            <span class="field__label">원가</span>
+            <input v-model.number="costPrice" type="number" min="0"/>
+          </label>
+        </template>
+      </ProductBasicFields>
       <div class="section-block">
         <div class="section-head">
           <h3>상품 이미지</h3>
@@ -188,24 +180,6 @@ onMounted(() => {
             </div>
           </div>
         </div>
-      </div>
-      <label class="field">
-        <span class="field__label">한 줄 소개</span>
-        <input v-model="shortDesc" type="text" placeholder="예: 감성적인 데스크테리어"/>
-      </label>
-      <div class="field-grid">
-        <label class="field">
-          <span class="field__label">원가</span>
-          <input v-model.number="costPrice" type="number" min="0"/>
-        </label>
-        <label class="field">
-          <span class="field__label">판매가</span>
-          <input v-model.number="price" type="number" min="0"/>
-        </label>
-        <label class="field">
-          <span class="field__label">재고 수량</span>
-          <input v-model.number="stock" type="number" min="0"/>
-        </label>
       </div>
       <p v-if="error" class="error">{{ error }}</p>
       <div class="actions">

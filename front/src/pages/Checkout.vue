@@ -12,6 +12,9 @@ import {
   type PaymentMethod,
 } from '../lib/checkout/checkout-storage'
 import { createOrder } from '../api/orders'
+import { getMyAddresses } from '../api/addresses'
+import type { AddressResponse } from '../api/types/addresses'
+import { getAuthUser } from '../lib/auth'
 import {
   clearPendingTossPayment,
   savePendingTossPayment,
@@ -27,12 +30,17 @@ const TOSS_CLIENT_KEY =
 const draft = ref<CheckoutDraft | null>(null)
 const isSubmitting = ref(false)
 let inflight: Promise<void> | null = null
+const addresses = ref<AddressResponse[]>([])
+const addressesLoading = ref(false)
+const addressesError = ref('')
+const selectedAddressId = ref<number | null>(null)
 
 const form = reactive<ShippingInfo>({
   buyerName: '',
   zipcode: '',
   address1: '',
   address2: '',
+  isDefault: false,
 })
 const address2Ref = ref<HTMLInputElement | null>(null)
 let postcodeScriptPromise: Promise<void> | null = null
@@ -42,6 +50,7 @@ const errors = reactive<Record<keyof ShippingInfo, string>>({
   zipcode: '',
   address1: '',
   address2: '',
+  isDefault: '',
 })
 
 const isTossReady = ref(false)
@@ -91,13 +100,14 @@ const refreshDraft = () => {
   form.zipcode = draft.value.shipping?.zipcode ?? ''
   form.address1 = draft.value.shipping?.address1 ?? ''
   form.address2 = draft.value.shipping?.address2 ?? ''
+  form.isDefault = draft.value.shipping?.isDefault ?? false
 }
+
+const hasAddresses = computed(() => addresses.value.length > 0)
 
 const persistField = (field: keyof ShippingInfo, value: string) => {
   let sanitized = value
-  if (field === 'buyerName') {
-    sanitized = sanitized.replace(/^\s+/, '').slice(0, 6)
-  } else if (field === 'zipcode') {
+  if (field === 'zipcode') {
     sanitized = sanitized.replace(/[^0-9]/g, '').slice(0, 5)
   }
 
@@ -105,6 +115,74 @@ const persistField = (field: keyof ShippingInfo, value: string) => {
   const updated = updateShipping({ [field]: sanitized } as Partial<ShippingInfo>)
   if (updated) {
     draft.value = updated
+  }
+}
+
+const toggleDefault = (checked: boolean) => {
+  form.isDefault = checked
+  const updated = updateShipping({ isDefault: checked })
+  if (updated) {
+    draft.value = updated
+  }
+}
+
+const resolveReceiver = () => {
+  const selected = addresses.value.find((item) => item.address_id === selectedAddressId.value)
+  if (selected && selected.receiver.trim()) return selected.receiver.trim()
+  const userName = getAuthUser()?.name ?? ''
+  if (userName.trim()) return userName.trim()
+  return '고객'
+}
+
+const applySelectedAddress = (address: AddressResponse) => {
+  form.zipcode = address.postcode
+  form.address1 = address.addr_detail
+  form.address2 = ''
+  form.buyerName = address.receiver
+  const updated = updateShipping({
+    buyerName: address.receiver,
+    zipcode: address.postcode,
+    address1: address.addr_detail,
+    address2: '',
+  })
+  if (updated) {
+    draft.value = updated
+  }
+}
+
+const selectAddress = (address: AddressResponse) => {
+  selectedAddressId.value = address.address_id
+  applySelectedAddress(address)
+}
+
+const loadAddresses = async () => {
+  addressesLoading.value = true
+  addressesError.value = ''
+  try {
+    const response = await getMyAddresses()
+    addresses.value = Array.isArray(response) ? response : []
+    if (addresses.value.length > 0) {
+      const defaultAddress =
+        addresses.value.find((item) => item.is_default) ?? addresses.value[0]
+      selectedAddressId.value = defaultAddress.address_id
+      applySelectedAddress(defaultAddress)
+      form.isDefault = false
+      updateShipping({ isDefault: false })
+    } else {
+      form.isDefault = true
+      form.buyerName = resolveReceiver()
+      updateShipping({ isDefault: true, buyerName: form.buyerName })
+    }
+  } catch (error: any) {
+    const status = error?.response?.status
+    if (status === 401 || status === 403) {
+      router.push('/login').catch(() => {})
+      return
+    }
+    addressesError.value = '배송지 정보를 불러오지 못했습니다.'
+    addresses.value = []
+  } finally {
+    addressesLoading.value = false
   }
 }
 
@@ -165,35 +243,28 @@ const validate = () => {
   errors.zipcode = ''
   errors.address1 = ''
   errors.address2 = ''
+  errors.isDefault = ''
 
-  const name = form.buyerName.trim()
   const zip = form.zipcode.trim()
   const addr1 = form.address1.trim()
   const addr2 = form.address2.trim()
-
-  if (!name) errors.buyerName = '주문자 이름을 입력해주세요.'
-  else if (!/^[a-zA-Z가-힣]{1,6}$/.test(name)) {
-    errors.buyerName = '이름은 영문/한글 6글자 이내로 입력해주세요.'
-  }
 
   if (!zip) errors.zipcode = '우편번호를 입력해주세요.'
   else if (!/^[0-9]{5}$/.test(zip)) errors.zipcode = '우편번호는 5자리 숫자입니다.'
 
   if (!addr1) errors.address1 = '주소를 입력해주세요.'
 
-  form.buyerName = name
   form.zipcode = zip
   form.address1 = addr1
   form.address2 = addr2
 
-  return !errors.buyerName && !errors.zipcode && !errors.address1 && !errors.address2
+  return !errors.zipcode && !errors.address1 && !errors.address2
 }
 
 const canProceed = computed(() => {
-  const name = form.buyerName.trim()
   const zip = form.zipcode.trim()
   const addr1 = form.address1.trim()
-  return /^[a-zA-Z가-힣]{1,6}$/.test(name) && /^[0-9]{5}$/.test(zip) && !!addr1
+  return /^[0-9]{5}$/.test(zip) && !!addr1
 })
 
 const handleNext = () => {
@@ -352,7 +423,17 @@ const handleTossPayment = async () => {
   tossError.value = ''
   inflight = (async () => {
     clearPendingTossPayment()
-    const response = await createOrder({ items: orderItems })
+    const addrDetail = [current.shipping?.address1, current.shipping?.address2]
+      .map((value) => (value ?? '').trim())
+      .filter((value) => value.length > 0)
+      .join(' ')
+    const response = await createOrder({
+      items: orderItems,
+      receiver: resolveReceiver(),
+      postcode: String(current.shipping?.zipcode ?? '').trim(),
+      addr_detail: addrDetail,
+      is_default: Boolean(current.shipping?.isDefault),
+    })
     if (!response?.order_id) {
       throw new Error('invalid order response')
     }
@@ -460,6 +541,7 @@ const storageRefreshHandler = () => refreshDraft()
 
 onMounted(() => {
   refreshDraft()
+  loadAddresses()
   window.addEventListener('deskit-checkout-updated', storageRefreshHandler)
   window.addEventListener('storage', storageRefreshHandler)
 })
@@ -499,64 +581,95 @@ onBeforeUnmount(() => {
             </div>
 
             <div class="form">
-              <div class="field">
-                <label for="buyerName">주문자 이름</label>
-                <input
-                  id="buyerName"
-                  type="text"
-                  :value="form.buyerName"
-                  placeholder="영문/한글 6글자 이내"
-                  maxlength="6"
-                  @input="persistField('buyerName', ($event.target as HTMLInputElement).value)"
-                  @blur="validate"
-                />
-                <p v-if="errors.buyerName" class="error">{{ errors.buyerName }}</p>
+              <div v-if="addressesLoading" class="address-state">
+                <p>배송지 정보를 불러오는 중입니다.</p>
               </div>
+              <div v-else-if="addressesError" class="address-state error">
+                <p>{{ addressesError }}</p>
+              </div>
+              <div v-else-if="hasAddresses" class="address-select">
+                <p class="field-label">등록된 배송지</p>
+                <div class="address-options">
+                  <label
+                    v-for="address in addresses"
+                    :key="address.address_id"
+                    class="address-option"
+                  >
+                    <input
+                      type="radio"
+                      name="shipping-address"
+                      :value="address.address_id"
+                      :checked="selectedAddressId === address.address_id"
+                      @change="selectAddress(address)"
+                    />
+                    <div class="option-body">
+                      <div class="option-head">
+                        <span class="receiver">{{ address.receiver }}</span>
+                        <span v-if="address.is_default" class="badge">기본</span>
+                      </div>
+                      <p class="address-text">{{ address.postcode }} {{ address.addr_detail }}</p>
+                    </div>
+                  </label>
+                </div>
+              </div>
+              <div v-else class="address-form">
+                <div class="field">
+                  <label for="zipcode">우편번호</label>
+                  <div class="field-row">
+                    <input
+                      id="zipcode"
+                      type="text"
+                      :value="form.zipcode"
+                      placeholder="12345"
+                      maxlength="5"
+                      inputmode="numeric"
+                      pattern="\\d{5}"
+                      readonly
+                      @blur="validate"
+                    />
+                    <button type="button" class="btn ghost btn-inline" @click="openPostcode">
+                      우편번호 찾기
+                    </button>
+                  </div>
+                  <p v-if="errors.zipcode" class="error">{{ errors.zipcode }}</p>
+                </div>
 
-              <div class="field">
-                <label for="zipcode">우편번호</label>
-                <div class="field-row">
+                <div class="field">
+                  <label for="address1">주소</label>
                   <input
-                    id="zipcode"
+                    id="address1"
                     type="text"
-                    :value="form.zipcode"
-                    placeholder="12345"
-                    maxlength="5"
-                    inputmode="numeric"
-                    pattern="\\d{5}"
+                    :value="form.address1"
+                    placeholder="서울특별시 강남구 강남로 123"
                     readonly
                     @blur="validate"
                   />
-                  <button type="button" class="btn ghost btn-inline" @click="openPostcode">
-                    우편번호 찾기
-                  </button>
+                  <p v-if="errors.address1" class="error">{{ errors.address1 }}</p>
                 </div>
-                <p v-if="errors.zipcode" class="error">{{ errors.zipcode }}</p>
-              </div>
 
-              <div class="field">
-                <label for="address1">주소</label>
-                <input
-                  id="address1"
-                  type="text"
-                  :value="form.address1"
-                  placeholder="서울특별시 강남구 강남로 123"
-                  readonly
-                  @blur="validate"
-                />
-                <p v-if="errors.address1" class="error">{{ errors.address1 }}</p>
-              </div>
+                <div class="field">
+                  <label for="address2">상세주소</label>
+                  <input
+                    id="address2"
+                    type="text"
+                    :value="form.address2"
+                    placeholder="예) 101동 101호"
+                    ref="address2Ref"
+                    @input="persistField('address2', ($event.target as HTMLInputElement).value)"
+                  />
+                </div>
 
-              <div class="field">
-                <label for="address2">상세주소</label>
-                <input
-                  id="address2"
-                  type="text"
-                  :value="form.address2"
-                  placeholder="예) 101동 101호"
-                  ref="address2Ref"
-                  @input="persistField('address2', ($event.target as HTMLInputElement).value)"
-                />
+                <div class="field field--checkbox">
+                  <label class="checkbox">
+                    <input
+                      type="checkbox"
+                      :checked="form.isDefault"
+                      :disabled="!hasAddresses"
+                      @change="toggleDefault(($event.target as HTMLInputElement).checked)"
+                    />
+                    <span>기본값으로 설정</span>
+                  </label>
+                </div>
               </div>
             </div>
           </section>
@@ -774,6 +887,97 @@ onBeforeUnmount(() => {
 .field input:focus {
   border-color: var(--primary-color);
   background: var(--surface);
+}
+
+.address-state {
+  border: 1px dashed var(--border-color);
+  border-radius: 12px;
+  padding: 12px;
+  color: var(--text-muted);
+  font-weight: 700;
+}
+
+.address-select {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.field-label {
+  margin: 0;
+  font-weight: 800;
+  color: var(--text-strong);
+}
+
+.address-options {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.address-option {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--border-color);
+  background: var(--surface-weak);
+  cursor: pointer;
+}
+
+.address-option input {
+  margin-top: 2px;
+}
+
+.option-body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.option-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.option-head .receiver {
+  font-weight: 900;
+  color: var(--text-strong);
+}
+
+.address-text {
+  margin: 0;
+  color: var(--text-muted);
+  font-weight: 700;
+}
+
+.badge {
+  padding: 4px 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(34, 197, 94, 0.55);
+  color: #16a34a;
+  background: rgba(34, 197, 94, 0.12);
+  font-weight: 800;
+  font-size: 12px;
+}
+
+.field--checkbox {
+  margin-top: 4px;
+}
+
+.checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 800;
+  color: var(--text-strong);
+}
+
+.checkbox input {
+  width: 16px;
+  height: 16px;
 }
 
 .error {

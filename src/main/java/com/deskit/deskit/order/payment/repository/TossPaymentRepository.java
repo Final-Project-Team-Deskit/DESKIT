@@ -6,4 +6,6 @@ import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface TossPaymentRepository extends JpaRepository<TossPayment, Long> {
   Optional<TossPayment> findByTossPaymentKey(String tossPaymentKey);
+  Optional<TossPayment> findByOrderId(String orderId);
+  Optional<TossPayment> findByTossOrderId(String tossOrderId);
 }

@@ -2,8 +2,14 @@ package com.deskit.deskit.product.service;
 
 import com.deskit.deskit.product.dto.ProductCreateRequest;
 import com.deskit.deskit.product.dto.ProductCreateResponse;
+import com.deskit.deskit.product.dto.ProductBasicUpdateRequest;
+import com.deskit.deskit.product.dto.ProductDetailUpdateRequest;
 import com.deskit.deskit.product.dto.ProductResponse;
 import com.deskit.deskit.product.dto.ProductResponse.ProductTags;
+import com.deskit.deskit.product.dto.SellerProductListResponse;
+import com.deskit.deskit.product.dto.SellerProductDetailResponse;
+import com.deskit.deskit.product.dto.SellerProductStatusUpdateRequest;
+import com.deskit.deskit.product.dto.SellerProductStatusUpdateResponse;
 import com.deskit.deskit.product.entity.Product;
 import com.deskit.deskit.product.repository.ProductRepository;
 import com.deskit.deskit.product.repository.ProductTagRepository;
@@ -84,7 +90,7 @@ public class ProductService {
     return Optional.of(ProductResponse.from(product.get(), tags, tagsFlat));
   }
 
-  public List<ProductResponse> getSellerProducts(Long sellerId) {
+  public List<SellerProductListResponse> getSellerProducts(Long sellerId) {
     if (sellerId == null) {
       throw new ResponseStatusException(HttpStatus.FORBIDDEN, "seller_id required");
     }
@@ -104,21 +110,21 @@ public class ProductService {
       return Collections.emptyList();
     }
 
-    List<Long> productIds = products.stream()
-            .map(Product::getId)
-            .collect(Collectors.toList());
-
-    List<ProductTagRow> rows = productTagRepository.findActiveTagsByProductIds(productIds);
-    Map<Long, TagsBundle> tagsByProductId = buildTagsByProductId(rows);
-
     return products.stream()
-            .map(product -> {
-              TagsBundle bundle = tagsByProductId.get(product.getId());
-              ProductTags tags = bundle == null ? ProductTags.empty() : bundle.getTags();
-              List<String> tagsFlat = bundle == null ? Collections.emptyList() : bundle.getTagsFlat();
-              return ProductResponse.fromForSeller(product, tags, tagsFlat);
-            })
-            .collect(Collectors.toList());
+      .sorted((left, right) -> {
+        if (left.getCreatedAt() == null && right.getCreatedAt() == null) {
+          return 0;
+        }
+        if (left.getCreatedAt() == null) {
+          return 1;
+        }
+        if (right.getCreatedAt() == null) {
+          return -1;
+        }
+        return right.getCreatedAt().compareTo(left.getCreatedAt());
+      })
+      .map(SellerProductListResponse::from)
+      .collect(Collectors.toList());
   }
 
   public ProductCreateResponse createProduct(Long sellerId, ProductCreateRequest request) {
@@ -138,8 +144,8 @@ public class ProductService {
       throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "short_desc required");
     }
     String detailHtml = request.detailHtml();
-    if (detailHtml == null || detailHtml.isBlank()) {
-      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "detail_html required");
+    if (detailHtml == null) {
+      detailHtml = "";
     }
 
     Integer price = request.price();
@@ -171,6 +177,167 @@ public class ProductService {
     );
     Product saved = productRepository.save(product);
     return ProductCreateResponse.from(saved);
+  }
+
+  public SellerProductStatusUpdateResponse updateProductStatus(
+    Long sellerId,
+    Long productId,
+    SellerProductStatusUpdateRequest request
+  ) {
+    if (sellerId == null) {
+      throw new ResponseStatusException(HttpStatus.FORBIDDEN, "seller_id required");
+    }
+    if (productId == null) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "product_id required");
+    }
+    if (request == null || request.status() == null) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "status required");
+    }
+
+    Product product = productRepository.findByIdAndDeletedAtIsNull(productId)
+      .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "product not found"));
+
+    if (!Objects.equals(product.getSellerId(), sellerId)) {
+      throw new ResponseStatusException(HttpStatus.FORBIDDEN, "forbidden");
+    }
+
+    try {
+      product.changeStatus(request.status());
+    } catch (IllegalStateException ex) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, ex.getMessage());
+    }
+
+    Product saved = productRepository.save(product);
+    return SellerProductStatusUpdateResponse.from(saved);
+  }
+
+  public void updateProductDetailHtml(Long sellerId, Long productId, ProductDetailUpdateRequest request) {
+    if (sellerId == null) {
+      throw new ResponseStatusException(HttpStatus.FORBIDDEN, "seller_id required");
+    }
+    if (productId == null) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "product_id required");
+    }
+    if (request == null || request.detailHtml() == null) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "detail_html required");
+    }
+
+    Product product = productRepository.findByIdAndDeletedAtIsNull(productId)
+      .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "product not found"));
+
+    if (!Objects.equals(product.getSellerId(), sellerId)) {
+      throw new ResponseStatusException(HttpStatus.FORBIDDEN, "forbidden");
+    }
+
+    try {
+      product.changeDetailHtml(request.detailHtml());
+    } catch (IllegalArgumentException ex) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, ex.getMessage());
+    }
+
+    productRepository.save(product);
+  }
+
+  public void updateProductBasicInfo(Long sellerId, Long productId, ProductBasicUpdateRequest request) {
+    if (sellerId == null) {
+      throw new ResponseStatusException(HttpStatus.FORBIDDEN, "seller_id required");
+    }
+    if (productId == null) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "product_id required");
+    }
+    if (request == null) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "request required");
+    }
+
+    Product product = productRepository.findByIdAndDeletedAtIsNull(productId)
+      .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "product not found"));
+
+    if (!Objects.equals(product.getSellerId(), sellerId)) {
+      throw new ResponseStatusException(HttpStatus.FORBIDDEN, "forbidden");
+    }
+
+    Product.Status status = product.getStatus();
+    if (status != Product.Status.DRAFT
+      && status != Product.Status.READY
+      && status != Product.Status.PAUSED
+      && status != Product.Status.ON_SALE) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "status not allowed");
+    }
+
+    if (status == Product.Status.ON_SALE) {
+      if (request.productName() != null) {
+        throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "product_name not allowed");
+      }
+      if (request.stockQty() != null) {
+        throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "stock_qty not allowed");
+      }
+    }
+
+    try {
+      if (request.productName() != null) {
+        product.updateProductName(request.productName());
+      }
+      if (request.shortDesc() != null) {
+        product.updateShortDesc(request.shortDesc());
+      }
+      if (request.price() != null) {
+        product.updatePrice(request.price());
+      }
+      if (request.stockQty() != null) {
+        product.updateStockQty(request.stockQty());
+      }
+    } catch (IllegalArgumentException ex) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, ex.getMessage());
+    }
+
+    productRepository.save(product);
+  }
+
+  public SellerProductDetailResponse getSellerProductDetail(Long sellerId, Long productId) {
+    if (sellerId == null) {
+      throw new ResponseStatusException(HttpStatus.FORBIDDEN, "seller_id required");
+    }
+    if (productId == null) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "product_id required");
+    }
+
+    Product product = productRepository.findByIdAndDeletedAtIsNull(productId)
+      .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "product not found"));
+
+    if (!Objects.equals(product.getSellerId(), sellerId)) {
+      throw new ResponseStatusException(HttpStatus.FORBIDDEN, "forbidden");
+    }
+
+    return SellerProductDetailResponse.from(product);
+  }
+  public void completeProductRegistration(Long sellerId, Long productId) {
+    if (sellerId == null) {
+      throw new ResponseStatusException(HttpStatus.FORBIDDEN, "seller_id required");
+    }
+    if (productId == null) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "product_id required");
+    }
+
+    Product product = productRepository.findByIdAndDeletedAtIsNull(productId)
+      .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "product not found"));
+
+    if (!Objects.equals(product.getSellerId(), sellerId)) {
+      throw new ResponseStatusException(HttpStatus.FORBIDDEN, "forbidden");
+    }
+    if (product.getStatus() != Product.Status.DRAFT) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "status must be DRAFT");
+    }
+    if (product.getDetailHtml() == null || product.getDetailHtml().isBlank()) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "detail_html required");
+    }
+
+    try {
+      product.changeStatus(Product.Status.READY);
+    } catch (IllegalStateException ex) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, ex.getMessage());
+    }
+
+    productRepository.save(product);
   }
 
   // DB에서 가져온 tag row들을 productId별로 묶어서 tags/tagsFlat을 만든다

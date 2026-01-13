@@ -17,6 +17,7 @@ import {
   fetchSellerBroadcastDetail,
   joinBroadcast,
   leaveBroadcast,
+  sanctionSellerViewer,
   startSellerBroadcast,
   startSellerRecording,
   endSellerBroadcast,
@@ -38,6 +39,11 @@ type StreamProduct = {
   title: string
   option: string
   status: string
+  price: string
+  sale: string
+  sold: number
+  stock: number
+  thumb: string
   pinned?: boolean
 }
 
@@ -47,6 +53,7 @@ type StreamChat = {
   message: string
   time?: string
   senderRole?: string
+  memberLoginId?: string
 }
 
 type StreamData = {
@@ -70,6 +77,7 @@ type EditableBroadcastInfo = {
 }
 
 const defaultNotice = ''
+const FALLBACK_IMAGE = 'data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs='
 
 const route = useRoute()
 const router = useRouter()
@@ -87,7 +95,6 @@ const streamCenterRef = ref<HTMLElement | null>(null)
 const publisherContainerRef = ref<HTMLElement | null>(null)
 const isFullscreen = ref(false)
 const modalHostTarget = computed(() => (isFullscreen.value && monitorRef.value ? monitorRef.value : 'body'))
-void streamCenterRef
 const micEnabled = ref(true)
 const videoEnabled = ref(true)
 const volume = ref(43)
@@ -294,6 +301,7 @@ const appendMessage = (payload: LiveChatMessageDTO) => {
     name: isSystem ? 'SYSTEM' : payload.sender || 'unknown',
     message: payload.content ?? '',
     senderRole: payload.senderRole,
+    memberLoginId: payload.memberEmail,
     time: payload.sentAt
       ? new Date(payload.sentAt).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })
       : formatChatTime(),
@@ -399,6 +407,36 @@ const disconnectChat = () => {
   isChatConnected.value = false
 }
 
+const formatPrice = (value?: number) => {
+  if (!value || Number.isNaN(value)) return '₩0'
+  return `₩${value.toLocaleString('ko-KR')}`
+}
+
+const handleImageError = (event: Event) => {
+  const target = event.target as HTMLImageElement | null
+  if (!target || target.dataset.fallbackApplied) return
+  target.dataset.fallbackApplied = 'true'
+  target.src = FALLBACK_IMAGE
+}
+
+const mapStreamProduct = (product: NonNullable<BroadcastDetailResponse['products']>[number]) => {
+  const totalQty = product.bpQuantity ?? product.stockQty ?? 0
+  const stockQty = product.stockQty ?? totalQty
+  const sold = Math.max(0, totalQty - stockQty)
+  return {
+    id: String(product.bpId ?? product.productId),
+    title: product.name,
+    option: product.name,
+    status: product.status === 'SOLDOUT' ? '품절' : '판매중',
+    price: formatPrice(product.originalPrice),
+    sale: formatPrice(product.bpPrice),
+    sold,
+    stock: stockQty,
+    thumb: product.imageUrl ?? '',
+    pinned: product.pinned,
+  }
+}
+
 const productItems = computed(() => stream.value?.products ?? [])
 const sortedProducts = computed(() => {
   const items = [...productItems.value]
@@ -488,10 +526,25 @@ const streamPlaceholderMessage = computed(() => {
     return '방송이 종료되었습니다.'
   }
   if (lifecycleStatus.value === 'READY') {
-    return readyCountdownLabel.value || '방송 시작 대기 중'
+    return '방송 시작 대기 중'
   }
   return '송출 화면 (WebRTC Stream)'
 })
+const showPlaceholderMessage = computed(() => {
+  if (lifecycleStatus.value === 'STOPPED') return true
+  if (['READY', 'ENDED', 'ON_AIR'].includes(lifecycleStatus.value)) {
+    return !waitingScreenUrl.value
+  }
+  return true
+})
+
+const resolveDetailStatus = (detail: BroadcastDetailResponse) => {
+  const normalized = normalizeBroadcastStatus(detail.status)
+  if (detail.startedAt && ['READY', 'RESERVED'].includes(normalized)) {
+    return 'ON_AIR'
+  }
+  return normalized
+}
 
 const resolveMediaSelection = (value: string, fallback: string) => {
   const trimmed = value?.trim()
@@ -503,7 +556,9 @@ const hasPersistedMediaConfig = (mediaConfig?: MediaConfig | null) => {
   if (!mediaConfig) return false
   const cameraId = mediaConfig.cameraId?.trim()
   const microphoneId = mediaConfig.microphoneId?.trim()
-  return Boolean((cameraId && cameraId !== 'default') || (microphoneId && microphoneId !== 'default'))
+  return Boolean(
+      (cameraId && cameraId !== 'default') || (microphoneId && microphoneId !== 'default'),
+  )
 }
 
 const toMediaId = (value: string, fallback: string) => {
@@ -598,8 +653,11 @@ const applyPublisherVolume = () => {
   if (!publisherContainerRef.value) return
   const video = publisherContainerRef.value.querySelector('video') as HTMLVideoElement | null
   if (!video) return
-  video.muted = false
+  video.muted = true
+  video.autoplay = true
+  video.playsInline = true
   video.volume = Math.min(1, Math.max(0, volume.value / 100))
+  void video.play().catch(() => {})
 }
 
 const waitForPublisherContainer = async () => {
@@ -629,11 +687,11 @@ const restartPublisher = async () => {
 }
 
 const connectPublisher = async (broadcastId: number, token: string) => {
-  if (openviduConnected.value) return
+  if (openviduConnected.value) return true
   const container = await waitForPublisherContainer()
   if (!container) {
     scheduleStartRetry(broadcastId, '방송 화면 준비 중입니다. 잠시 후 다시 시도합니다.')
-    return
+    return false
   }
   try {
     disconnectOpenVidu()
@@ -651,11 +709,13 @@ const connectPublisher = async (broadcastId: number, token: string) => {
     startRetryCount.value = 0
     if (startRetryTimer.value) window.clearTimeout(startRetryTimer.value)
     startRetryTimer.value = null
+    return true
   } catch {
     disconnectOpenVidu()
     if (['READY', 'ON_AIR'].includes(lifecycleStatus.value)) {
       scheduleStartRetry(broadcastId, '방송 송출 연결에 실패했습니다. 다시 연결을 시도합니다.')
     }
+    return false
   }
 }
 
@@ -813,7 +873,11 @@ const requestStartBroadcast = async (broadcastId: number) => {
     await ensureLocalMediaAccess()
     const token = await startSellerBroadcast(broadcastId)
     publisherToken.value = token
-    await connectPublisher(broadcastId, token)
+    const connected = await connectPublisher(broadcastId, token)
+    if (!connected) {
+      startRequested.value = false
+      return
+    }
     startRetryCount.value = 0
     if (startRetryTimer.value) window.clearTimeout(startRetryTimer.value)
     startRetryTimer.value = null
@@ -974,15 +1038,9 @@ const hydrateStream = async () => {
     const startAtMs = baseTime ? parseLiveDate(baseTime).getTime() : NaN
     scheduleStartAtMs.value = Number.isNaN(startAtMs) ? null : startAtMs
     scheduleEndAtMs.value = scheduleStartAtMs.value ? getScheduledEndMs(scheduleStartAtMs.value) ?? null : null
-    streamStatus.value = normalizeBroadcastStatus(detail.status)
+    streamStatus.value = resolveDetailStatus(detail)
 
-    const products = (detail.products ?? []).map((product) => ({
-      id: String(product.bpId ?? product.productId),
-      title: product.name,
-      option: product.name,
-      status: product.status === 'SOLDOUT' ? '품절' : '판매중',
-      pinned: product.pinned,
-    }))
+    const products = (detail.products ?? []).map((product) => mapStreamProduct(product))
 
     stream.value = {
       title: detail.title ?? '',
@@ -1032,6 +1090,7 @@ const hydrateStream = async () => {
       name: item.sender || item.memberEmail || '시청자',
       message: item.content,
       senderRole: item.senderRole,
+      memberLoginId: item.memberEmail,
       time: formatChatTime(item.sentAt),
     }))
     isLoadingStream.value = false
@@ -1068,13 +1127,7 @@ const refreshStats = async (broadcastId: number) => {
 const refreshProducts = async (broadcastId: number) => {
   try {
     const detail = await fetchSellerBroadcastDetail(broadcastId)
-    const products = (detail.products ?? []).map((product) => ({
-      id: String(product.bpId ?? product.productId),
-      title: product.name,
-      option: product.name,
-      status: product.status === 'SOLDOUT' ? '품절' : '판매중',
-      pinned: product.pinned,
-    }))
+    const products = (detail.products ?? []).map((product) => mapStreamProduct(product))
     pinnedProductId.value = products.find((item) => item.pinned)?.id ?? null
     if (stream.value) {
       stream.value = { ...stream.value, products }
@@ -1091,7 +1144,7 @@ const refreshInfo = async (broadcastId: number) => {
     const startAtMs = baseTime ? parseLiveDate(baseTime).getTime() : NaN
     scheduleStartAtMs.value = Number.isNaN(startAtMs) ? null : startAtMs
     scheduleEndAtMs.value = scheduleStartAtMs.value ? getScheduledEndMs(scheduleStartAtMs.value) ?? null : null
-    streamStatus.value = normalizeBroadcastStatus(detail.status)
+    streamStatus.value = resolveDetailStatus(detail)
     if (stream.value) {
       stream.value = {
         ...stream.value,
@@ -1278,6 +1331,9 @@ const startStatsPolling = (broadcastId: number) => {
     if (document.visibilityState !== 'visible') {
       return
     }
+    if (!['READY', 'ON_AIR', 'ENDED', 'STOPPED'].includes(lifecycleStatus.value)) {
+      return
+    }
     void refreshStats(broadcastId)
     if (!sseConnected.value) {
       void refreshProducts(broadcastId)
@@ -1437,14 +1493,25 @@ const handlePinProduct = (productId: string) => {
   setPinnedProduct(pinnedProductId.value === productId ? null : productId)
 }
 
-const openSanction = (username: string) => {
-  if (username === 'SYSTEM') return
-  sanctionTarget.value = username
+const openSanction = (item: StreamChat) => {
+  if (item.name === 'SYSTEM') return
+  if (!item.memberLoginId) {
+    alert('로그인된 시청자만 제재할 수 있습니다.')
+    return
+  }
+  sanctionTarget.value = item.memberLoginId
   showSanctionModal.value = true
 }
 
 const applySanction = (payload: { type: string; reason: string }) => {
   if (!sanctionTarget.value) return
+  if (!broadcastId.value) return
+  const sanctionType = payload.type === '채팅 금지' ? 'MUTE' : 'OUT'
+  void sanctionSellerViewer(broadcastId.value, {
+    memberLoginId: sanctionTarget.value,
+    status: sanctionType,
+    reason: payload.reason,
+  })
   sanctionedUsers.value = {
     ...sanctionedUsers.value,
     [sanctionTarget.value]: { type: payload.type, reason: payload.reason },
@@ -1693,7 +1760,10 @@ const toggleFullscreen = async () => {
     <header class="stream-header">
       <div>
         <h2 class="section-title">{{ displayTitle }}</h2>
-        <p class="ds-section-sub">{{ displayDatetime }}</p>
+        <p class="ds-section-sub">
+          {{ displayDatetime }}
+          <span v-if="readyCountdownLabel" class="stream-countdown">{{ readyCountdownLabel }}</span>
+        </p>
       </div>
       <div class="stream-actions">
         <button type="button" class="stream-btn" :disabled="!stream || isStopped" @click="showBasicInfo = true">기본정보 수정</button>
@@ -1727,40 +1797,47 @@ const toggleFullscreen = async () => {
           <button type="button" class="panel-close" aria-label="상품 관리 닫기" @click="showProducts = false">×</button>
         </div>
         <div class="panel-list">
-          <div
+          <article
             v-for="item in sortedProducts"
             :key="item.id"
             class="panel-item"
-            :class="{ 'is-pinned': pinnedProductId === item.id }"
+            :class="{ 'is-pinned': pinnedProductId === item.id, 'is-soldout': item.status === '품절' }"
           >
-            <div class="panel-thumb" aria-hidden="true"></div>
-            <div class="panel-meta">
-              <p class="panel-title">
-                {{ item.title }}
-                <span v-if="pinnedProductId === item.id" class="pin-badge">PIN</span>
-              </p>
-              <p class="panel-sub">{{ item.option }}</p>
-              <span class="panel-status" :class="{ 'is-soldout': item.status === '품절' }">{{ item.status }}</span>
+            <span v-if="pinnedProductId === item.id" class="pin-badge">PIN</span>
+            <div class="panel-thumb">
+              <img :src="item.thumb" :alt="item.title" loading="lazy" @error="handleImageError" />
             </div>
-            <button
-              type="button"
-              class="pin-btn"
-              :disabled="!isInteractive || item.status === '품절'"
-              :class="{ 'is-active': pinnedProductId === item.id }"
-              aria-label="고정"
-              @click="handlePinProduct(item.id)"
-            >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                <path
-                  d="M9 4h6l1 5-2 2v6l-2-1-2 1v-6l-2-2 1-5z"
-                  stroke="currentColor"
-                  stroke-width="1.7"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                />
-              </svg>
-            </button>
-          </div>
+            <div class="panel-meta">
+              <p class="panel-title">{{ item.title }}</p>
+              <p class="panel-sub">{{ item.option }}</p>
+              <p class="panel-price">
+                <span class="panel-sale">{{ item.sale }}</span>
+                <span class="panel-origin">{{ item.price }}</span>
+              </p>
+              <p class="panel-stats">판매 {{ item.sold }} · 재고 {{ item.stock }}</p>
+            </div>
+            <div class="panel-actions">
+              <span class="panel-status" :class="{ 'is-soldout': item.status === '품절' }">{{ item.status }}</span>
+              <button
+                type="button"
+                class="pin-btn"
+                :disabled="!isInteractive || item.status === '품절'"
+                :class="{ 'is-active': pinnedProductId === item.id }"
+                aria-label="고정"
+                @click="handlePinProduct(item.id)"
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                  <path
+                    d="M9 4h6l1 5-2 2v6l-2-1-2 1v-6l-2-2 1-5z"
+                    stroke="currentColor"
+                    stroke-width="1.7"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  />
+                </svg>
+              </button>
+            </div>
+          </article>
         </div>
       </aside>
 
@@ -1857,7 +1934,7 @@ const toggleFullscreen = async () => {
                 :src="waitingScreenUrl"
                 alt="대기 화면"
               />
-              <p class="stream-title">{{ streamPlaceholderMessage }}</p>
+              <p v-if="showPlaceholderMessage" class="stream-title">{{ streamPlaceholderMessage }}</p>
               <p v-if="lifecycleStatus === 'ON_AIR'" class="stream-sub">현재 송출 중인 화면이 표시됩니다.</p>
               <p v-else-if="!waitingScreenUrl && lifecycleStatus !== 'STOPPED'" class="stream-sub">대기 화면 이미지가 없습니다.</p>
             </div>
@@ -1972,7 +2049,7 @@ const toggleFullscreen = async () => {
             :key="item.id"
             class="chat-message"
             :class="{ 'chat-message--muted': sanctionedUsers[item.name], 'chat-message--system': item.name === 'SYSTEM' }"
-            @contextmenu.prevent="openSanction(item.name)"
+            @contextmenu.prevent="openSanction(item)"
           >
             <div class="chat-meta">
               <span class="chat-user">{{ formatChatUser(item) }}</span>
@@ -2153,11 +2230,12 @@ const toggleFullscreen = async () => {
 }
 
 .panel-item {
+  position: relative;
   display: grid;
-  grid-template-columns: 46px minmax(0, 1fr) auto;
-  gap: 10px;
+  grid-template-columns: 64px minmax(0, 1fr) auto;
+  gap: 12px;
   align-items: center;
-  padding: 10px;
+  padding: 12px;
   border-radius: 12px;
   background: var(--surface-weak);
 }
@@ -2167,11 +2245,23 @@ const toggleFullscreen = async () => {
   background: rgba(59, 130, 246, 0.08);
 }
 
+.panel-item.is-soldout {
+  opacity: 0.72;
+}
+
 .panel-thumb {
-  width: 46px;
-  height: 46px;
-  border-radius: 10px;
+  width: 64px;
+  height: 64px;
+  border-radius: 12px;
+  overflow: hidden;
   background: linear-gradient(135deg, #1f2937, #0f172a);
+}
+
+.panel-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
 }
 
 .panel-meta {
@@ -2201,6 +2291,39 @@ const toggleFullscreen = async () => {
   text-overflow: ellipsis;
 }
 
+.panel-price {
+  margin: 6px 0 2px;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.panel-sale {
+  font-weight: 800;
+  color: var(--text-strong);
+  font-size: 0.9rem;
+}
+
+.panel-origin {
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  text-decoration: line-through;
+}
+
+.panel-stats {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.panel-actions {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+}
+
 .panel-status {
   display: inline-flex;
   padding: 3px 6px;
@@ -2225,6 +2348,9 @@ const toggleFullscreen = async () => {
   color: #fff;
   font-size: 0.7rem;
   font-weight: 900;
+  position: absolute;
+  top: 8px;
+  left: 8px;
 }
 
 .pin-btn {
@@ -2332,7 +2458,6 @@ const toggleFullscreen = async () => {
   align-items: center;
   justify-content: center;
   overflow: hidden;
-  min-height: 320px;
   max-width: 100%;
 }
 
@@ -2348,6 +2473,12 @@ const toggleFullscreen = async () => {
   width: 100%;
   height: 100%;
   object-fit: cover;
+  transform: scaleX(-1);
+}
+
+.stream-player__publisher :deep(canvas),
+.stream-player__publisher :deep(.OV_video-element) {
+  transform: scaleX(-1);
 }
 
 .stream-player--fullscreen {
@@ -2501,6 +2632,19 @@ const toggleFullscreen = async () => {
 .stream-btn.primary {
   border-color: var(--primary-color);
   color: var(--primary-color);
+}
+
+.stream-countdown {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 10px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(59, 130, 246, 0.12);
+  color: #2563eb;
+  font-weight: 800;
+  font-size: 0.85rem;
 }
 
 

@@ -113,7 +113,7 @@ const loadOrderDetail = async (orderId: string) => {
       const cachedItem = cachedItems.find((cachedItem) => cachedItem.productId === productId)
       return {
         productId,
-        name: cachedItem?.name ?? resolveItemName(productId, index),
+        name: cachedItem?.name ?? String(item.product_name ?? resolveItemName(productId, index)),
         quantity: item.quantity,
         price: item.unit_price,
       }

@@ -1,12 +1,18 @@
 package com.deskit.deskit.product.controller;
 
 import com.deskit.deskit.account.entity.Seller;
+import com.deskit.deskit.account.enums.SellerStatus;
 import com.deskit.deskit.account.oauth.CustomOAuth2User;
 import com.deskit.deskit.account.repository.SellerRepository;
 import com.deskit.deskit.product.dto.ProductCreateRequest;
 import com.deskit.deskit.product.dto.ProductCreateResponse;
+import com.deskit.deskit.product.dto.ProductBasicUpdateRequest;
+import com.deskit.deskit.product.dto.ProductDetailUpdateRequest;
 import com.deskit.deskit.product.dto.ProductImageResponse;
-import com.deskit.deskit.product.dto.ProductResponse;
+import com.deskit.deskit.product.dto.SellerProductDetailResponse;
+import com.deskit.deskit.product.dto.SellerProductListResponse;
+import com.deskit.deskit.product.dto.SellerProductStatusUpdateRequest;
+import com.deskit.deskit.product.dto.SellerProductStatusUpdateResponse;
 import com.deskit.deskit.product.dto.ProductTagUpdateRequest;
 import com.deskit.deskit.product.entity.ProductImage.ImageType;
 import com.deskit.deskit.product.service.ProductImageService;
@@ -18,6 +24,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -56,12 +63,63 @@ public class SellerProductController {
     return ResponseEntity.ok(productService.createProduct(sellerId, request));
   }
 
+  @PutMapping("/{productId}")
+  public ResponseEntity<Void> updateProductBasicInfo(
+          @AuthenticationPrincipal CustomOAuth2User user,
+          @PathVariable("productId") Long productId,
+          @Valid @RequestBody ProductBasicUpdateRequest request
+  ) {
+    Long sellerId = resolveSellerId(user);
+    productService.updateProductBasicInfo(sellerId, productId, request);
+    return ResponseEntity.ok().build();
+  }
+
   @GetMapping
-  public ResponseEntity<List<ProductResponse>> getSellerProducts(
+  public ResponseEntity<List<SellerProductListResponse>> getSellerProducts(
           @AuthenticationPrincipal CustomOAuth2User user
   ) {
     Long sellerId = resolveSellerId(user);
     return ResponseEntity.ok(productService.getSellerProducts(sellerId));
+  }
+
+  @GetMapping("/{productId}")
+  public ResponseEntity<SellerProductDetailResponse> getSellerProductDetail(
+          @AuthenticationPrincipal CustomOAuth2User user,
+          @PathVariable("productId") Long productId
+  ) {
+    Long sellerId = resolveSellerId(user);
+    return ResponseEntity.ok(productService.getSellerProductDetail(sellerId, productId));
+  }
+
+  @PatchMapping("/{productId}/status")
+  public ResponseEntity<SellerProductStatusUpdateResponse> updateProductStatus(
+          @AuthenticationPrincipal CustomOAuth2User user,
+          @PathVariable("productId") Long productId,
+          @Valid @RequestBody SellerProductStatusUpdateRequest request
+  ) {
+    Long sellerId = resolveSellerId(user);
+    return ResponseEntity.ok(productService.updateProductStatus(sellerId, productId, request));
+  }
+
+  @PatchMapping("/{productId}/detail")
+  public ResponseEntity<Void> updateProductDetail(
+          @AuthenticationPrincipal CustomOAuth2User user,
+          @PathVariable("productId") Long productId,
+          @Valid @RequestBody ProductDetailUpdateRequest request
+  ) {
+    Long sellerId = resolveSellerId(user);
+    productService.updateProductDetailHtml(sellerId, productId, request);
+    return ResponseEntity.ok().build();
+  }
+
+  @PatchMapping("/{productId}/complete")
+  public ResponseEntity<Void> completeProductRegistration(
+          @AuthenticationPrincipal CustomOAuth2User user,
+          @PathVariable("productId") Long productId
+  ) {
+    Long sellerId = resolveSellerId(user);
+    productService.completeProductRegistration(sellerId, productId);
+    return ResponseEntity.ok().build();
   }
 
   @PostMapping("/{productId}/images")
@@ -106,7 +164,17 @@ public class SellerProductController {
 
     Seller seller = sellerRepository.findByLoginId(loginId);
     if (seller == null || seller.getSellerId() == null) {
-      throw new ResponseStatusException(HttpStatus.FORBIDDEN, "seller not found");
+      String email = user.getEmail();
+      if (email == null || email.isBlank()) {
+        throw new ResponseStatusException(HttpStatus.FORBIDDEN, "seller not found");
+      }
+      seller = sellerRepository.findByLoginId(email);
+      if (seller == null || seller.getSellerId() == null) {
+        throw new ResponseStatusException(HttpStatus.FORBIDDEN, "seller not found");
+      }
+    }
+    if (seller.getStatus() != SellerStatus.ACTIVE) {
+      throw new ResponseStatusException(HttpStatus.FORBIDDEN, "seller inactive");
     }
 
     return seller.getSellerId();

@@ -47,6 +47,13 @@ public class Order extends BaseEntity {
   private Long memberId;
 
   /**
+   * Shipping address detail snapshot.
+   * - addr_detail (nullable)
+   */
+  @Column(name = "addr_detail", length = 255)
+  private String addrDetail;
+
+  /**
    * 주문번호(외부 노출용 식별자)
    * - order_number (VARCHAR(50))
    * - 보통 "ORD-YYYYMMDD-XXXX" 같은 규칙으로 생성
@@ -85,7 +92,7 @@ public class Order extends BaseEntity {
 
   /**
    * 주문 상태
-   * - SQL ENUM('CREATED','PAID','CANCELLED','COMPLETED')
+   * - SQL ENUM('CREATED','PAID','CANCEL_REQUESTED','CANCELLED','COMPLETED','REFUND_REQUESTED','REFUND_REJECTED','REFUNDED')
    * - EnumType.STRING으로 저장하여 값이 명확하고, enum 순서 변경에 안전
    */
   @Enumerated(EnumType.STRING)
@@ -128,6 +135,7 @@ public class Order extends BaseEntity {
    */
   public static Order create(
           Long memberId,
+          String addrDetail,
           String orderNumber,
           Integer totalProductAmount,
           Integer shippingFee,
@@ -137,6 +145,7 @@ public class Order extends BaseEntity {
   ) {
     Order order = new Order();
     order.memberId = memberId;
+    order.addrDetail = addrDetail;
     order.orderNumber = orderNumber;
     order.totalProductAmount = totalProductAmount;
     order.shippingFee = shippingFee;

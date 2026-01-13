@@ -467,7 +467,7 @@ const startStatsPolling = () => {
 
 const isStatsTarget = (item: LiveItem) => {
   const status = normalizeBroadcastStatus(item.status)
-  if (status === 'ON_AIR' || status === 'READY') return true
+  if (status === 'ON_AIR' || status === 'READY' || status === 'ENDED' || status === 'STOPPED') return true
   const startAtMs = item.startAtMs
   const endAtMs = item.endAtMs ?? getScheduledEndMs(startAtMs)
   if (!startAtMs || !endAtMs) return false
@@ -498,7 +498,7 @@ const updateLiveViewerCounts = async () => {
   })
   if (!statsMap.size) return
   const applyStats = <T extends LiveItem>(items: T[]): T[] =>
-    items.map((item) => {
+    items.map((item): T => {
       const stats = statsMap.get(item.id)
       if (!stats) return item
       const viewers = stats.viewerCount ?? item.viewers ?? 0
@@ -508,7 +508,7 @@ const updateLiveViewerCounts = async () => {
         viewerBadge: `${viewers}명 시청 중`,
         likes: stats.likeCount ?? item.likes ?? 0,
         reports: stats.reportCount ?? item.reports ?? 0,
-      }
+      } as T
     })
   liveItems.value = applyStats(liveItems.value)
   scheduledItems.value = applyStats(scheduledItems.value)
@@ -665,9 +665,6 @@ const { sentinelRef: vodSentinelRef } = useInfiniteScroll({
   },
   enabled: () => activeTab.value === 'vod',
 })
-void liveSentinelRef
-void scheduledSentinelRef
-void vodSentinelRef
 
 const categoryOptions = computed(() => categories.value)
 

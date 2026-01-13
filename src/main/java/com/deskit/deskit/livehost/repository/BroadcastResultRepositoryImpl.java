@@ -8,10 +8,16 @@ import org.jooq.Field;
 import org.jooq.Record;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
+import java.time.Year;
+import java.time.YearMonth;
+import java.time.format.DateTimeFormatter;
 import java.time.temporal.TemporalAdjusters;
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 import static org.jooq.impl.DSL.*;
 
@@ -37,7 +43,7 @@ public class BroadcastResultRepositoryImpl implements BroadcastResultRepositoryC
         Field<String> dateExpr = getDateExpression(periodType);
         Field<BigDecimal> totalSalesSum = sum(totalSales);
 
-        return dsl.select(dateExpr, totalSalesSum)
+        Map<String, BigDecimal> totals = dsl.select(dateExpr, totalSalesSum)
                 .from(resultTable)
                 .join(broadcastTable).on(field(name("br", "broadcast_id"), Long.class).eq(broadcastId))
                 .where(
@@ -47,10 +53,15 @@ public class BroadcastResultRepositoryImpl implements BroadcastResultRepositoryC
                 )
                 .groupBy(dateExpr)
                 .orderBy(dateExpr.asc())
-                .fetch(record -> new StatisticsResponse.ChartData(
-                        record.get(dateExpr),
-                        record.get(totalSalesSum) != null ? record.get(totalSalesSum) : BigDecimal.ZERO
+                .fetch()
+                .stream()
+                .collect(Collectors.toMap(
+                        record -> record.get(dateExpr),
+                        record -> record.get(totalSalesSum) != null ? record.get(totalSalesSum) : BigDecimal.ZERO,
+                        (existing, replacement) -> replacement
                 ));
+
+        return buildChartData(periodType, totals);
     }
 
     @Override
@@ -60,7 +71,7 @@ public class BroadcastResultRepositoryImpl implements BroadcastResultRepositoryC
         Field<BigDecimal> viewSum = sum(totalViews).cast(BigDecimal.class);
         Field<BigDecimal> arpu = sum(totalSales).div(nullif(viewSum, BigDecimal.ZERO));
 
-        return dsl.select(dateExpr, arpu)
+        Map<String, BigDecimal> totals = dsl.select(dateExpr, arpu)
                 .from(resultTable)
                 .join(broadcastTable).on(field(name("br", "broadcast_id"), Long.class).eq(broadcastId))
                 .where(
@@ -70,10 +81,15 @@ public class BroadcastResultRepositoryImpl implements BroadcastResultRepositoryC
                 )
                 .groupBy(dateExpr)
                 .orderBy(dateExpr.asc())
-                .fetch(record -> new StatisticsResponse.ChartData(
-                        record.get(dateExpr),
-                        record.get(arpu) != null ? record.get(arpu) : BigDecimal.ZERO
+                .fetch()
+                .stream()
+                .collect(Collectors.toMap(
+                        record -> record.get(dateExpr),
+                        record -> record.get(arpu) != null ? record.get(arpu) : BigDecimal.ZERO,
+                        (existing, replacement) -> replacement
                 ));
+
+        return buildChartData(periodType, totals);
     }
 
     @Override
@@ -99,6 +115,41 @@ public class BroadcastResultRepositoryImpl implements BroadcastResultRepositoryC
         String format = "DAILY".equalsIgnoreCase(periodType) ? "%Y-%m-%d" :
                 "MONTHLY".equalsIgnoreCase(periodType) ? "%Y-%m" : "%Y";
         return field("DATE_FORMAT({0}, {1})", String.class, startedAt, inline(format));
+    }
+
+    private List<StatisticsResponse.ChartData> buildChartData(String periodType, Map<String, BigDecimal> totals) {
+        if ("DAILY".equalsIgnoreCase(periodType)) {
+            LocalDate startDate = LocalDate.now().minusDays(6);
+            DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd");
+            return startDate.datesUntil(startDate.plusDays(7))
+                    .map(date -> new StatisticsResponse.ChartData(
+                            date.format(formatter),
+                            totals.getOrDefault(date.format(formatter), BigDecimal.ZERO)
+                    ))
+                    .collect(Collectors.toList());
+        }
+
+        if ("MONTHLY".equalsIgnoreCase(periodType)) {
+            YearMonth startMonth = YearMonth.now().minusMonths(11);
+            DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM");
+            return startMonth.atDay(1)
+                    .datesUntil(startMonth.plusMonths(12).atDay(1), java.time.Period.ofMonths(1))
+                    .map(date -> {
+                        String label = date.format(formatter);
+                        return new StatisticsResponse.ChartData(label, totals.getOrDefault(label, BigDecimal.ZERO));
+                    })
+                    .collect(Collectors.toList());
+        }
+
+        Year startYear = Year.now().minusYears(4);
+        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy");
+        return startYear.atDay(1)
+                .datesUntil(startYear.plusYears(5).atDay(1), java.time.Period.ofYears(1))
+                .map(date -> {
+                    String label = date.format(formatter);
+                    return new StatisticsResponse.ChartData(label, totals.getOrDefault(label, BigDecimal.ZERO));
+                })
+                .collect(Collectors.toList());
     }
 
     private org.jooq.SortField<?> getOrderSpecifier(String sortField, boolean isDesc) {

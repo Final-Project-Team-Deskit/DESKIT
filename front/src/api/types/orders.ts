@@ -7,6 +7,10 @@ export interface CreateOrderItemRequest {
 
 export interface CreateOrderRequest {
   items: CreateOrderItemRequest[]
+  receiver: string
+  postcode: string
+  addr_detail: string
+  is_default?: boolean
 }
 
 export interface CreateOrderResponse {
@@ -28,6 +32,7 @@ export interface OrderSummaryResponse {
 
 export interface OrderItemResponse {
   product_id: number
+  product_name?: string
   quantity: number
   unit_price: number
   subtotal_price: number

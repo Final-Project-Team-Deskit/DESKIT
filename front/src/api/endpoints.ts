@@ -1,5 +1,6 @@
 export const endpoints = {
   products: '/api/products',
+  sellerProducts: '/api/seller/products',
   productDetail: (id: string | number) => `/api/products/${id}`,
   setups: '/api/setups',
   setupDetail: (id: string | number) => `/api/setups/${id}`,
@@ -7,6 +8,8 @@ export const endpoints = {
   homePopularSetups: '/api/home/popular-setups',
   cart: '/api/cart',
   cartItems: '/api/cart/items',
+  addresses: '/api/addresses',
+  addressDetail: (id: string | number) => `/api/addresses/${id}`,
   orders: '/api/orders',
   orderDetail: (id: string | number) => `/api/orders/${id}`,
   orderStatus: (id: string | number) => `/api/orders/${id}/status`,
