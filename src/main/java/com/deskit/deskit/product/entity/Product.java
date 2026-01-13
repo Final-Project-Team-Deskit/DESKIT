@@ -134,6 +134,34 @@ public class Product extends BaseEntity {
     this.detailHtml = detailHtml;
   }
 
+  public void updateProductName(String productName) {
+    if (productName == null || productName.isBlank()) {
+      throw new IllegalArgumentException("product_name required");
+    }
+    this.productName = productName;
+  }
+
+  public void updateShortDesc(String shortDesc) {
+    if (shortDesc == null || shortDesc.isBlank()) {
+      throw new IllegalArgumentException("short_desc required");
+    }
+    this.shortDesc = shortDesc;
+  }
+
+  public void updatePrice(Integer price) {
+    if (price == null || price < 0) {
+      throw new IllegalArgumentException("price must be >= 0");
+    }
+    this.price = price;
+  }
+
+  public void updateStockQty(Integer stockQty) {
+    if (stockQty == null || stockQty < 0) {
+      throw new IllegalArgumentException("stock_qty must be >= 0");
+    }
+    this.stockQty = stockQty;
+  }
+
   public void changeCostPrice(Integer costPrice) {
     if (costPrice == null || costPrice < 0) {
       throw new IllegalArgumentException("cost_price must be >= 0");

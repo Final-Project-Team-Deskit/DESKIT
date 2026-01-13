@@ -71,7 +71,9 @@ public class ProductTagService {
 
     List<ProductTag> mappings = new ArrayList<>();
     for (Tag tag : tags) {
-      mappings.add(new ProductTag(product, tag));
+      ProductTag productTag = new ProductTag(product, tag);
+      productTag.setId(new ProductTag.ProductTagId(product.getId(), tag.getId()));
+      mappings.add(productTag);
     }
     productTagRepository.saveAll(mappings);
   }
