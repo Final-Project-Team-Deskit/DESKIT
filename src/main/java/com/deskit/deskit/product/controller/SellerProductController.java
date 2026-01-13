@@ -9,17 +9,23 @@ import com.deskit.deskit.product.dto.ProductCreateResponse;
 import com.deskit.deskit.product.dto.ProductBasicUpdateRequest;
 import com.deskit.deskit.product.dto.ProductDetailUpdateRequest;
 import com.deskit.deskit.product.dto.ProductImageResponse;
+import com.deskit.deskit.product.dto.ProductImageUploadResponse;
 import com.deskit.deskit.product.dto.SellerProductDetailResponse;
 import com.deskit.deskit.product.dto.SellerProductListResponse;
 import com.deskit.deskit.product.dto.SellerProductStatusUpdateRequest;
 import com.deskit.deskit.product.dto.SellerProductStatusUpdateResponse;
 import com.deskit.deskit.product.dto.ProductTagUpdateRequest;
+import com.deskit.deskit.livehost.common.enums.UploadType;
+import com.deskit.deskit.livehost.common.exception.BusinessException;
+import com.deskit.deskit.livehost.dto.response.ImageUploadResponse;
+import com.deskit.deskit.livehost.service.AwsS3Service;
 import com.deskit.deskit.product.entity.ProductImage.ImageType;
 import com.deskit.deskit.product.service.ProductImageService;
 import com.deskit.deskit.product.service.ProductService;
 import com.deskit.deskit.product.service.ProductTagService;
 import jakarta.validation.Valid;
 import java.util.List;
+import org.springframework.http.MediaType;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -31,6 +37,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
@@ -44,15 +51,18 @@ public class SellerProductController {
   private final ProductImageService productImageService;
   private final ProductTagService productTagService;
   private final SellerRepository sellerRepository;
+  private final AwsS3Service awsS3Service;
 
   public SellerProductController(ProductService productService,
                                  ProductImageService productImageService,
                                  ProductTagService productTagService,
-                                 SellerRepository sellerRepository) {
+                                 SellerRepository sellerRepository,
+                                 AwsS3Service awsS3Service) {
     this.productService = productService;
     this.productImageService = productImageService;
     this.productTagService = productTagService;
     this.sellerRepository = sellerRepository;
+    this.awsS3Service = awsS3Service;
   }
 
   @PostMapping
@@ -135,6 +145,29 @@ public class SellerProductController {
     return ResponseEntity.ok(
       productImageService.uploadImage(sellerId, productId, file, imageType, slotIndex)
     );
+  }
+
+  @PostMapping(value = "/images/upload", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+  public ResponseEntity<ProductImageUploadResponse> uploadProductImageFile(
+          @AuthenticationPrincipal CustomOAuth2User user,
+          @RequestPart("file") MultipartFile file
+  ) {
+    Long sellerId = resolveSellerId(user);
+    if (file == null || file.isEmpty()) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "file required");
+    }
+    String contentType = file.getContentType();
+    if (contentType == null || !contentType.startsWith("image/")) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "invalid file type");
+    }
+    try {
+      ImageUploadResponse response = awsS3Service.uploadFile(sellerId, file, UploadType.PRODUCT_IMAGE);
+      return ResponseEntity.ok(
+        new ProductImageUploadResponse(response.getFileUrl(), response.getStoredFileName())
+      );
+    } catch (BusinessException ex) {
+      throw new ResponseStatusException(ex.getErrorCode().getStatus(), ex.getErrorCode().getMessage());
+    }
   }
 
   @PutMapping("/{productId}/tags")
