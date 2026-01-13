@@ -1396,7 +1396,9 @@ onBeforeUnmount(() => {
                 alt="대기 화면"
                 @error="handleImageError"
               />
-              <p v-if="playerMessage" class="player-frame__message">{{ playerMessage }}</p>
+              <p v-if="playerMessage && (!waitingScreenUrl || lifecycleStatus === 'STOPPED')" class="player-frame__message">
+                {{ playerMessage }}
+              </p>
             </div>
             <span v-else-if="!hasSubscriberStream" class="player-frame__label">LIVE 플레이어</span>
             <div v-if="!isStopRestricted" class="player-actions">
