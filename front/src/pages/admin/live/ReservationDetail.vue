@@ -64,7 +64,7 @@ const mapDetail = (payload: BroadcastDetailResponse): AdminReservationDetail => 
     price: formatCurrency(item.originalPrice ?? 0),
     salePrice: formatCurrency(item.bpPrice ?? item.originalPrice ?? 0),
     qty: item.bpQuantity ?? 0,
-    stock: item.stockQty ?? item.bpQuantity ?? 0,
+    stock: item.productStockQty ?? item.stockQty ?? item.bpQuantity ?? 0,
   })),
   cueQuestions: (payload.qcards ?? []).map((card) => card.question),
   cancelReason: payload.stoppedReason ?? undefined,

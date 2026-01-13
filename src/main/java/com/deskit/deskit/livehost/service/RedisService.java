@@ -70,7 +70,7 @@ public class RedisService {
     }
 
     public String getVodLikeUsersKey(Long broadcastId) {
-        return "vod:" + broadcastId + ":like_users";
+        return getLikeUsersKey(broadcastId);
     }
 
     public String getVodLikeDeltaKey(Long broadcastId) {
@@ -78,7 +78,7 @@ public class RedisService {
     }
 
     public String getVodReportUsersKey(Long broadcastId) {
-        return "vod:" + broadcastId + ":report_users";
+        return getReportUsersKey(broadcastId);
     }
 
     public String getVodReportDeltaKey(Long broadcastId) {
@@ -253,8 +253,13 @@ public class RedisService {
         }
 
         redisTemplate.opsForSet().add(key, String.valueOf(memberId));
-        expireKey(key);
         return true;
+    }
+
+    public boolean isMemberLiked(Long broadcastId, Long memberId) {
+        String key = getLikeUsersKey(broadcastId);
+        Boolean isMember = redisTemplate.opsForSet().isMember(key, String.valueOf(memberId));
+        return Boolean.TRUE.equals(isMember);
     }
 
     public int getLikeCount(Long broadcastId) {
@@ -270,7 +275,6 @@ public class RedisService {
 
         if (added != null && added == 1) {
             redisTemplate.opsForValue().increment(countKey);
-            redisTemplate.expire(userKey, Duration.ofDays(1));
             return true;
         }
 
@@ -295,7 +299,7 @@ public class RedisService {
     }
 
     public boolean toggleVodLike(Long broadcastId, Long memberId) {
-        String key = getVodLikeUsersKey(broadcastId);
+        String key = getLikeUsersKey(broadcastId);
         String memberKey = String.valueOf(memberId);
 
         Boolean isMember = redisTemplate.opsForSet().isMember(key, memberKey);
@@ -316,8 +320,12 @@ public class RedisService {
         return getInt(getVodLikeDeltaKey(broadcastId));
     }
 
+    public int getVodViewDelta(Long broadcastId) {
+        return getInt(getVodViewDeltaKey(broadcastId));
+    }
+
     public boolean reportVod(Long broadcastId, Long memberId) {
-        String userKey = getVodReportUsersKey(broadcastId);
+        String userKey = getReportUsersKey(broadcastId);
         String memberKey = String.valueOf(memberId);
 
         Long added = redisTemplate.opsForSet().add(userKey, memberKey);
@@ -410,6 +418,32 @@ public class RedisService {
         redisTemplate.delete(getReportCountKey(broadcastId));
         redisTemplate.delete(getMaxViewersKey(broadcastId));
         redisTemplate.delete(getMaxViewersTimeKey(broadcastId));
+    }
+
+    public void deleteBroadcastRuntimeKeys(Long broadcastId) {
+        redisTemplate.delete(getRealtimeViewKey(broadcastId));
+        redisTemplate.delete(getSessionCountKey(broadcastId));
+        redisTemplate.delete(getTotalUvKey(broadcastId));
+        redisTemplate.delete(getSanctionKey(broadcastId));
+        redisTemplate.delete(getMaxViewersKey(broadcastId));
+        redisTemplate.delete(getMaxViewersTimeKey(broadcastId));
+    }
+
+    public void persistVodReactionKeys(Long broadcastId) {
+        redisTemplate.persist(getLikeUsersKey(broadcastId));
+        redisTemplate.persist(getReportUsersKey(broadcastId));
+        redisTemplate.persist(getReportCountKey(broadcastId));
+    }
+
+    public void deleteVodKeys(Long broadcastId) {
+        redisTemplate.delete(getLikeUsersKey(broadcastId));
+        redisTemplate.delete(getReportUsersKey(broadcastId));
+        redisTemplate.delete(getReportCountKey(broadcastId));
+        redisTemplate.delete(getVodViewersKey(broadcastId));
+        redisTemplate.delete(getVodViewDeltaKey(broadcastId));
+        redisTemplate.delete(getVodLikeDeltaKey(broadcastId));
+        redisTemplate.delete(getVodReportDeltaKey(broadcastId));
+        redisTemplate.opsForSet().remove(getVodStatsDirtyKey(), String.valueOf(broadcastId));
     }
 
     private void expireKey(String key) {

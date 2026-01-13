@@ -46,6 +46,15 @@ const status = computed(() => {
   if (lifecycleStatus.value === 'VOD') return 'VOD'
   return 'ENDED'
 })
+const statusBadge = computed(() => {
+  if (status.value === 'LIVE') return { label: 'LIVE', class: 'badge-live' }
+  if (status.value === 'READY') return { label: 'READY', class: 'badge-ready' }
+  if (status.value === 'UPCOMING') return { label: '예약', class: 'badge-upcoming' }
+  if (status.value === 'STOPPED') return { label: '송출 중지', class: 'badge-stopped' }
+  if (status.value === 'ENDED') return { label: 'ENDED', class: 'badge-ended' }
+  if (status.value === 'VOD') return { label: 'VOD', class: 'badge-vod' }
+  return null
+})
 const buttonLabel = computed(() => {
   if (status.value === 'LIVE' || status.value === 'READY') {
     return '입장하기'
@@ -88,6 +97,33 @@ const countdownLabel = computed(() => {
   return ''
 })
 
+const formatDuration = (diffMs: number) => {
+  if (diffMs <= 0) return ''
+  const hours = Math.floor(diffMs / (1000 * 60 * 60))
+  const minutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60))
+  const seconds = Math.floor((diffMs % (1000 * 60)) / 1000)
+
+  const pad = (value: number) => value.toString().padStart(2, '0')
+
+  if (hours > 0) {
+    return `${pad(hours)}:${pad(minutes)}`
+  }
+  return `${pad(minutes)}:${pad(seconds)}`
+}
+
+const totalDurationLabel = computed(() => {
+  const start = parseLiveDate(props.item.startAt)
+  const end = parseLiveDate(props.item.endAt)
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return ''
+  return formatDuration(end.getTime() - start.getTime())
+})
+
+const endedDurationLabel = computed(() => {
+  const start = parseLiveDate(props.item.startAt)
+  if (Number.isNaN(start.getTime())) return ''
+  return formatDuration(now.value.getTime() - start.getTime())
+})
+
 const timeLabel = computed(() => {
   if (status.value === 'LIVE') {
     return `방송 시간 ${elapsed.value}`
@@ -102,21 +138,26 @@ const timeLabel = computed(() => {
     return '송출 중지'
   }
   if (status.value === 'VOD') {
-    return 'VOD'
+    return totalDurationLabel.value ? `총 재생 ${totalDurationLabel.value}` : 'VOD'
   }
-  return '방송 종료'
+  return endedDurationLabel.value ? `경과 ${endedDurationLabel.value}` : '방송 종료'
 })
 
 const viewerLabel = computed(() => {
   if (props.item.viewerCount == null) return ''
-  if (status.value === 'LIVE' || status.value === 'READY') {
+  if (status.value === 'READY') {
+    return `시청자 ${props.item.viewerCount.toLocaleString()}명`
+  }
+  return ''
+})
+
+const topViewerLabel = computed(() => {
+  if (props.item.viewerCount == null) return ''
+  if (status.value === 'LIVE' || status.value === 'ENDED') {
     return `시청자 ${props.item.viewerCount.toLocaleString()}명`
   }
   if (status.value === 'VOD') {
     return `누적 시청자 ${props.item.viewerCount.toLocaleString()}명`
-  }
-  if (status.value === 'ENDED') {
-    return `시청자 ${props.item.viewerCount.toLocaleString()}명`
   }
   return ''
 })
@@ -149,22 +190,17 @@ const handleWatchNow = () => {
     <div class="media">
       <img :src="props.item.thumbnailUrl" :alt="props.item.title" />
       <div class="top-badges">
-        <span v-if="status === 'LIVE'" class="badge badge-live">LIVE</span>
-        <span v-else-if="status === 'READY'" class="badge badge-ready">READY</span>
-        <span v-else-if="status === 'UPCOMING'" class="badge badge-upcoming">예약</span>
-        <span v-else-if="status === 'STOPPED'" class="badge badge-stopped">송출 중지</span>
-        <span
-          v-if="status === 'LIVE' && props.item.viewerCount != null"
-          class="badge badge-viewers"
-        >
-          시청자 {{ props.item.viewerCount.toLocaleString() }}명
+        <span v-if="statusBadge" class="badge" :class="statusBadge.class">
+          {{ statusBadge.label }}
+        </span>
+        <span v-if="topViewerLabel" class="badge badge-viewers">
+          {{ topViewerLabel }}
         </span>
       </div>
     </div>
     <div class="content">
       <div class="eyebrow-row">
         <p v-if="status === 'LIVE'" class="eyebrow">현재 방송 중</p>
-        <span v-if="status === 'LIVE'" class="eyebrow-time">{{ elapsed }}</span>
       </div>
       <h3>{{ props.item.title }}</h3>
       <p class="desc">{{ props.item.description }}</p>
@@ -256,6 +292,14 @@ const handleWatchNow = () => {
 
 .badge-stopped {
   background: rgba(239, 68, 68, 0.9);
+}
+
+.badge-ended {
+  background: rgba(100, 116, 139, 0.9);
+}
+
+.badge-vod {
+  background: rgba(14, 116, 144, 0.9);
 }
 
 .top-badges {

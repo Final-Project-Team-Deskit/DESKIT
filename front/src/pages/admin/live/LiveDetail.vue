@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { OpenVidu, type Session, type Subscriber } from 'openvidu-browser'
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Client, type StompSubscription } from '@stomp/stompjs'
 import SockJS from 'sockjs-client/dist/sockjs'
@@ -11,6 +11,7 @@ import {
   fetchBroadcastStats,
   joinBroadcast,
   leaveBroadcast,
+  sanctionAdminViewer,
   stopAdminBroadcast,
 } from '../../../lib/live/api'
 import { parseLiveDate } from '../../../lib/live/utils'
@@ -59,6 +60,7 @@ type ChatMessageUI = {
   time: string
   kind?: 'system' | 'user'
   senderRole?: string
+  memberLoginId?: string
 }
 
 // --- State ---
@@ -75,6 +77,12 @@ const { now } = useNow(1000)
 
 const stageRef = ref<HTMLDivElement | null>(null)
 const isFullscreen = ref(false)
+const isSettingsOpen = ref(false)
+const settingsButtonRef = ref<HTMLElement | null>(null)
+const settingsPanelRef = ref<HTMLElement | null>(null)
+const volume = ref(60)
+const selectedQuality = ref<'auto' | '1080p' | '720p' | '480p'>('auto')
+const qualityObserver = ref<MutationObserver | null>(null)
 const showStopModal = ref(false)
 const stopReason = ref('')
 const stopDetail = ref('')
@@ -95,7 +103,7 @@ const nickname = ref("관리자")
 
 // Moderation State
 const showModerationModal = ref(false)
-const moderationTarget = ref<{ user: string } | null>(null)
+const moderationTarget = ref<{ user: string; memberLoginId?: string } | null>(null)
 const moderationType = ref('')
 const moderationReason = ref('')
 const moderatedUsers = ref<Record<string, { type: string; reason: string; at: string }>>({})
@@ -134,7 +142,7 @@ const leaveRequested = ref(false)
 const viewerContainerRef = ref<HTMLDivElement | null>(null)
 const openviduInstance = ref<OpenVidu | null>(null)
 const openviduSession = ref<Session | null>(null)
-const openviduSubscriber = ref<Subscriber | null>(null)
+const openviduSubscriber = shallowRef<Subscriber | null>(null)
 const openviduConnected = ref(false)
 const FALLBACK_IMAGE = 'data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs='
 
@@ -159,6 +167,20 @@ const refreshAuth = () => {
     nickname.value = user.name || "관리자"
   }
 }
+
+type QualityOption = {
+  value: 'auto' | '1080p' | '720p' | '480p'
+  label: string
+  width?: number
+  height?: number
+}
+
+const qualityOptions: QualityOption[] = [
+  { value: 'auto', label: '자동' },
+  { value: '1080p', label: '1080p', width: 1920, height: 1080 },
+  { value: '720p', label: '720p', width: 1280, height: 720 },
+  { value: '480p', label: '480p', width: 854, height: 480 },
+]
 
 const goBack = () => {
   router.back()
@@ -262,7 +284,8 @@ const handleIncomingMessage = (payload: LiveChatMessageDTO) => {
     text: payload.content || '',
     time: timeStr,
     kind: payload.type === 'TALK' ? 'user' : 'system',
-    senderRole: payload.senderRole
+    senderRole: payload.senderRole,
+    memberLoginId: payload.memberEmail,
   })
 
   nextTick(() => {
@@ -295,7 +318,8 @@ const fetchRecentMessages = async () => {
             text: item.content ?? '',
             time: timeStr,
             kind: 'user',
-            senderRole: item.senderRole
+            senderRole: item.senderRole,
+            memberLoginId: item.memberEmail,
           }
         })
     nextTick(() => {
@@ -539,6 +563,34 @@ const playerMessage = computed(() => {
 // --- OpenVidu Logic ---
 const hasSubscriberStream = computed(() => openviduConnected.value && !!openviduSubscriber.value)
 
+const getPlayerFrame = () => stageRef.value?.querySelector<HTMLElement>('.player-frame') ?? null
+
+const applySubscriberVolume = () => {
+  const container = stageRef.value
+  if (!container) return
+  const video = container.querySelector('video') as HTMLVideoElement | null
+  if (!video) return
+  video.muted = false
+  video.volume = Math.min(1, Math.max(0, volume.value / 100))
+}
+
+const applyVideoQuality = (value: typeof selectedQuality.value) => {
+  const frame = getPlayerFrame()
+  if (!frame) return
+  frame.dataset.quality = value
+  const subscriber = openviduSubscriber.value as { setPreferredResolution?: (width: number, height: number) => void } | null
+  if (subscriber?.setPreferredResolution) {
+    if (value === 'auto') {
+      subscriber.setPreferredResolution(0, 0)
+    } else {
+      const option = qualityOptions.find((item) => item.value === value)
+      if (option?.width && option?.height) {
+        subscriber.setPreferredResolution(option.width, option.height)
+      }
+    }
+  }
+}
+
 const clearViewerContainer = () => {
   if (viewerContainerRef.value) {
     viewerContainerRef.value.innerHTML = ''
@@ -583,6 +635,8 @@ const connectSubscriber = async (token: string) => {
       openviduSubscriber.value = openviduSession.value.subscribe(event.stream, viewerContainerRef.value, {
         insertMode: 'append',
       })
+      applySubscriberVolume()
+      applyVideoQuality(selectedQuality.value)
     })
     openviduSession.value.on('streamDestroyed', () => {
       openviduSubscriber.value = null
@@ -649,6 +703,37 @@ const parseSseData = (event: MessageEvent) => {
   }
 }
 
+const resolveProductId = (data: unknown) => {
+  if (typeof data === 'number') return String(data)
+  if (typeof data === 'string') return data
+  if (data && typeof data === 'object') {
+    const record = data as { productId?: number | string; bpId?: number | string; id?: number | string }
+    if (record.productId !== undefined) return String(record.productId)
+    if (record.bpId !== undefined) return String(record.bpId)
+    if (record.id !== undefined) return String(record.id)
+  }
+  return null
+}
+
+const applyPinnedProduct = (productId: string | null) => {
+  liveProducts.value = liveProducts.value.map((product) => ({
+    ...product,
+    isPinned: productId ? product.id === productId : false,
+  }))
+}
+
+const markProductSoldOut = (productId: string | null) => {
+  if (!productId) return
+  liveProducts.value = liveProducts.value.map((product) =>
+    product.id === productId
+      ? {
+        ...product,
+        status: '품절',
+      }
+      : product,
+  )
+}
+
 const buildStopConfirmMessage = () => {
   return '방송 운영 정책 위반으로 방송이 중지되었습니다.\n방송에서 나가겠습니까?'
 }
@@ -682,6 +767,7 @@ const scheduleRefresh = (broadcastId: number) => {
 const handleSseEvent = (event: MessageEvent) => {
   const idValue = Number(liveId.value)
   if (Number.isNaN(idValue)) return
+  const data = parseSseData(event)
   switch (event.type) {
     case 'BROADCAST_READY':
     case 'BROADCAST_UPDATED':
@@ -689,8 +775,15 @@ const handleSseEvent = (event: MessageEvent) => {
       scheduleRefresh(idValue)
       break
     case 'PRODUCT_PINNED':
+      applyPinnedProduct(resolveProductId(data))
+      scheduleRefresh(idValue)
+      break
     case 'PRODUCT_UNPINNED':
+      applyPinnedProduct(null)
+      scheduleRefresh(idValue)
+      break
     case 'PRODUCT_SOLD_OUT':
+      markProductSoldOut(resolveProductId(data))
       scheduleRefresh(idValue)
       break
     case 'SANCTION_UPDATED':
@@ -772,10 +865,11 @@ const startStatsPolling = (broadcastId: number) => {
     if (document.visibilityState !== 'visible') {
       return
     }
-    void refreshStats(broadcastId)
-    if (!sseConnected.value) {
-      void refreshProducts(broadcastId)
+    if (!['READY', 'ON_AIR', 'ENDED', 'STOPPED'].includes(lifecycleStatus.value)) {
+      return
     }
+    void refreshStats(broadcastId)
+    void refreshProducts(broadcastId)
   }, 5000)
 }
 
@@ -843,6 +937,26 @@ const toggleFullscreen = async () => {
   }
 }
 
+const toggleSettings = () => {
+  isSettingsOpen.value = !isSettingsOpen.value
+}
+
+const handleDocumentClick = (event: MouseEvent) => {
+  if (!isSettingsOpen.value) return
+  const target = event.target as Node | null
+  if (settingsButtonRef.value?.contains(target) || settingsPanelRef.value?.contains(target)) {
+    return
+  }
+  isSettingsOpen.value = false
+}
+
+const handleDocumentKeydown = (event: KeyboardEvent) => {
+  if (!isSettingsOpen.value) return
+  if (event.key === 'Escape') {
+    isSettingsOpen.value = false
+  }
+}
+
 const toggleChat = () => {
   if (isStopRestricted.value) return
   showChat.value = !showChat.value
@@ -853,11 +967,11 @@ const closeChat = () => {
 }
 
 // Moderation
-const openModeration = (msg: { user: string; kind?: string }) => {
+const openModeration = (msg: { user: string; kind?: string; memberLoginId?: string }) => {
   if (!isInteractive.value) return
   if (msg.user === 'SYSTEM' || msg.kind === 'system' || msg.user === '관리자') return
   console.log('[admin chat] moderation open', msg.user)
-  moderationTarget.value = { user: msg.user }
+  moderationTarget.value = { user: msg.user, memberLoginId: msg.memberLoginId }
   moderationType.value = ''
   moderationReason.value = ''
   showModerationModal.value = true
@@ -870,19 +984,32 @@ const closeModeration = () => {
   moderationReason.value = ''
 }
 
-const saveModeration = () => {
+const saveModeration = async () => {
   if (!moderationType.value) {
     window.alert('제재 유형을 선택해주세요.')
-    return
-  }
-  if (!moderationReason.value.trim()) {
-    window.alert('제재 사유를 입력해주세요.')
     return
   }
   const confirmModeration = window.confirm('입력한 내용으로 시청자를 제재하시겠습니까?')
   if (!confirmModeration) return
   const target = moderationTarget.value
   if (!target) return
+  if (!broadcastId.value) return
+  if (!target.memberLoginId) {
+    window.alert('로그인된 시청자만 제재할 수 있습니다.')
+    return
+  }
+  const sanctionType = moderationType.value === '채팅 금지' ? 'MUTE' : 'OUT'
+  try {
+    await sanctionAdminViewer(broadcastId.value, {
+      memberLoginId: target.memberLoginId,
+      status: sanctionType,
+      reason: moderationReason.value.trim(),
+    })
+  } catch (error) {
+    const message = (error as { message?: string } | null)?.message ?? '제재 처리에 실패했습니다.'
+    window.alert(message)
+    return
+  }
   const now = new Date()
   const at = `${now.getHours()}시 ${String(now.getMinutes()).padStart(2, '0')}분`
   moderatedUsers.value = {
@@ -914,10 +1041,14 @@ onMounted(() => {
   viewerId.value = resolveViewerId(getAuthUser())
   window.addEventListener('pagehide', handlePageHide)
   document.addEventListener('fullscreenchange', syncFullscreen)
+  document.addEventListener('click', handleDocumentClick)
+  document.addEventListener('keydown', handleDocumentKeydown)
 })
 
 onBeforeUnmount(() => {
   document.removeEventListener('fullscreenchange', syncFullscreen)
+  document.removeEventListener('click', handleDocumentClick)
+  document.removeEventListener('keydown', handleDocumentKeydown)
   window.removeEventListener('pagehide', handlePageHide)
   void sendLeaveSignal()
   sseSource.value?.close()
@@ -931,6 +1062,23 @@ onBeforeUnmount(() => {
   refreshTimer.value = null
   disconnectOpenVidu()
   disconnectChat()
+  qualityObserver.value?.disconnect()
+  qualityObserver.value = null
+})
+
+onMounted(() => {
+  viewerId.value = resolveViewerId(getAuthUser())
+  window.addEventListener('pagehide', handlePageHide)
+})
+
+onMounted(() => {
+  if (!stageRef.value) return
+  qualityObserver.value?.disconnect()
+  qualityObserver.value = new MutationObserver(() => {
+    applyVideoQuality(selectedQuality.value)
+    applySubscriberVolume()
+  })
+  qualityObserver.value.observe(stageRef.value, { childList: true, subtree: true })
 })
 
 watch(
@@ -997,6 +1145,22 @@ watch(streamToken, () => {
     void ensureSubscriberConnected()
   }
 })
+
+watch(
+  selectedQuality,
+  (value) => {
+    applyVideoQuality(value)
+  },
+  { immediate: true },
+)
+
+watch(
+  volume,
+  () => {
+    applySubscriberVolume()
+  },
+  { immediate: true },
+)
 </script>
 
 <template>
@@ -1078,6 +1242,51 @@ watch(streamToken, () => {
                       <path d="M7 9h10M7 12h6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" />
                     </svg>
                   </button>
+                  <div class="player-settings">
+                    <button
+                      ref="settingsButtonRef"
+                      type="button"
+                      class="icon-circle"
+                      :class="{ active: isSettingsOpen }"
+                      aria-controls="admin-player-settings"
+                      :aria-expanded="isSettingsOpen ? 'true' : 'false'"
+                      aria-label="설정"
+                      @click="toggleSettings"
+                    >
+                      <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="M4 6h16M4 12h16M4 18h16" stroke="currentColor" stroke-linecap="round" stroke-width="1.7" />
+                        <circle cx="9" cy="6" r="2" stroke="currentColor" stroke-width="1.7" />
+                        <circle cx="14" cy="12" r="2" stroke="currentColor" stroke-width="1.7" />
+                        <circle cx="7" cy="18" r="2" stroke="currentColor" stroke-width="1.7" />
+                      </svg>
+                    </button>
+                    <div
+                      v-if="isSettingsOpen"
+                      id="admin-player-settings"
+                      ref="settingsPanelRef"
+                      class="settings-popover"
+                    >
+                      <label class="settings-row">
+                        <span class="settings-label">볼륨</span>
+                        <input
+                          class="toolbar-slider"
+                          type="range"
+                          min="0"
+                          max="100"
+                          v-model.number="volume"
+                          aria-label="볼륨 조절"
+                        />
+                      </label>
+                      <label class="settings-row">
+                        <span class="settings-label">화질</span>
+                        <select v-model="selectedQuality" class="settings-select" aria-label="화질">
+                          <option v-for="option in qualityOptions" :key="option.value" :value="option.value">
+                            {{ option.label }}
+                          </option>
+                        </select>
+                      </label>
+                    </div>
+                  </div>
                   <button type="button" class="icon-circle ghost" :class="{ active: isFullscreen }" @click="toggleFullscreen" :title="isFullscreen ? '전체화면 종료' : '전체화면'">
                     <svg v-if="!isFullscreen" aria-hidden="true" class="icon" viewBox="0 0 24 24" focusable="false">
                       <path d="M4 9V4h5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" />
@@ -1325,15 +1534,13 @@ watch(streamToken, () => {
 
 .player-frame {
   position: relative;
-  width: 100%;
+  width: min(100%, calc((100vh - 120px) * (16 / 9)));
   height: auto;
-  max-width: calc((100vh - 120px) * (16 / 9));
   max-height: calc(100vh - 120px);
-  min-height: clamp(360px, auto, 760px);
   aspect-ratio: 16 / 9;
   background: #0b0f1a;
   border-radius: 18px;
-  overflow: auto;
+  overflow: hidden;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1351,6 +1558,7 @@ watch(streamToken, () => {
   width: 100%;
   height: 100%;
   object-fit: contain;
+  transform: scaleX(-1);
 }
 
 .player-frame--fullscreen {
@@ -1372,6 +1580,17 @@ watch(streamToken, () => {
   object-fit: contain;
   border: 0;
   background: #000;
+}
+
+.player-frame[data-quality='720p'] :deep(video),
+.player-frame[data-quality='720p'] :deep(img) {
+  filter: blur(0.3px);
+}
+
+.player-frame[data-quality='480p'] :deep(video),
+.player-frame[data-quality='480p'] :deep(img) {
+  filter: blur(0.6px);
+  image-rendering: pixelated;
 }
 
 .player-label {
@@ -1397,7 +1616,7 @@ watch(streamToken, () => {
 .player-placeholder__image {
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  object-fit: contain;
 }
 
 .player-placeholder__message {
@@ -1451,6 +1670,65 @@ watch(streamToken, () => {
   gap: 10px;
   align-items: flex-end;
   z-index: 2;
+}
+
+.player-settings {
+  position: relative;
+}
+
+.settings-popover {
+  position: absolute;
+  top: 0;
+  right: calc(100% + 10px);
+  background: var(--surface);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  padding: 12px;
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.12);
+  min-width: 220px;
+  display: grid;
+  gap: 10px;
+}
+
+.settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.settings-label {
+  font-weight: 800;
+  color: var(--text-strong);
+}
+
+.settings-select {
+  border: 1px solid var(--border-color);
+  background: var(--surface);
+  color: var(--text-strong);
+  border-radius: 10px;
+  height: 36px;
+  padding: 0 12px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, color 0.2s ease;
+}
+
+.settings-select:hover {
+  border-color: var(--primary-color);
+}
+
+.settings-select:focus-visible,
+.toolbar-slider:focus-visible {
+  outline: 2px solid var(--primary-color);
+  outline-offset: 2px;
+}
+
+.toolbar-slider {
+  accent-color: var(--primary-color);
+  width: 140px;
 }
 
 .icon-circle {
