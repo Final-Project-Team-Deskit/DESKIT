@@ -141,6 +141,13 @@ public class Product extends BaseEntity {
     this.costPrice = costPrice;
   }
 
+  public void changePrice(Integer price) {
+    if (price == null || price < 0) {
+      throw new IllegalArgumentException("price must be >= 0");
+    }
+    this.price = price;
+  }
+
   // LIMITED_SALE is derived from ON_SALE + low stock; it is not a persisted transition target.
   public boolean isLimitedSale() {
     if (this.status != Status.ON_SALE) {
