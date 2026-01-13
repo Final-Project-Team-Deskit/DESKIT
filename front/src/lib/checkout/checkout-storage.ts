@@ -74,7 +74,7 @@ const normalizeShipping = (raw: any): ShippingInfo => ({
 const normalizeDraft = (raw: any): CheckoutDraft | null => {
   if (!raw || typeof raw !== 'object') return null
   const items = Array.isArray(raw.items)
-    ? raw.items.map(normalizeItem).filter((v): v is CheckoutItem => Boolean(v))
+    ? raw.items.map(normalizeItem).filter((v: CheckoutItem | null): v is CheckoutItem => Boolean(v))
     : []
   if (items.length === 0) return null
   const source = raw.source === 'BUY_NOW' ? 'BUY_NOW' : 'CART'
