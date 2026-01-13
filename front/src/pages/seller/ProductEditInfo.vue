@@ -213,7 +213,7 @@ const handleSubmit = async () => {
       error.value = '상품 수정에 실패했습니다.'
       return
     }
-    router.push({ name: 'seller-products' }).catch(() => {})
+    router.push({ name: 'seller-products-edit-detail', params: { id } }).catch(() => {})
   } catch {
     error.value = '상품 수정에 실패했습니다.'
   }
@@ -268,7 +268,7 @@ onMounted(() => {
       <div class="actions">
         <button type="button" class="btn" @click="cancel">취소</button>
         <button type="button" class="btn danger" :disabled="isDeleting" @click="handleDelete">삭제</button>
-        <button type="button" class="btn primary" @click="handleSubmit">저장</button>
+        <button type="button" class="btn primary" @click="handleSubmit">상세 수정</button>
       </div>
     </section>
   </PageContainer>
