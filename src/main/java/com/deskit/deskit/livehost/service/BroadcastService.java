@@ -316,6 +316,18 @@ public class BroadcastService {
         var reservedQty = field(name("reserved", "reserved_qty"), Integer.class);
         var availableQty = stockQty.sub(safetyStock).sub(org.jooq.impl.DSL.coalesce(reservedQty, 0));
 
+        var liveSubquery = dsl.select(
+                        bpProductId.as("product_id"),
+                        org.jooq.impl.DSL.max(broadcastId).as("broadcast_id")
+                )
+                .from(broadcastProductTable)
+                .join(broadcastTable).on(bpBroadcastId.eq(broadcastId))
+                .where(broadcastStatus.eq(BroadcastStatus.ON_AIR.name()).and(bpStatus.ne("DELETED")))
+                .groupBy(bpProductId)
+                .asTable("live");
+        var liveProductId = field(name("live", "product_id"), Long.class);
+        var liveBroadcastId = field(name("live", "broadcast_id"), Long.class);
+
         var condition = sellerField.eq(sellerId)
                 .and(statusField.in(statuses))
                 .and(availableQty.gt(0))
@@ -324,20 +336,39 @@ public class BroadcastService {
             condition = condition.and(productName.containsIgnoreCase(keyword));
         }
 
-        return dsl.select(productId, productName, price, stockQty, safetyStock, org.jooq.impl.DSL.coalesce(reservedQty, 0).as("reserved_qty"))
+        return dsl.select(
+                        productId,
+                        productName,
+                        costPrice,
+                        stockQty,
+                        safetyStock,
+                        org.jooq.impl.DSL.coalesce(reservedQty, 0).as("reserved_qty"),
+                        liveBroadcastId
+                )
                 .from(productTable)
                 .leftJoin(reservedSubquery).on(productId.eq(reservedProductId))
+                .leftJoin(liveSubquery).on(productId.eq(liveProductId))
                 .where(condition)
                 .orderBy(productId.asc())
-                .fetch(record -> ProductSelectResponse.builder()
-                        .productId(record.get(productId))
-                        .productName(record.get(productName))
-                        .price(record.get(price))
-                        .stockQty(record.get(stockQty))
-                        .safetyStock(record.get(safetyStock))
-                        .reservedBroadcastQty(record.get("reserved_qty", Integer.class))
-                        .imageUrl(null)
-                        .build());
+                .fetch(record -> {
+                    Long currentBroadcastId = record.get(liveBroadcastId);
+                    Integer resolvedCostPrice = record.get(costPrice);
+                    if (currentBroadcastId != null) {
+                        Integer originalCostPrice = redisService.getOriginalCostPrice(currentBroadcastId, record.get(productId));
+                        if (originalCostPrice != null) {
+                            resolvedCostPrice = originalCostPrice;
+                        }
+                    }
+                    return ProductSelectResponse.builder()
+                            .productId(record.get(productId))
+                            .productName(record.get(productName))
+                            .price(resolvedCostPrice)
+                            .stockQty(record.get(stockQty))
+                            .safetyStock(record.get(safetyStock))
+                            .reservedBroadcastQty(record.get("reserved_qty", Integer.class))
+                            .imageUrl(null)
+                            .build();
+                });
     }
 
     @Transactional(readOnly = true)
