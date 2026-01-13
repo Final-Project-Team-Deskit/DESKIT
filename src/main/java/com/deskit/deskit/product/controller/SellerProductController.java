@@ -6,8 +6,10 @@ import com.deskit.deskit.account.oauth.CustomOAuth2User;
 import com.deskit.deskit.account.repository.SellerRepository;
 import com.deskit.deskit.product.dto.ProductCreateRequest;
 import com.deskit.deskit.product.dto.ProductCreateResponse;
+import com.deskit.deskit.product.dto.ProductBasicUpdateRequest;
 import com.deskit.deskit.product.dto.ProductDetailUpdateRequest;
 import com.deskit.deskit.product.dto.ProductImageResponse;
+import com.deskit.deskit.product.dto.SellerProductDetailResponse;
 import com.deskit.deskit.product.dto.SellerProductListResponse;
 import com.deskit.deskit.product.dto.SellerProductStatusUpdateRequest;
 import com.deskit.deskit.product.dto.SellerProductStatusUpdateResponse;
@@ -61,12 +63,32 @@ public class SellerProductController {
     return ResponseEntity.ok(productService.createProduct(sellerId, request));
   }
 
+  @PutMapping("/{productId}")
+  public ResponseEntity<Void> updateProductBasicInfo(
+          @AuthenticationPrincipal CustomOAuth2User user,
+          @PathVariable("productId") Long productId,
+          @Valid @RequestBody ProductBasicUpdateRequest request
+  ) {
+    Long sellerId = resolveSellerId(user);
+    productService.updateProductBasicInfo(sellerId, productId, request);
+    return ResponseEntity.ok().build();
+  }
+
   @GetMapping
   public ResponseEntity<List<SellerProductListResponse>> getSellerProducts(
           @AuthenticationPrincipal CustomOAuth2User user
   ) {
     Long sellerId = resolveSellerId(user);
     return ResponseEntity.ok(productService.getSellerProducts(sellerId));
+  }
+
+  @GetMapping("/{productId}")
+  public ResponseEntity<SellerProductDetailResponse> getSellerProductDetail(
+          @AuthenticationPrincipal CustomOAuth2User user,
+          @PathVariable("productId") Long productId
+  ) {
+    Long sellerId = resolveSellerId(user);
+    return ResponseEntity.ok(productService.getSellerProductDetail(sellerId, productId));
   }
 
   @PatchMapping("/{productId}/status")
