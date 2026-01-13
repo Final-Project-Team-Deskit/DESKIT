@@ -339,7 +339,7 @@ public class BroadcastService {
         return dsl.select(
                         productId,
                         productName,
-                        costPrice,
+                        price,
                         stockQty,
                         safetyStock,
                         org.jooq.impl.DSL.coalesce(reservedQty, 0).as("reserved_qty"),
@@ -352,7 +352,7 @@ public class BroadcastService {
                 .orderBy(productId.asc())
                 .fetch(record -> {
                     Long currentBroadcastId = record.get(liveBroadcastId);
-                    Integer resolvedCostPrice = record.get(costPrice);
+                    Integer resolvedCostPrice = record.get(price);
                     if (currentBroadcastId != null) {
                         Integer originalCostPrice = redisService.getOriginalCostPrice(currentBroadcastId, record.get(productId));
                         if (originalCostPrice != null) {
