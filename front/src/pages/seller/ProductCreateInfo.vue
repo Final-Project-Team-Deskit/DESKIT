@@ -3,6 +3,7 @@ import {onMounted, ref} from 'vue'
 import {useRoute, useRouter} from 'vue-router'
 import PageContainer from '../../components/PageContainer.vue'
 import PageHeader from '../../components/PageHeader.vue'
+import ProductBasicFields from '../../components/seller/ProductBasicFields.vue'
 import {clearProductDraft, loadProductDraft, saveProductDraft} from '../../composables/useSellerProducts'
 
 const route = useRoute()
@@ -145,10 +146,19 @@ onMounted(() => {
   <PageContainer>
     <PageHeader eyebrow="DESKIT" title="상품 등록 - 기본 정보"/>
     <section class="create-card ds-surface">
-      <label class="field">
-        <span class="field__label">상품명</span>
-        <input v-model="name" type="text" placeholder="예: 모던 데스크 매트"/>
-      </label>
+      <ProductBasicFields
+        v-model:name="name"
+        v-model:shortDesc="shortDesc"
+        v-model:price="price"
+        v-model:stock="stock"
+      >
+        <template #extra-fields>
+          <label class="field">
+            <span class="field__label">원가</span>
+            <input v-model.number="costPrice" type="number" min="0"/>
+          </label>
+        </template>
+      </ProductBasicFields>
       <div class="section-block">
         <div class="section-head">
           <h3>상품 이미지</h3>
@@ -170,24 +180,6 @@ onMounted(() => {
             </div>
           </div>
         </div>
-      </div>
-      <label class="field">
-        <span class="field__label">한 줄 소개</span>
-        <input v-model="shortDesc" type="text" placeholder="예: 감성적인 데스크테리어"/>
-      </label>
-      <div class="field-grid">
-        <label class="field">
-          <span class="field__label">원가</span>
-          <input v-model.number="costPrice" type="number" min="0"/>
-        </label>
-        <label class="field">
-          <span class="field__label">판매가</span>
-          <input v-model.number="price" type="number" min="0"/>
-        </label>
-        <label class="field">
-          <span class="field__label">재고 수량</span>
-          <input v-model.number="stock" type="number" min="0"/>
-        </label>
       </div>
       <p v-if="error" class="error">{{ error }}</p>
       <div class="actions">
