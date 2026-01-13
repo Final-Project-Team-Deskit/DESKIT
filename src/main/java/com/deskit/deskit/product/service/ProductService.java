@@ -56,7 +56,7 @@ public class ProductService {
             .map(Product::getId)
             .collect(Collectors.toList());
 
-    Map<Long, Integer> liveCostPrices = broadcastProductRepository.findLiveBpPrices(productIds).stream()
+    Map<Long, Integer> livePrices = broadcastProductRepository.findLiveBpPrices(productIds).stream()
             .collect(Collectors.toMap(
                     BroadcastProductRepository.LivePriceRow::getProductId,
                     BroadcastProductRepository.LivePriceRow::getBpPrice,
@@ -75,8 +75,8 @@ public class ProductService {
               TagsBundle bundle = tagsByProductId.get(product.getId());
               ProductTags tags = bundle == null ? ProductTags.empty() : bundle.getTags();
               List<String> tagsFlat = bundle == null ? Collections.emptyList() : bundle.getTagsFlat();
-              Integer costPriceOverride = liveCostPrices.get(product.getId());
-              return ProductResponse.fromWithCostPrice(product, tags, tagsFlat, costPriceOverride);
+              Integer priceOverride = livePrices.get(product.getId());
+              return ProductResponse.fromWithPrice(product, tags, tagsFlat, priceOverride);
             })
             .collect(Collectors.toList());
   }
@@ -97,10 +97,10 @@ public class ProductService {
     ProductTags tags = bundle == null ? ProductTags.empty() : bundle.getTags();
     List<String> tagsFlat = bundle == null ? Collections.emptyList() : bundle.getTagsFlat();
 
-    Integer costPriceOverride = broadcastProductRepository.findLiveBpPriceByProductId(id).stream()
+    Integer priceOverride = broadcastProductRepository.findLiveBpPriceByProductId(id).stream()
             .findFirst()
             .orElse(null);
-    return Optional.of(ProductResponse.fromWithCostPrice(product.get(), tags, tagsFlat, costPriceOverride));
+    return Optional.of(ProductResponse.fromWithPrice(product.get(), tags, tagsFlat, priceOverride));
   }
 
   public List<SellerProductListResponse> getSellerProducts(Long sellerId) {
