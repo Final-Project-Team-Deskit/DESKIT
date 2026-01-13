@@ -878,7 +878,9 @@ const requestJoinToken = async () => {
     streamToken.value = await joinBroadcast(broadcastId.value, viewerId.value)
     joinedBroadcastId.value = broadcastId.value
   } catch (error) {
-    const code = (error as { code?: string } | null)?.code
+    const code =
+      (error as { code?: string } | null)?.code ||
+      (error as { response?: { data?: { error?: { code?: string } } } } | null)?.response?.data?.error?.code
     if (code === 'B007') {
       alert('관리자/판매자에 의해 방송 방 입장이 금지되었습니다.')
       router.push({ name: 'live' }).catch(() => {})
