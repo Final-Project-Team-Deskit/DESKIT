@@ -1360,7 +1360,8 @@ input[type='file'] {
 }
 
 .modal__body {
-  max-height: 520px;
+  flex: 1;
+  min-height: 0;
   overflow: auto;
 }
 
@@ -1536,11 +1537,13 @@ input[type='file'] {
   border-radius: 16px;
   padding: 18px;
   max-width: 520px;
+  max-height: calc(100vh - 32px);
   width: 100%;
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
   display: flex;
   flex-direction: column;
   gap: 12px;
+  overflow: hidden;
 }
 
 .modal__header {

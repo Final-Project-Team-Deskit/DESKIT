@@ -8,7 +8,12 @@ import com.deskit.deskit.order.payment.entity.TossPayment;
 import com.deskit.deskit.order.payment.entity.TossRefund;
 import com.deskit.deskit.order.payment.repository.TossPaymentRepository;
 import com.deskit.deskit.order.payment.repository.TossRefundRepository;
+import com.deskit.deskit.order.repository.OrderItemRepository;
 import com.deskit.deskit.order.repository.OrderRepository;
+import com.deskit.deskit.livehost.repository.BroadcastProductRepository;
+import com.deskit.deskit.product.entity.Product;
+import com.deskit.deskit.product.repository.ProductRepository;
+import com.deskit.deskit.order.entity.OrderItem;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.InputStream;
@@ -21,6 +26,7 @@ import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
 import java.util.Base64;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import org.springframework.beans.factory.annotation.Value;
@@ -39,6 +45,9 @@ public class TossPaymentService {
   private final OrderRepository orderRepository;
   private final TossPaymentRepository tossPaymentRepository;
   private final TossRefundRepository tossRefundRepository;
+  private final OrderItemRepository orderItemRepository;
+  private final ProductRepository productRepository;
+  private final BroadcastProductRepository broadcastProductRepository;
   private final ObjectMapper objectMapper;
 
   @Value("${toss.payments.secret-key}")
@@ -48,11 +57,17 @@ public class TossPaymentService {
     OrderRepository orderRepository,
     TossPaymentRepository tossPaymentRepository,
     TossRefundRepository tossRefundRepository,
+    OrderItemRepository orderItemRepository,
+    ProductRepository productRepository,
+    BroadcastProductRepository broadcastProductRepository,
     ObjectMapper objectMapper
   ) {
     this.orderRepository = orderRepository;
     this.tossPaymentRepository = tossPaymentRepository;
     this.tossRefundRepository = tossRefundRepository;
+    this.orderItemRepository = orderItemRepository;
+    this.productRepository = productRepository;
+    this.broadcastProductRepository = broadcastProductRepository;
     this.objectMapper = objectMapper;
   }
 
@@ -77,6 +92,10 @@ public class TossPaymentService {
     long expectedAmount = orderAmount == null ? 0L : orderAmount;
     if (expectedAmount != amount) {
       throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "amount mismatch");
+    }
+    if (!isOrderAmountCurrent(order)) {
+      cancelOrderDueToPriceChange(order);
+      throw new ResponseStatusException(HttpStatus.CONFLICT, "order amount changed");
     }
 
     Optional<TossPayment> existing = tossPaymentRepository.findByTossPaymentKey(paymentKey);
@@ -208,6 +227,49 @@ public class TossPaymentService {
       return;
     }
     order.markPaid();
+  }
+
+  private boolean isOrderAmountCurrent(Order order) {
+    List<OrderItem> items = orderItemRepository.findByOrder_Id(order.getId());
+    if (items.isEmpty()) {
+      return false;
+    }
+    int totalProductAmount = 0;
+    for (OrderItem item : items) {
+      Long productId = item.getProductId();
+      if (productId == null) {
+        return false;
+      }
+      Product product = productRepository.findByIdAndDeletedAtIsNull(productId)
+        .orElse(null);
+      if (product == null) {
+        return false;
+      }
+      int unitPrice = resolveCurrentPrice(product);
+      totalProductAmount += unitPrice * item.getQuantity();
+    }
+    int shippingFee = totalProductAmount >= 50000 ? 0 : 3000;
+    int discountFee = order.getDiscountFee() == null ? 0 : order.getDiscountFee();
+    int recalculatedAmount = totalProductAmount - discountFee + shippingFee;
+    Integer orderAmount = order.getOrderAmount();
+    return orderAmount != null && orderAmount == recalculatedAmount;
+  }
+
+  private int resolveCurrentPrice(Product product) {
+    Integer livePrice = broadcastProductRepository.findLiveBpPriceByProductId(product.getId())
+      .stream()
+      .findFirst()
+      .orElse(null);
+    return livePrice != null ? livePrice : product.getPrice();
+  }
+
+  private void cancelOrderDueToPriceChange(Order order) {
+    if (order.getStatus() != OrderStatus.CREATED) {
+      return;
+    }
+    order.requestCancel("price changed");
+    order.approveCancel();
+    orderRepository.save(order);
   }
 
   private Order findOrderForUpdate(String orderIdText) {

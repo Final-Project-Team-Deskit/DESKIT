@@ -93,6 +93,10 @@ public class RedisService {
         return "broadcast:" + broadcastId + ":notice:" + type;
     }
 
+    public String getOriginalPriceKey(Long broadcastId) {
+        return "broadcast:" + broadcastId + ":original_price";
+    }
+
     public String getRecordingRetryQueueKey() {
         return "broadcast:recording:retry";
     }
@@ -183,6 +187,31 @@ public class RedisService {
     public void clearRecordingStartRetry(Long broadcastId) {
         redisTemplate.opsForZSet().remove(getRecordingStartRetryQueueKey(), broadcastId);
         redisTemplate.delete(getRecordingStartRetryAttemptKey(broadcastId));
+    }
+
+    public void storeOriginalPrice(Long broadcastId, Long productId, Integer price) {
+        if (price == null) {
+            return;
+        }
+        redisTemplate.opsForHash().putIfAbsent(
+                getOriginalPriceKey(broadcastId),
+                productId.toString(),
+                price
+        );
+    }
+
+    public Integer getOriginalPrice(Long broadcastId, Long productId) {
+        Object value = redisTemplate.opsForHash()
+                .get(getOriginalPriceKey(broadcastId), productId.toString());
+        return value != null ? Integer.valueOf(value.toString()) : null;
+    }
+
+    public void removeOriginalPrice(Long broadcastId, Long productId) {
+        redisTemplate.opsForHash().delete(getOriginalPriceKey(broadcastId), productId.toString());
+    }
+
+    public void clearOriginalPrices(Long broadcastId) {
+        redisTemplate.delete(getOriginalPriceKey(broadcastId));
     }
 
     public void enterLiveRoom(Long broadcastId, String uuid) {

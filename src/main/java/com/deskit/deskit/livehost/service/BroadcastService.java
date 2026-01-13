@@ -1,6 +1,8 @@
 package com.deskit.deskit.livehost.service;
 
+import com.deskit.deskit.account.entity.Member;
 import com.deskit.deskit.account.entity.Seller;
+import com.deskit.deskit.account.repository.MemberRepository;
 import com.deskit.deskit.account.repository.SellerRepository;
 import com.deskit.deskit.livehost.common.enums.BroadcastProductStatus;
 import com.deskit.deskit.livehost.common.enums.BroadcastStatus;
@@ -114,6 +116,7 @@ public class BroadcastService {
     private final BroadcastResultRepository broadcastResultRepository;
     private final VodRepository vodRepository;
 
+    private final MemberRepository memberRepository;
     private final SellerRepository sellerRepository;
     private final TagCategoryRepository tagCategoryRepository;
     private final ProductRepository productRepository;
@@ -203,6 +206,9 @@ public class BroadcastService {
                 .orElseThrow(() -> new BusinessException(ErrorCode.CATEGORY_NOT_FOUND));
 
         if (broadcast.getStatus() == BroadcastStatus.RESERVED || broadcast.getStatus() == BroadcastStatus.CANCELED) {
+            if (broadcast.getStatus() == BroadcastStatus.CANCELED) {
+                broadcast.changeStatus(BroadcastStatus.RESERVED);
+            }
             LocalDateTime nextScheduledAt = request.getScheduledAt();
             LocalDateTime currentScheduledAt = broadcast.getScheduledAt();
             if (nextScheduledAt != null && (currentScheduledAt == null || !currentScheduledAt.equals(nextScheduledAt))) {
@@ -316,6 +322,18 @@ public class BroadcastService {
         var reservedQty = field(name("reserved", "reserved_qty"), Integer.class);
         var availableQty = stockQty.sub(safetyStock).sub(org.jooq.impl.DSL.coalesce(reservedQty, 0));
 
+        var liveSubquery = dsl.select(
+                        bpProductId.as("product_id"),
+                        org.jooq.impl.DSL.max(broadcastId).as("broadcast_id")
+                )
+                .from(broadcastProductTable)
+                .join(broadcastTable).on(bpBroadcastId.eq(broadcastId))
+                .where(broadcastStatus.eq(BroadcastStatus.ON_AIR.name()).and(bpStatus.ne("DELETED")))
+                .groupBy(bpProductId)
+                .asTable("live");
+        var liveProductId = field(name("live", "product_id"), Long.class);
+        var liveBroadcastId = field(name("live", "broadcast_id"), Long.class);
+
         var condition = sellerField.eq(sellerId)
                 .and(statusField.in(statuses))
                 .and(availableQty.gt(0))
@@ -324,20 +342,39 @@ public class BroadcastService {
             condition = condition.and(productName.containsIgnoreCase(keyword));
         }
 
-        return dsl.select(productId, productName, price, stockQty, safetyStock, org.jooq.impl.DSL.coalesce(reservedQty, 0).as("reserved_qty"))
+        return dsl.select(
+                        productId,
+                        productName,
+                        price,
+                        stockQty,
+                        safetyStock,
+                        org.jooq.impl.DSL.coalesce(reservedQty, 0).as("reserved_qty"),
+                        liveBroadcastId
+                )
                 .from(productTable)
                 .leftJoin(reservedSubquery).on(productId.eq(reservedProductId))
+                .leftJoin(liveSubquery).on(productId.eq(liveProductId))
                 .where(condition)
                 .orderBy(productId.asc())
-                .fetch(record -> ProductSelectResponse.builder()
-                        .productId(record.get(productId))
-                        .productName(record.get(productName))
-                        .price(record.get(price))
-                        .stockQty(record.get(stockQty))
-                        .safetyStock(record.get(safetyStock))
-                        .reservedBroadcastQty(record.get("reserved_qty", Integer.class))
-                        .imageUrl(null)
-                        .build());
+                .fetch(record -> {
+                    Long currentBroadcastId = record.get(liveBroadcastId);
+                    Integer resolvedPrice = record.get(price);
+                    if (currentBroadcastId != null) {
+                        Integer originalPrice = redisService.getOriginalPrice(currentBroadcastId, record.get(productId));
+                        if (originalPrice != null) {
+                            resolvedPrice = originalPrice;
+                        }
+                    }
+                    return ProductSelectResponse.builder()
+                            .productId(record.get(productId))
+                            .productName(record.get(productName))
+                            .price(resolvedPrice)
+                            .stockQty(record.get(stockQty))
+                            .safetyStock(record.get(safetyStock))
+                            .reservedBroadcastQty(record.get("reserved_qty", Integer.class))
+                            .imageUrl(null)
+                            .build();
+                });
     }
 
     @Transactional(readOnly = true)
@@ -522,6 +559,7 @@ public class BroadcastService {
 
             validateTransition(broadcast.getStatus(), BroadcastStatus.ON_AIR);
             broadcast.startBroadcast("session-" + broadcastId);
+            applyLiveProductPrice(broadcast);
             sseService.notifyBroadcastUpdate(broadcastId, "BROADCAST_STARTED", "started");
 
             try {
@@ -551,7 +589,7 @@ public class BroadcastService {
             throw new BusinessException(ErrorCode.BROADCAST_NOT_ON_AIR);
         }
 
-        Long memberId = parseMemberId(viewerId);
+        Long memberId = resolveMemberId(viewerId);
         if (memberId != null && isViewerSanctioned(broadcastId, memberId)) {
             throw new BusinessException(ErrorCode.BROADCAST_ALREADY_SANCTIONED);
         }
@@ -711,6 +749,7 @@ public class BroadcastService {
         if (broadcast.getStatus() == BroadcastStatus.STOPPED && nextStatus == VodStatus.PUBLIC) {
             validateTransition(broadcast.getStatus(), BroadcastStatus.VOD);
             broadcast.changeStatus(BroadcastStatus.VOD);
+            restoreOriginalProductPrice(broadcast);
             redisService.persistVodReactionKeys(broadcastId);
         }
         return nextStatus.name();
@@ -1022,6 +1061,9 @@ public class BroadcastService {
         for (BroadcastProduct bp : products) {
             Integer remaining = remainingQuantities.get(bp.getProduct().getId());
             boolean soldOut = bp.markSoldOutIfNeeded(remaining);
+            if (remaining == null || remaining <= 0) {
+                restoreOriginalPriceIfNeeded(broadcast, bp);
+            }
             if (soldOut) {
                 soldOutProductIds.add(bp.getProduct().getId());
             }
@@ -1041,7 +1083,8 @@ public class BroadcastService {
         return products.stream()
                 .map(bp -> BroadcastProductResponse.fromEntity(
                         bp,
-                        remainingQuantities.getOrDefault(bp.getProduct().getId(), bp.getBpQuantity())
+                        remainingQuantities.getOrDefault(bp.getProduct().getId(), bp.getBpQuantity()),
+                        resolveOriginalPrice(broadcast, bp)
                 ))
                 .collect(Collectors.toList());
     }
@@ -1564,6 +1607,7 @@ public class BroadcastService {
                     if (broadcast != null && broadcast.getStatus() == BroadcastStatus.ENDED) {
                         validateTransition(broadcast.getStatus(), BroadcastStatus.VOD);
                         broadcast.changeStatus(BroadcastStatus.VOD);
+                        restoreOriginalProductPrice(broadcast);
                     }
                     if (broadcast != null) {
                         saveBroadcastResultSnapshot(broadcast);
@@ -1795,6 +1839,31 @@ public class BroadcastService {
         saveQcards(broadcast, qcards);
     }
 
+    void applyLiveProductPrice(Broadcast broadcast) {
+        List<BroadcastProduct> products = broadcastProductRepository.findAllWithProductByBroadcastId(broadcast.getBroadcastId());
+        for (BroadcastProduct bp : products) {
+            Integer bpPrice = bp.getBpPrice();
+            if (bpPrice == null) {
+                continue;
+            }
+            Product product = bp.getProduct();
+            redisService.storeOriginalPrice(broadcast.getBroadcastId(), product.getId(), product.getPrice());
+            product.changePrice(bpPrice);
+        }
+    }
+
+    void restoreOriginalProductPrice(Broadcast broadcast) {
+        List<BroadcastProduct> products = broadcastProductRepository.findAllWithProductByBroadcastId(broadcast.getBroadcastId());
+        for (BroadcastProduct bp : products) {
+            Integer originalPrice = redisService.getOriginalPrice(broadcast.getBroadcastId(), bp.getProduct().getId());
+            if (originalPrice == null) {
+                continue;
+            }
+            bp.getProduct().changePrice(originalPrice);
+        }
+        redisService.clearOriginalPrices(broadcast.getBroadcastId());
+    }
+
     private void validateTransition(BroadcastStatus from, BroadcastStatus to) {
         if (!isTransitionAllowed(from, to)) {
             throw new BusinessException(ErrorCode.BROADCAST_INVALID_TRANSITION);
@@ -1821,9 +1890,67 @@ public class BroadcastService {
         return broadcast.getProducts().stream()
                 .map(bp -> BroadcastProductResponse.fromEntity(
                         bp,
-                        remainingQuantities.getOrDefault(bp.getProduct().getId(), bp.getBpQuantity())
+                        remainingQuantities.getOrDefault(bp.getProduct().getId(), bp.getBpQuantity()),
+                        resolveOriginalPrice(broadcast, bp)
                 ))
                 .collect(Collectors.toList());
+    }
+
+    private Integer resolveOriginalPrice(Broadcast broadcast, BroadcastProduct bp) {
+        if (broadcast == null || bp == null) {
+            return null;
+        }
+        Integer originalPrice = redisService.getOriginalPrice(broadcast.getBroadcastId(), bp.getProduct().getId());
+        return originalPrice != null ? originalPrice : bp.getProduct().getPrice();
+    }
+
+    private void restoreOriginalPriceIfNeeded(Broadcast broadcast, BroadcastProduct bp) {
+        if (broadcast == null || bp == null) {
+            return;
+        }
+        if (broadcast.getStatus() != BroadcastStatus.ON_AIR) {
+            return;
+        }
+        Integer originalPrice = redisService.getOriginalPrice(broadcast.getBroadcastId(), bp.getProduct().getId());
+        if (originalPrice == null) {
+            return;
+        }
+        bp.getProduct().changePrice(originalPrice);
+        redisService.removeOriginalPrice(broadcast.getBroadcastId(), bp.getProduct().getId());
+    }
+
+    @Transactional
+    public void restoreCostPriceIfSoldOut(Long productId) {
+        if (productId == null) {
+            return;
+        }
+        List<Long> broadcastIds = broadcastProductRepository.findOnAirBroadcastIdsByProductId(productId);
+        if (broadcastIds == null || broadcastIds.isEmpty()) {
+            return;
+        }
+        List<BroadcastProduct> products = broadcastProductRepository.findAllWithProductByBroadcastIdIn(broadcastIds);
+        Map<Long, List<BroadcastProduct>> productsByBroadcast = products.stream()
+                .collect(Collectors.groupingBy(bp -> bp.getBroadcast().getBroadcastId()));
+        for (Long broadcastId : broadcastIds) {
+            Broadcast broadcast = broadcastRepository.findById(broadcastId).orElse(null);
+            if (broadcast == null || broadcast.getStatus() != BroadcastStatus.ON_AIR) {
+                continue;
+            }
+            List<BroadcastProduct> broadcastProducts = productsByBroadcast.getOrDefault(broadcastId, List.of());
+            if (broadcastProducts.isEmpty()) {
+                continue;
+            }
+            Map<Long, Integer> remainingQuantities = calculateRemainingQuantities(broadcast, broadcastProducts);
+            for (BroadcastProduct bp : broadcastProducts) {
+                if (!bp.getProduct().getId().equals(productId)) {
+                    continue;
+                }
+                Integer remaining = remainingQuantities.get(bp.getProduct().getId());
+                if (remaining == null || remaining <= 0) {
+                    restoreOriginalPriceIfNeeded(broadcast, bp);
+                }
+            }
+        }
     }
 
     private List<QcardResponse> getQcardListResponse(Broadcast broadcast) {
@@ -1842,6 +1969,12 @@ public class BroadcastService {
                 || status == BroadcastStatus.STOPPED;
     }
 
+    private boolean shouldUseRealtimeStats(BroadcastStatus status) {
+        return status == BroadcastStatus.ON_AIR
+                || status == BroadcastStatus.READY
+                || status == BroadcastStatus.ENDED;
+    }
+
     private boolean isJoinableGroup(BroadcastStatus status) {
         return status == BroadcastStatus.ON_AIR || status == BroadcastStatus.READY;
     }
@@ -1855,6 +1988,21 @@ public class BroadcastService {
         } catch (NumberFormatException e) {
             return null;
         }
+    }
+
+    private Long resolveMemberId(String viewerId) {
+        Long memberId = parseMemberId(viewerId);
+        if (memberId != null) {
+            return memberId;
+        }
+        if (viewerId == null || viewerId.isBlank()) {
+            return null;
+        }
+        Member member = memberRepository.findByLoginId(viewerId);
+        if (member == null) {
+            return null;
+        }
+        return member.getMemberId();
     }
 
     private boolean isViewerSanctioned(Long broadcastId, Long memberId, SanctionType... types) {
@@ -1880,7 +2028,7 @@ public class BroadcastService {
         Integer reports = 0;
         String vodUrl = null;
 
-        if (isLiveGroup(broadcast.getStatus())) {
+        if (shouldUseRealtimeStats(broadcast.getStatus())) {
             views = redisService.getRealtimeViewerCount(broadcast.getBroadcastId());
             likes = redisService.getLikeCount(broadcast.getBroadcastId());
             reports = redisService.getReportCount(broadcast.getBroadcastId());
@@ -1937,7 +2085,7 @@ public class BroadcastService {
 
     private void injectLiveStats(List<BroadcastListResponse> list) {
         list.forEach(item -> {
-            if (isLiveGroup(item.getStatus())) {
+            if (shouldUseRealtimeStats(item.getStatus())) {
                 item.setLiveViewerCount(redisService.getRealtimeViewerCount(item.getBroadcastId()));
                 item.setTotalLikes(redisService.getLikeCount(item.getBroadcastId()));
                 item.setReportCount(redisService.getReportCount(item.getBroadcastId()));
@@ -1961,9 +2109,11 @@ public class BroadcastService {
 
         list.forEach(item -> {
             if (isLiveGroup(item.getStatus())) {
-                item.setLiveViewerCount(redisService.getRealtimeViewerCount(item.getBroadcastId()));
-                item.setTotalLikes(redisService.getLikeCount(item.getBroadcastId()));
-                item.setReportCount(redisService.getReportCount(item.getBroadcastId()));
+                if (shouldUseRealtimeStats(item.getStatus())) {
+                    item.setLiveViewerCount(redisService.getRealtimeViewerCount(item.getBroadcastId()));
+                    item.setTotalLikes(redisService.getLikeCount(item.getBroadcastId()));
+                    item.setReportCount(redisService.getReportCount(item.getBroadcastId()));
+                }
 
                 List<BroadcastProduct> products = productMap.getOrDefault(item.getBroadcastId(), List.of());
                 Broadcast broadcast = broadcastMap.get(item.getBroadcastId());

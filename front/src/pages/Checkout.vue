@@ -3,6 +3,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } 
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import PageContainer from '../components/PageContainer.vue'
 import PageHeader from '../components/PageHeader.vue'
+import { getProductDetail } from '../api/products'
 import {
   loadCheckout,
   updateShipping,
@@ -10,6 +11,7 @@ import {
   type CheckoutItem,
   type ShippingInfo,
   type PaymentMethod,
+  updateCheckoutItemsPricing,
 } from '../lib/checkout/checkout-storage'
 import { createOrder } from '../api/orders'
 import { getMyAddresses } from '../api/addresses'
@@ -29,6 +31,11 @@ const TOSS_CLIENT_KEY =
 
 const draft = ref<CheckoutDraft | null>(null)
 const isSubmitting = ref(false)
+const priceNotice = ref('')
+const priceSyncTimer = ref<number | null>(null)
+const priceSyncInFlight = ref(false)
+const priceChangePending = ref(false)
+const priceChangeModalOpen = ref(false)
 let inflight: Promise<void> | null = null
 const addresses = ref<AddressResponse[]>([])
 const addressesLoading = ref(false)
@@ -107,6 +114,66 @@ const hasAddresses = computed(() => addresses.value.length > 0)
 
 type StringKeys<T> = { [K in keyof T]-?: T[K] extends string ? K : never }[keyof T]
 type ShippingTextField = StringKeys<ShippingInfo>
+
+const resolvePricing = (product: any) => {
+  const price = Number(product?.price ?? 0) || 0
+  const candidateOriginal = Number(product?.cost_price ?? product?.costPrice ?? price) || price
+  const originalPrice = candidateOriginal > price ? candidateOriginal : price
+  const discountRate = originalPrice > price ? Math.round((1 - price / originalPrice) * 100) : 0
+  const stock = Math.max(1, Number(product?.stock_qty ?? product?.stock ?? 99) || 99)
+  return { price, originalPrice, discountRate, stock }
+}
+
+const syncPrices = async () => {
+  if (priceSyncInFlight.value) return false
+  const current = loadCheckout()
+  if (!current || current.items.length === 0) return false
+  priceSyncInFlight.value = true
+  try {
+    const results = await Promise.all(
+      current.items.map(async (item) => {
+        try {
+          const detail = await getProductDetail(item.productId)
+          return { item, detail }
+        } catch {
+          return { item, detail: null }
+        }
+      }),
+    )
+    const patches: Array<{
+      productId: string
+      price: number
+      originalPrice: number
+      discountRate: number
+      stock: number
+    }> = []
+    results.forEach(({ item, detail }) => {
+      if (!detail) return
+      const pricing = resolvePricing(detail)
+      if (
+        item.price !== pricing.price ||
+        item.originalPrice !== pricing.originalPrice ||
+        item.discountRate !== pricing.discountRate ||
+        item.stock !== pricing.stock
+      ) {
+        patches.push({ productId: item.productId, ...pricing })
+      }
+    })
+    if (patches.length > 0) {
+      draft.value = updateCheckoutItemsPricing(patches)
+      priceNotice.value = '가격이 변경된 상품이 있어 결제 금액을 업데이트했습니다.'
+      priceChangePending.value = true
+      priceChangeModalOpen.value = true
+      if (step.value === 'payment') {
+        goShipping()
+      }
+      return true
+    }
+    return false
+  } finally {
+    priceSyncInFlight.value = false
+  }
+}
 
 const persistField = (field: ShippingTextField, value: string) => {
   let sanitized = value
@@ -276,8 +343,10 @@ const canProceed = computed(() => {
   return /^[0-9]{5}$/.test(zip) && !!addr1
 })
 
-const handleNext = () => {
+const handleNext = async () => {
   if (!validate()) return
+  const hasUpdates = await syncPrices()
+  if (hasUpdates) return
   updateShipping({ ...form })
   router.push({ path: '/checkout', query: { step: 'payment' } }).catch(() => {})
 }
@@ -288,6 +357,11 @@ const handleBack = () => {
 
 const goShipping = () => {
   router.push({ path: '/checkout' }).catch(() => {})
+}
+
+const confirmPriceChange = () => {
+  priceChangePending.value = false
+  priceChangeModalOpen.value = false
 }
 
 const loadTossScript = () => {
@@ -414,6 +488,14 @@ const handleTossPayment = async () => {
   const current = draft.value ?? loadCheckout()
   if (!current || !current.items || current.items.length === 0) {
     router.push('/cart')
+    return
+  }
+  const hasUpdates = await syncPrices()
+  if (hasUpdates) {
+    return
+  }
+  if (priceChangePending.value) {
+    priceChangeModalOpen.value = true
     return
   }
 
@@ -553,11 +635,20 @@ onMounted(() => {
   loadAddresses()
   window.addEventListener('deskit-checkout-updated', storageRefreshHandler)
   window.addEventListener('storage', storageRefreshHandler)
+  window.addEventListener('focus', syncPrices)
+  document.addEventListener('visibilitychange', syncPrices)
+  syncPrices()
+  priceSyncTimer.value = window.setInterval(syncPrices, 15000)
 })
 
 onBeforeUnmount(() => {
   window.removeEventListener('deskit-checkout-updated', storageRefreshHandler)
   window.removeEventListener('storage', storageRefreshHandler)
+  window.removeEventListener('focus', syncPrices)
+  document.removeEventListener('visibilitychange', syncPrices)
+  if (priceSyncTimer.value) {
+    window.clearInterval(priceSyncTimer.value)
+  }
 })
 </script>
 
@@ -579,6 +670,10 @@ onBeforeUnmount(() => {
     </div>
 
     <div v-else class="checkout-layout">
+      <div v-if="priceNotice" class="price-notice">
+        <span>{{ priceNotice }}</span>
+        <button type="button" class="price-notice__close" @click="priceNotice = ''">닫기</button>
+      </div>
       <div v-if="step === 'shipping'" class="left-col">
         <div class="left-stack">
           <section class="panel panel--form">
@@ -695,7 +790,7 @@ onBeforeUnmount(() => {
 
         <div class="actions actions--left">
           <button type="button" class="btn ghost" @click="handleBack">이전</button>
-          <button type="button" class="btn primary" :disabled="!canProceed" @click="handleNext">
+          <button type="button" class="btn primary" :disabled="!canProceed || priceChangePending" @click="handleNext">
             다음
           </button>
         </div>
@@ -720,7 +815,7 @@ onBeforeUnmount(() => {
           <button
             type="button"
             class="btn primary"
-            :disabled="!isTossReady || isSubmitting"
+            :disabled="!isTossReady || isSubmitting || priceChangePending"
             @click="handleTossPayment"
           >
             결제 진행
@@ -762,6 +857,16 @@ onBeforeUnmount(() => {
           </strong>
         </div>
       </aside>
+    </div>
+
+    <div v-if="priceChangeModalOpen" class="modal-overlay" role="dialog" aria-modal="true">
+      <div class="modal-card">
+        <h3>가격 변경 안내</h3>
+        <p>상품 가격이 변경되어 결제 금액을 갱신했습니다. 확인 후 계속 진행해주세요.</p>
+        <div class="modal-actions">
+          <button type="button" class="btn primary" @click="confirmPriceChange">확인</button>
+        </div>
+      </div>
     </div>
   </PageContainer>
 </template>
@@ -811,6 +916,61 @@ onBeforeUnmount(() => {
   grid-template-columns: minmax(0, 1.35fr) minmax(280px, 0.65fr);
   gap: 18px;
   align-items: start;
+}
+
+.price-notice {
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  background: var(--surface-weak);
+  border-radius: 12px;
+  border: 1px solid var(--border-color);
+  font-weight: 600;
+  color: var(--text-strong);
+}
+
+.price-notice__close {
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.4);
+  display: grid;
+  place-items: center;
+  z-index: 1300;
+}
+
+.modal-card {
+  width: min(420px, 90vw);
+  background: var(--surface);
+  border-radius: 16px;
+  padding: 20px;
+  border: 1px solid var(--border-color);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.2);
+}
+
+.modal-card h3 {
+  margin: 0 0 10px;
+}
+
+.modal-card p {
+  margin: 0;
+  color: var(--text-muted);
+}
+
+.modal-actions {
+  margin-top: 16px;
+  display: flex;
+  justify-content: flex-end;
 }
 
 .panel {

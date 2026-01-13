@@ -272,7 +272,7 @@ const handleSubmit = async () => {
       throw new Error('complete failed')
     }
   } catch {
-    // Image upload failure does not rollback product creation by design (no rollback yet).
+    // Image upload failure does not rolback product creation by design (no rollback yet).
     error.value = '상품 등록에 실패했습니다.'
     return
   }
