@@ -91,6 +91,7 @@ public class LiveChatService {
                 .sender(dto.getSender())
                 .content(dto.getContent())
                 .senderRole(dto.getSenderRole())
+                .connectionId(dto.getConnectionId())
                 .vodPlayTime(dto.getVodPlayTime())
                 .sentAt(dto.getSentAt())
                 .build();
@@ -132,6 +133,7 @@ public class LiveChatService {
                     .sender(entry.getSender())
                     .content(entry.getContent())
                     .senderRole(entry.getSenderRole())
+                    .connectionId(entry.getConnectionId())
                     .vodPlayTime(entry.getVodPlayTime())
                     .sentAt(entry.getSentAt())
                     .build());

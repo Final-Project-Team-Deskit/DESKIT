@@ -46,6 +46,7 @@ const openviduInstance = ref<OpenVidu | null>(null)
 const openviduSession = ref<Session | null>(null)
 const openviduSubscriber = ref<Subscriber | null>(null)
 const openviduConnected = ref(false)
+const openviduConnectionId = ref<string | null>(null)
 
 const FALLBACK_IMAGE = 'data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs='
 
@@ -422,6 +423,7 @@ const resetOpenViduState = () => {
   openviduSubscriber.value = null
   openviduSession.value = null
   openviduInstance.value = null
+  openviduConnectionId.value = null
   clearViewerContainer()
 }
 
@@ -463,6 +465,7 @@ const connectSubscriber = async (token: string) => {
       clearViewerContainer()
     })
     await openviduSession.value.connect(token)
+    openviduConnectionId.value = openviduSession.value.connection?.connectionId ?? null
     openviduConnected.value = true
   } catch {
     disconnectOpenVidu()
@@ -510,6 +513,7 @@ type LiveChatMessageDTO = {
   sender: string
   content: string
   senderRole?: string
+  connectionId?: string
   vodPlayTime: number
   sentAt?: number
 }
@@ -895,6 +899,7 @@ const sendSocketMessage = (type: LiveMessageType, content: string) => {
     type,
     sender: nickname.value,
     content,
+    connectionId: openviduConnectionId.value ?? undefined,
     vodPlayTime: 0,
     sentAt: Date.now(),
   }
