@@ -1,15 +1,17 @@
 <script setup lang="ts">
-import {onMounted, ref} from 'vue'
+import {onMounted, ref, watch} from 'vue'
 import {useRoute, useRouter} from 'vue-router'
 import PageContainer from '../../components/PageContainer.vue'
 import PageHeader from '../../components/PageHeader.vue'
 import ProductBasicFields from '../../components/seller/ProductBasicFields.vue'
+import LiveImageCropModal from '../../components/LiveImageCropModal.vue'
 import {clearProductDraft, loadProductDraft, saveProductDraft} from '../../composables/useSellerProducts'
 
 type ImageSlot = {
   slot: number
   file?: File
   preview?: string
+  uploading?: boolean
 }
 
 const route = useRoute()
@@ -23,6 +25,13 @@ const price = ref(0)
 const stock = ref(0)
 const images = ref<ImageSlot[]>([])
 const error = ref('')
+const isSaving = ref(false)
+const MAX_IMAGE_BYTES = 5 * 1024 * 1024
+const cropperOpen = ref(false)
+const cropperSource = ref('')
+const cropperFileName = ref('')
+const cropperIndex = ref<number | null>(null)
+const cropperInputRef = ref<HTMLInputElement | null>(null)
 
 const buildAuthHeaders = (): Record<string, string> => {
   const access = localStorage.getItem('access') || sessionStorage.getItem('access')
@@ -59,52 +68,149 @@ const buildImageSlots = (previews: string[] = []) => {
   const slots: ImageSlot[] = []
   for (let i = 0; i < 5; i += 1) {
     const preview = previews[i] ?? ''
-    slots.push({slot: i, preview: preview || undefined})
+    slots.push({slot: i, preview: preview || undefined, uploading: false})
   }
   return slots
 }
 
-const buildImageUploadPayload = (slots: ImageSlot[]) =>
-  slots
-    .filter((slot) => slot.file)
-    .map((slot) => ({
-      file: slot.file as File,
-      imageType: slot.slot === 0 ? 'THUMBNAIL' : 'GALLERY',
-      slotIndex: slot.slot,
-    }))
+const updateSlot = (index: number, patch: Partial<ImageSlot>) => {
+  images.value = images.value.map((slot) =>
+    slot.slot === index ? { ...slot, ...patch, slot: index } : slot,
+  )
+}
 
-const setImageAt = (index: number, event: Event) => {
-  const input = event.target as HTMLInputElement
-  const file = input.files?.[0]
-  if (!file) return
-  if (!file.type.startsWith('image/')) {
-    error.value = '이미지 파일만 업로드할 수 있습니다.'
-    input.value = ''
-    return
-  }
+const resetCropperState = () => {
+  cropperSource.value = ''
+  cropperFileName.value = ''
+  cropperIndex.value = null
+  cropperInputRef.value = null
+}
+
+const openCropper = (file: File, index: number, input: HTMLInputElement) => {
   const reader = new FileReader()
   reader.onload = () => {
-    if (typeof reader.result === 'string') {
-      images.value = images.value.map((slot) =>
-        slot.slot === index ? {slot: index, file, preview: reader.result} : slot,
-      )
-    }
+    cropperSource.value = typeof reader.result === 'string' ? reader.result : ''
+    cropperFileName.value = file.name
+    cropperIndex.value = index
+    cropperInputRef.value = input
+    cropperOpen.value = true
   }
   reader.readAsDataURL(file)
 }
 
+const dataUrlToFile = (dataUrl: string, fileName: string) => {
+  const [header, base64] = dataUrl.split(',')
+  if (!header || !base64) return null
+  const mimeMatch = header.match(/data:(.*?);base64/)
+  const mimeType = mimeMatch?.[1] ?? 'image/jpeg'
+  const binary = atob(base64)
+  const bytes = new Uint8Array(binary.length)
+  for (let i = 0; i < binary.length; i += 1) {
+    bytes[i] = binary.charCodeAt(i)
+  }
+  return new File([bytes], fileName, { type: mimeType })
+}
+
+const uploadImageFile = async (index: number, file: File) => {
+  error.value = ''
+  updateSlot(index, { uploading: true })
+  try {
+    const formData = new FormData()
+    formData.append('file', file)
+    const response = await fetch(`${apiBase}/api/seller/products/images/upload`, {
+      method: 'POST',
+      headers: {
+        ...buildAuthHeaders(),
+      },
+      credentials: 'include',
+      body: formData,
+    })
+    if (response.status === 401 || response.status === 403) {
+      error.value = '권한이 없습니다. 다시 로그인해주세요.'
+      return
+    }
+    if (response.status === 413) {
+      error.value = '파일 크기가 제한을 초과했습니다.'
+      return
+    }
+    if (!response.ok) {
+      error.value = '이미지 업로드에 실패했습니다.'
+      return
+    }
+    const data = (await response.json()) as { url?: string }
+    if (!data.url) {
+      error.value = '이미지 업로드에 실패했습니다.'
+      return
+    }
+    updateSlot(index, { preview: data.url, file: undefined })
+  } catch {
+    error.value = '이미지 업로드에 실패했습니다.'
+    updateSlot(index, { file: undefined })
+  } finally {
+    updateSlot(index, { uploading: false })
+    if (cropperInputRef.value) {
+      cropperInputRef.value.value = ''
+    }
+  }
+}
+
+const handleCropConfirm = async (payload: { dataUrl: string; fileName: string }) => {
+  const index = cropperIndex.value
+  if (index === null) return
+  const file = dataUrlToFile(payload.dataUrl, payload.fileName)
+  if (!file) {
+    error.value = '이미지 업로드에 실패했습니다.'
+    cropperOpen.value = false
+    return
+  }
+  if (file.size > MAX_IMAGE_BYTES) {
+    error.value = '파일 크기가 제한을 초과했습니다.'
+    cropperOpen.value = false
+    return
+  }
+  await uploadImageFile(index, file)
+  cropperOpen.value = false
+}
+
+const setImageAt = async (index: number, event: Event) => {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  if (!file) return
+  if (!file.type || !file.type.startsWith('image/')) {
+    error.value = '이미지 파일만 업로드할 수 있습니다.'
+    input.value = ''
+    return
+  }
+  if (file.size > MAX_IMAGE_BYTES) {
+    error.value = '파일 크기가 제한을 초과했습니다.'
+    input.value = ''
+    return
+  }
+
+  error.value = ''
+  openCropper(file, index, input)
+}
+
 const clearImageAt = (index: number) => {
-  images.value = images.value.map((slot) =>
-    slot.slot === index ? {slot: index} : slot,
-  )
+  updateSlot(index, { preview: undefined, file: undefined, uploading: false })
 }
 
 const goNext = async () => {
+  if (isSaving.value) return
   error.value = ''
   if (!name.value.trim() || !shortDesc.value.trim()) {
     error.value = '상품명과 한 줄 소개를 입력해주세요.'
     return
   }
+  if (!images.value[0]?.preview) {
+    error.value = '썸네일 이미지를 등록해주세요.'
+    return
+  }
+  if (images.value.some((slot) => slot.uploading)) {
+    error.value = '이미지 업로드가 완료될 때까지 기다려주세요.'
+    return
+  }
+  isSaving.value = true
   try {
     const response = await fetch(`${apiBase}/api/seller/products`, {
       method: 'POST',
@@ -122,6 +228,10 @@ const goNext = async () => {
         cost_price: costPrice.value,
       }),
     })
+    if (response.status === 401 || response.status === 403) {
+      error.value = '권한이 없습니다. 다시 로그인해주세요.'
+      return
+    }
     if (!response.ok) {
       error.value = '상품 등록에 실패했습니다.'
       return
@@ -131,12 +241,41 @@ const goNext = async () => {
       error.value = '상품 등록에 실패했습니다.'
       return
     }
-    console.log(payload.product_id)
+    const imageUrls = images.value
+      .map((slot) => slot.preview)
+      .filter((url): url is string => Boolean(url))
+    const imageResponse = await fetch(`${apiBase}/api/seller/products/${payload.product_id}`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        ...buildAuthHeaders(),
+      },
+      credentials: 'include',
+      body: JSON.stringify({ image_urls: imageUrls }),
+    })
+    if (imageResponse.status === 401 || imageResponse.status === 403) {
+      error.value = '권한이 없습니다. 다시 로그인해주세요.'
+      return
+    }
+    if (imageResponse.status === 404) {
+      error.value = '상품을 찾을 수 없습니다.'
+      return
+    }
+    if (imageResponse.status === 413) {
+      error.value = '파일 크기가 제한을 초과했습니다.'
+      return
+    }
+    if (!imageResponse.ok) {
+      error.value = '이미지 저장에 실패했습니다.'
+      return
+    }
     saveDraft(payload.product_id)
     router.push('/seller/products/create/detail').catch(() => {
     })
   } catch {
     error.value = '상품 등록에 실패했습니다.'
+  } finally {
+    isSaving.value = false
   }
 }
 
@@ -160,11 +299,31 @@ onMounted(() => {
   stock.value = 0
   images.value = buildImageSlots()
 })
+
+watch(cropperOpen, (open, wasOpen) => {
+  if (!open && wasOpen) {
+    if (cropperInputRef.value) {
+      cropperInputRef.value.value = ''
+    }
+    resetCropperState()
+  }
+})
 </script>
 
 <template>
   <PageContainer>
     <PageHeader eyebrow="DESKIT" title="상품 등록 - 기본 정보"/>
+    <LiveImageCropModal
+      v-model="cropperOpen"
+      :image-src="cropperSource"
+      :file-name="cropperFileName"
+      title="1:1 이미지 자르기"
+      :frame-width-ratio="1"
+      :frame-height-ratio="1"
+      :output-width="1024"
+      :output-height="1024"
+      @confirm="handleCropConfirm"
+    />
     <section class="create-card ds-surface">
       <ProductBasicFields
         v-model:name="name"
@@ -189,8 +348,14 @@ onMounted(() => {
             <div class="image-slot__preview">
               <img v-if="slot.preview" :src="slot.preview" :alt="`상품 이미지 ${slot.slot}`"/>
               <label v-if="!slot.preview" class="btn ghost image-slot__upload">
-                업로드
-                <input type="file" accept="image/*" @change="setImageAt(slot.slot, $event)" hidden/>
+                {{ slot.uploading ? '업로드 중' : '업로드' }}
+                <input
+                  type="file"
+                  accept="image/*"
+                  :disabled="slot.uploading"
+                  @change="setImageAt(slot.slot, $event)"
+                  hidden
+                />
               </label>
             </div>
             <div class="image-slot__actions">
@@ -204,7 +369,7 @@ onMounted(() => {
       <p v-if="error" class="error">{{ error }}</p>
       <div class="actions">
         <button type="button" class="btn" @click="cancel">취소</button>
-        <button type="button" class="btn primary" @click="goNext">상세 작성</button>
+        <button type="button" class="btn primary" :disabled="isSaving" @click="goNext">상세 작성</button>
       </div>
     </section>
   </PageContainer>
