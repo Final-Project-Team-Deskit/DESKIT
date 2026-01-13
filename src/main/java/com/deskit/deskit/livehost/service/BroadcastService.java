@@ -203,6 +203,9 @@ public class BroadcastService {
                 .orElseThrow(() -> new BusinessException(ErrorCode.CATEGORY_NOT_FOUND));
 
         if (broadcast.getStatus() == BroadcastStatus.RESERVED || broadcast.getStatus() == BroadcastStatus.CANCELED) {
+            if (broadcast.getStatus() == BroadcastStatus.CANCELED) {
+                broadcast.changeStatus(BroadcastStatus.RESERVED);
+            }
             LocalDateTime nextScheduledAt = request.getScheduledAt();
             LocalDateTime currentScheduledAt = broadcast.getScheduledAt();
             if (nextScheduledAt != null && (currentScheduledAt == null || !currentScheduledAt.equals(nextScheduledAt))) {
