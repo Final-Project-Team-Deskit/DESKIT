@@ -13,26 +13,44 @@ const productId = computed(() => (Array.isArray(route.params.id) ? route.params.
 
 const rawProduct = ref<DbProduct | null>(null)
 const isLoading = ref(false)
+const priceNotice = ref('')
+const pricePollTimer = ref<number | null>(null)
 
-const loadProduct = async () => {
+const loadProduct = async (options: { silent?: boolean; notifyOnChange?: boolean } = {}) => {
   const id = productId.value ? String(productId.value) : ''
   if (!id) {
     rawProduct.value = null
     return
   }
-  isLoading.value = true
+  if (!options.silent) {
+    isLoading.value = true
+  }
+  const previous = rawProduct.value as any
   try {
-    rawProduct.value = await getProductDetail(id)
+    const next = await getProductDetail(id)
+    if (options.notifyOnChange && previous && next) {
+      const prevPrice = Number(previous.price ?? 0) || 0
+      const prevCost = Number(previous.cost_price ?? previous.costPrice ?? prevPrice) || prevPrice
+      const nextPrice = Number((next as any).price ?? 0) || 0
+      const nextCost = Number((next as any).cost_price ?? (next as any).costPrice ?? nextPrice) || nextPrice
+      if (prevPrice !== nextPrice || prevCost !== nextCost) {
+        priceNotice.value = '가격이 변경되어 최신 정보로 업데이트했습니다.'
+      }
+    }
+    rawProduct.value = next
   } catch (error) {
     console.error('Failed to load product.', error)
     rawProduct.value = null
   } finally {
-    isLoading.value = false
+    if (!options.silent) {
+      isLoading.value = false
+    }
   }
 }
 
 watch(productId, () => {
-  loadProduct()
+  priceNotice.value = ''
+  loadProduct({ notifyOnChange: false })
 }, { immediate: true })
 
 const product = computed(() => {
@@ -217,12 +235,18 @@ watch(
 onMounted(() => {
   window.addEventListener('keydown', handleEsc)
   window.addEventListener('keydown', handleTrapFocus)
+  pricePollTimer.value = window.setInterval(() => {
+    loadProduct({ silent: true, notifyOnChange: true })
+  }, 15000)
 })
 
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', handleEsc)
   window.removeEventListener('keydown', handleTrapFocus)
   document.body.style.overflow = ''
+  if (pricePollTimer.value) {
+    window.clearInterval(pricePollTimer.value)
+  }
 })
 </script>
 
@@ -232,6 +256,10 @@ onBeforeUnmount(() => {
 
     <div v-if="isLoading" class="empty">상품 정보를 불러오는 중...</div>
     <div v-else-if="product" class="card">
+      <div v-if="priceNotice" class="price-notice">
+        <span>{{ priceNotice }}</span>
+        <button type="button" class="price-notice__close" @click="priceNotice = ''">닫기</button>
+      </div>
       <div class="media">
         <div class="thumbs" v-if="imageList.length">
           <button
@@ -343,6 +371,27 @@ onBeforeUnmount(() => {
   border-radius: 16px;
   overflow: hidden;
   box-shadow: var(--shadow-card);
+}
+
+.price-notice {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 16px;
+  background: var(--surface-weak);
+  border-bottom: 1px solid var(--border-color);
+  font-weight: 600;
+  color: var(--text-strong);
+}
+
+.price-notice__close {
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-weight: 700;
+  cursor: pointer;
 }
 
 .media {

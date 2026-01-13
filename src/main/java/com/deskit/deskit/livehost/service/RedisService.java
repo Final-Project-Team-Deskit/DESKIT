@@ -206,6 +206,10 @@ public class RedisService {
         return value != null ? Integer.valueOf(value.toString()) : null;
     }
 
+    public void removeOriginalCostPrice(Long broadcastId, Long productId) {
+        redisTemplate.opsForHash().delete(getOriginalCostPriceKey(broadcastId), productId.toString());
+    }
+
     public void clearOriginalCostPrices(Long broadcastId) {
         redisTemplate.delete(getOriginalCostPriceKey(broadcastId));
     }

@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import PageContainer from '../components/PageContainer.vue'
 import PageHeader from '../components/PageHeader.vue'
+import { getProductDetail } from '../api/products'
 import {
   clearCart as clearCartStorage,
   loadCart,
@@ -10,12 +11,16 @@ import {
   setAllSelected,
   updateQuantity,
   updateSelection,
+  updateCartItemsPricing,
   type StoredCartItem,
 } from '../lib/cart/cart-storage'
 import { createCheckoutFromCart, saveCheckout } from '../lib/checkout/checkout-storage'
 
 const router = useRouter()
 const cartItems = ref<StoredCartItem[]>(loadCart())
+const priceNotice = ref('')
+const priceSyncTimer = ref<number | null>(null)
+const priceSyncInFlight = ref(false)
 
 const formatPrice = (value: number) => `${value.toLocaleString('ko-KR')}원`
 
@@ -43,6 +48,60 @@ const isAllSelected = computed(
 
 const refresh = () => {
   cartItems.value = loadCart()
+}
+
+const resolvePricing = (product: any) => {
+  const price = Number(product?.price ?? 0) || 0
+  const candidateOriginal = Number(product?.cost_price ?? product?.costPrice ?? price) || price
+  const originalPrice = candidateOriginal > price ? candidateOriginal : price
+  const discountRate = originalPrice > price ? Math.round((1 - price / originalPrice) * 100) : 0
+  const stock = Math.max(1, Number(product?.stock_qty ?? product?.stock ?? 99) || 99)
+  return { price, originalPrice, discountRate, stock }
+}
+
+const syncPrices = async () => {
+  if (priceSyncInFlight.value) return
+  const current = loadCart()
+  if (current.length === 0) return
+  priceSyncInFlight.value = true
+  try {
+    const results = await Promise.all(
+      current.map(async (item) => {
+        try {
+          const detail = await getProductDetail(item.productId)
+          return { item, detail }
+        } catch {
+          return { item, detail: null }
+        }
+      }),
+    )
+    const patches: Array<{
+      productId: string
+      price: number
+      originalPrice: number
+      discountRate: number
+      stock: number
+    }> = []
+    results.forEach(({ item, detail }) => {
+      if (!detail) return
+      const pricing = resolvePricing(detail)
+      if (
+        item.price !== pricing.price ||
+        item.originalPrice !== pricing.originalPrice ||
+        item.discountRate !== pricing.discountRate ||
+        item.stock !== pricing.stock
+      ) {
+        patches.push({ productId: item.productId, ...pricing })
+      }
+    })
+    if (patches.length > 0) {
+      updateCartItemsPricing(patches)
+      refresh()
+      priceNotice.value = '가격이 변경된 상품이 있어 금액을 최신으로 업데이트했습니다.'
+    }
+  } finally {
+    priceSyncInFlight.value = false
+  }
 }
 
 const toggleItemSelection = (id: string) => {
@@ -104,11 +163,16 @@ onMounted(() => {
   window.addEventListener('deskit-cart-updated', storageRefreshHandler)
   window.addEventListener('storage', storageRefreshHandler)
   refresh()
+  syncPrices()
+  priceSyncTimer.value = window.setInterval(syncPrices, 15000)
 })
 
 onBeforeUnmount(() => {
   window.removeEventListener('deskit-cart-updated', storageRefreshHandler)
   window.removeEventListener('storage', storageRefreshHandler)
+  if (priceSyncTimer.value) {
+    window.clearInterval(priceSyncTimer.value)
+  }
 })
 </script>
 
@@ -130,6 +194,10 @@ onBeforeUnmount(() => {
     </div>
 
     <section v-else class="cart-layout">
+      <div v-if="priceNotice" class="price-notice">
+        <span>{{ priceNotice }}</span>
+        <button type="button" class="price-notice__close" @click="priceNotice = ''">닫기</button>
+      </div>
       <div class="cart-left">
         <div class="cart-list">
           <article v-for="item in cartItems" :key="item.id" class="cart-row">
@@ -242,6 +310,28 @@ onBeforeUnmount(() => {
   display: grid;
   grid-template-columns: minmax(0, 1.4fr) minmax(280px, 0.6fr);
   gap: 18px;
+}
+
+.price-notice {
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  background: var(--surface-weak);
+  border-radius: 12px;
+  border: 1px solid var(--border-color);
+  font-weight: 600;
+  color: var(--text-strong);
+}
+
+.price-notice__close {
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-weight: 700;
+  cursor: pointer;
 }
 
 .cart-left {
