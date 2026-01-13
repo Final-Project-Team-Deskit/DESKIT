@@ -1355,6 +1355,26 @@ public class BroadcastService {
         return new SalesSummary(totalSales, metrics);
     }
 
+    @Transactional
+    public void refreshBroadcastTotalSales(Long broadcastId) {
+        if (broadcastId == null) {
+            return;
+        }
+        Broadcast broadcast = broadcastRepository.findById(broadcastId)
+                .orElse(null);
+        if (broadcast == null) {
+            return;
+        }
+        BroadcastResult result = broadcastResultRepository.findById(broadcastId).orElse(null);
+        if (result == null) {
+            return;
+        }
+        SalesSummary salesSummary = fetchBroadcastSalesSummary(broadcast);
+        BigDecimal totalSales = salesSummary.totalSales() != null ? salesSummary.totalSales() : BigDecimal.ZERO;
+        result.updateTotalSales(totalSales);
+        broadcastResultRepository.save(result);
+    }
+
     private int countBroadcastChats(Long broadcastId) {
         return (int) liveChatRepository.countByBroadcastIdAndMsgTypeIn(
                 broadcastId,
