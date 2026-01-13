@@ -62,10 +62,6 @@ const resolveMemberId = () => {
   const user = getAuthUser()
   memberId.value = resolveViewerId(user) ?? resolveViewerId(null)
 }
-const fallbackChatId = computed(() => {
-  const numeric = Number.parseInt(memberId.value, 10)
-  return Number.isFinite(numeric) ? numeric : 1
-})
 
 const scrollToBottom = async () => {
   await nextTick()
@@ -310,22 +306,6 @@ const startNewInquiry = async () => {
     appendMessage('system', '새 문의를 시작할 수 없습니다. 잠시 후 다시 시도해주세요.')
   } finally {
     isSending.value = false
-  }
-}
-
-const checkConversationStatus = async () => {
-  if (!memberId.value) return
-  try {
-    const response = await fetchWithCredentials(`${apiBase}/chat/status/${memberId.value}`)
-    if (!response.ok) return
-    const data = (await response.json()) as { status?: string }
-    statusLabel.value = data.status ?? 'BOT_ACTIVE'
-    if (statusLabel.value !== 'BOT_ACTIVE') {
-      isLocked.value = true
-      appendMessage('system', '채팅이 관리자로 이관되었어요. 관리자가 곧 답변 드릴 예정이에요.')
-    }
-  } catch (error) {
-    console.error('status check failed', error)
   }
 }
 

@@ -186,7 +186,7 @@ const modalTitle = (orderId: string) => {
 
 const productImageOf = (productId: string) => {
   const p = productsData.find((x: any) => String(x.product_id) === String(productId))
-  return String(p?.imageUrl ?? p?.image ?? p?.thumbnail ?? p?.thumb ?? '')
+  return String(p?.imageUrl ?? '')
 }
 
 const thumbOf = (order: OrderViewModel) => {

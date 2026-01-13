@@ -105,7 +105,10 @@ const refreshDraft = () => {
 
 const hasAddresses = computed(() => addresses.value.length > 0)
 
-const persistField = (field: keyof ShippingInfo, value: string) => {
+type StringKeys<T> = { [K in keyof T]-?: T[K] extends string ? K : never }[keyof T]
+type ShippingTextField = StringKeys<ShippingInfo>
+
+const persistField = (field: ShippingTextField, value: string) => {
   let sanitized = value
   if (field === 'zipcode') {
     sanitized = sanitized.replace(/[^0-9]/g, '').slice(0, 5)
@@ -127,7 +130,7 @@ const toggleDefault = (checked: boolean) => {
 }
 
 const resolveReceiver = () => {
-  const selected = addresses.value.find((item) => item.address_id === selectedAddressId.value)
+  const selected = addresses.value.find((item: AddressResponse) => item.address_id === selectedAddressId.value)
   if (selected && selected.receiver.trim()) return selected.receiver.trim()
   const userName = getAuthUser()?.name ?? ''
   if (userName.trim()) return userName.trim()
@@ -163,7 +166,13 @@ const loadAddresses = async () => {
     addresses.value = Array.isArray(response) ? response : []
     if (addresses.value.length > 0) {
       const defaultAddress =
-        addresses.value.find((item) => item.is_default) ?? addresses.value[0]
+        addresses.value.find((item: AddressResponse) => item.is_default) ?? addresses.value[0]
+      if (!defaultAddress) {
+        form.isDefault = true
+        form.buyerName = resolveReceiver()
+        updateShipping({ isDefault: true, buyerName: form.buyerName })
+        return
+      }
       selectedAddressId.value = defaultAddress.address_id
       applySelectedAddress(defaultAddress)
       form.isDefault = false

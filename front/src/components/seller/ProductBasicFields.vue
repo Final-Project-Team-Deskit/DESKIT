@@ -22,6 +22,7 @@ const emit = defineEmits<{
   <label class="field">
     <span class="field__label">상품명</span>
     <input
+      class="basic-input"
       :value="props.name"
       type="text"
       placeholder="예: 모던 데스크 매트"
@@ -32,6 +33,7 @@ const emit = defineEmits<{
   <label class="field">
     <span class="field__label">한 줄 소개</span>
     <input
+      class="basic-input"
       :value="props.shortDesc"
       type="text"
       placeholder="예: 감성적인 데스크테리어"
@@ -44,6 +46,7 @@ const emit = defineEmits<{
     <label class="field">
       <span class="field__label">판매가</span>
       <input
+        class="basic-input"
         :value="props.price"
         type="number"
         min="0"
@@ -54,6 +57,7 @@ const emit = defineEmits<{
     <label class="field">
       <span class="field__label">재고 수량</span>
       <input
+        class="basic-input"
         :value="props.stock"
         type="number"
         min="0"
@@ -80,5 +84,14 @@ const emit = defineEmits<{
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
   gap: 12px;
+}
+
+.basic-input {
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  padding: 10px 12px;
+  font-weight: 700;
+  color: var(--text-strong);
+  background: var(--surface);
 }
 </style>
