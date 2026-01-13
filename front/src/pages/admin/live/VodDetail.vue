@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import PageContainer from '../../../components/PageContainer.vue'
 import ConfirmModal from '../../../components/ConfirmModal.vue'
@@ -48,16 +48,11 @@ const isLoading = ref(false)
 const statusLabel = computed(() => getBroadcastStatusLabel(detail.value?.statusLabel))
 const isVodPlayable = computed(() => !!detail.value?.vod?.url)
 const isVodPublic = computed(() => detail.value?.vod.visibility === '공개')
-const isPlaying = ref(false)
-const isFullscreen = ref(false)
 const showDeleteConfirm = ref(false)
 
 const showChat = ref(false)
 const chatText = ref('')
 const chatMessages = ref<{ id: string; user: string; text: string; time: string }[]>([])
-
-const videoRef = ref<HTMLVideoElement | null>(null)
-const playerContainerRef = ref<HTMLElement | null>(null)
 
 const goBack = () => {
   router.back()
@@ -79,10 +74,21 @@ const toggleVisibility = async () => {
   }
 }
 
-const handleDownload = () => {
+const handleDownload = async () => {
   if (!detail.value?.vod?.url) return
   window.alert('VOD 파일 다운로드를 시작합니다.')
-  window.open(detail.value.vod.url, '_blank')
+  const fileName = buildDownloadName(detail.value.title)
+  if (await saveVodFile(detail.value.vod.url, fileName)) {
+    return
+  }
+  const link = document.createElement('a')
+  link.href = detail.value.vod.url
+  link.download = fileName
+  link.rel = 'noopener'
+  link.target = '_blank'
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
 }
 
 const handleDelete = () => {
@@ -113,40 +119,9 @@ const sendChat = () => {
   chatText.value = ''
 }
 
-const startPlayback = () => {
-  if (!isVodPlayable.value) return
-  isPlaying.value = true
-  nextTick(() => {
-    videoRef.value?.play?.()
-  })
-}
-
-const toggleFullscreen = () => {
-  const target = playerContainerRef.value
-  if (!target) return
-  if (document.fullscreenElement) {
-    document.exitFullscreen().catch(() => {})
-    return
-  }
-  target.requestFullscreen?.()
-}
-
-const handleFullscreenChange = () => {
-  isFullscreen.value = !!document.fullscreenElement
-}
-
-onMounted(() => {
-  document.addEventListener('fullscreenchange', handleFullscreenChange)
-})
-
-onUnmounted(() => {
-  document.removeEventListener('fullscreenchange', handleFullscreenChange)
-})
-
 watch(isVodPlayable, (playable) => {
   if (!playable) {
     showChat.value = false
-    isPlaying.value = false
   }
 })
 
@@ -170,6 +145,34 @@ const formatChatTime = (timestamp?: number) => {
   const displayHour = hours % 12 || 12
   const minutes = String(date.getMinutes()).padStart(2, '0')
   return `${hours >= 12 ? '오후' : '오전'} ${displayHour}:${minutes}`
+}
+
+const buildDownloadName = (title?: string) => {
+  const base = title?.trim() || 'vod'
+  const safe = base.replace(/[\\/:*?"<>|]/g, '_')
+  return `${safe}.mp4`
+}
+
+const saveVodFile = async (url: string, fileName: string) => {
+  const picker = (window as Window & { showSaveFilePicker?: (options?: { suggestedName?: string }) => Promise<FileSystemFileHandle> })
+    .showSaveFilePicker
+  if (!picker) return false
+  try {
+    const handle = await picker({ suggestedName: fileName })
+    const response = await fetch(url)
+    if (!response.ok) return false
+    const writable = await handle.createWritable()
+    if (response.body) {
+      await response.body.pipeTo(writable)
+    } else {
+      const blob = await response.blob()
+      await writable.write(blob)
+      await writable.close()
+    }
+    return true
+  } catch {
+    return false
+  }
 }
 
 const buildDetail = (broadcast: BroadcastDetailResponse, report: BroadcastResult): AdminVodDetail => ({
@@ -332,50 +335,17 @@ watch(vodId, () => {
         </div>
       </div>
       <div class="vod-player" :class="{ 'with-chat': showChat && isVodPlayable }">
-        <div ref="playerContainerRef" class="player-shell">
+        <div class="player-shell">
           <div class="player-frame">
             <video
               v-if="isVodPlayable"
-              v-show="isPlaying"
-              ref="videoRef"
               :src="detail.vod.url"
               controls
-              :poster="detail.thumb"
             ></video>
             <div v-else class="vod-placeholder">
               <span>재생할 VOD가 없습니다.</span>
             </div>
-            <div v-if="isVodPlayable && !isPlaying" class="player-poster">
-              <img :src="detail.thumb" :alt="detail.title" @error="handleImageError" />
-              <button type="button" class="play-toggle" @click="startPlayback" title="재생">
-                <svg aria-hidden="true" class="icon" viewBox="0 0 24 24" focusable="false">
-                  <polygon points="8 5 19 12 8 19 8 5" fill="currentColor" />
-                </svg>
-              </button>
-            </div>
             <div v-if="isVodPlayable" class="player-overlay">
-              <div class="overlay-left">
-                <button
-                  type="button"
-                  class="icon-circle ghost"
-                  :class="{ active: isFullscreen }"
-                  @click="toggleFullscreen"
-                  :title="isFullscreen ? '전체화면 종료' : '전체화면'"
-                >
-                  <svg v-if="!isFullscreen" aria-hidden="true" class="icon" viewBox="0 0 24 24" focusable="false">
-                    <path d="M15 3h6v6" />
-                    <path d="M9 21H3v-6" />
-                    <path d="M21 3 14 10" />
-                    <path d="M3 21 10 14" />
-                  </svg>
-                  <svg v-else aria-hidden="true" class="icon" viewBox="0 0 24 24" focusable="false">
-                    <path d="M9 9H3V3" />
-                    <path d="m3 9 6-6" />
-                    <path d="M15 15h6v6" />
-                    <path d="m21 15-6 6" />
-                  </svg>
-                </button>
-              </div>
               <div class="overlay-right">
                 <div class="chat-pill">
                   <span class="chat-count">{{ chatMessages.length }}</span>
@@ -702,20 +672,24 @@ watch(vodId, () => {
 
 .player-frame {
   position: relative;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 16 / 9;
   border-radius: 14px;
   overflow: hidden;
   background: #000;
-  min-height: 320px;
+  display: grid;
+  place-items: center;
 }
 
 .player-frame video {
   width: 100%;
   height: 100%;
   display: block;
+  object-fit: contain;
 }
 
 .vod-placeholder {
-  min-height: 320px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -755,7 +729,7 @@ watch(vodId, () => {
   position: absolute;
   inset: 16px;
   display: flex;
-  justify-content: space-between;
+  justify-content: flex-end;
   align-items: flex-start;
   pointer-events: none;
 }

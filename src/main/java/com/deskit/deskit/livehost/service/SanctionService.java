@@ -41,8 +41,7 @@ public class SanctionService {
             throw new BusinessException(ErrorCode.INVALID_INPUT_VALUE);
         }
 
-        Member member = memberRepository.findById(request.getMemberId())
-                .orElseThrow(() -> new BusinessException(ErrorCode.MEMBER_NOT_FOUND));
+        Member member = resolveMember(request);
 
         Sanction sanction = Sanction.builder()
                 .broadcast(broadcast)
@@ -63,18 +62,29 @@ public class SanctionService {
 
         sseService.notifyTargetUser(
                 broadcastId,
-                request.getMemberId(),
+                member.getMemberId(),
                 "SANCTION_ALERT",
                 Map.of(
                         "type", request.getStatus(),
-                        "reason", request.getReason()
+                        "reason", request.getReason(),
+                        "actorType", request.getActorType()
+                )
+        );
+        sseService.notifyTargetUser(
+                broadcastId,
+                member.getLoginId(),
+                "SANCTION_ALERT",
+                Map.of(
+                        "type", request.getStatus(),
+                        "reason", request.getReason(),
+                        "actorType", request.getActorType()
                 )
         );
 
         sseService.notifyBroadcastUpdate(
                 broadcastId,
                 "SANCTION_UPDATED",
-                Map.of("targetMemberId", request.getMemberId())
+                Map.of("targetMemberId", member.getMemberId())
         );
     }
 
@@ -87,8 +97,7 @@ public class SanctionService {
             throw new BusinessException(ErrorCode.INVALID_INPUT_VALUE);
         }
 
-        Member member = memberRepository.findById(request.getMemberId())
-                .orElseThrow(() -> new BusinessException(ErrorCode.MEMBER_NOT_FOUND));
+        Member member = resolveMember(request);
 
         Sanction sanction = Sanction.builder()
                 .broadcast(broadcast)
@@ -109,18 +118,45 @@ public class SanctionService {
 
         sseService.notifyTargetUser(
                 broadcastId,
-                request.getMemberId(),
+                member.getMemberId(),
                 "SANCTION_ALERT",
                 Map.of(
                         "type", request.getStatus(),
-                        "reason", request.getReason()
+                        "reason", request.getReason(),
+                        "actorType", request.getActorType()
+                )
+        );
+        sseService.notifyTargetUser(
+                broadcastId,
+                member.getLoginId(),
+                "SANCTION_ALERT",
+                Map.of(
+                        "type", request.getStatus(),
+                        "reason", request.getReason(),
+                        "actorType", request.getActorType()
                 )
         );
 
         sseService.notifyBroadcastUpdate(
                 broadcastId,
                 "SANCTION_UPDATED",
-                Map.of("targetMemberId", request.getMemberId())
+                Map.of("targetMemberId", member.getMemberId())
         );
+    }
+
+    private Member resolveMember(SanctionRequest request) {
+        if (request.getMemberId() != null) {
+            return memberRepository.findById(request.getMemberId())
+                    .orElseThrow(() -> new BusinessException(ErrorCode.MEMBER_NOT_FOUND));
+        }
+        String loginId = request.getMemberLoginId();
+        if (loginId == null || loginId.isBlank()) {
+            throw new BusinessException(ErrorCode.MEMBER_NOT_FOUND);
+        }
+        Member member = memberRepository.findByLoginId(loginId);
+        if (member == null) {
+            throw new BusinessException(ErrorCode.MEMBER_NOT_FOUND);
+        }
+        return member;
     }
 }

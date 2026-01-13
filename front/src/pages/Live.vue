@@ -474,7 +474,7 @@ const connectSse = () => {
 
 const isStatsTarget = (item: LiveItem) => {
   const status = normalizeBroadcastStatus(item.status)
-  if (status === 'ON_AIR' || status === 'READY') return true
+  if (status === 'ON_AIR' || status === 'READY' || status === 'ENDED' || status === 'STOPPED') return true
   const startAtMs = parseLiveDate(item.startAt).getTime()
   if (Number.isNaN(startAtMs)) return false
   const endAtMs = parseLiveDate(item.endAt).getTime()

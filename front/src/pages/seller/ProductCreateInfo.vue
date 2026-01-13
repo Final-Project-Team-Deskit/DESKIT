@@ -3,7 +3,6 @@ import {onMounted, ref} from 'vue'
 import {useRoute, useRouter} from 'vue-router'
 import PageContainer from '../../components/PageContainer.vue'
 import PageHeader from '../../components/PageHeader.vue'
-import {getAuthUser} from '../../lib/auth'
 import {clearProductDraft, loadProductDraft, saveProductDraft} from '../../composables/useSellerProducts'
 
 const route = useRoute()
@@ -18,25 +17,10 @@ const stock = ref(0)
 const images = ref<string[]>(['', '', '', '', ''])
 const error = ref('')
 
-const sellerId = ref<number | null>(null)
-
 const buildAuthHeaders = (): Record<string, string> => {
   const access = localStorage.getItem('access') || sessionStorage.getItem('access')
   if (!access) return {}
   return {Authorization: `Bearer ${access}`}
-}
-
-const deriveSellerId = () => {
-  const user = getAuthUser() as any
-  const candidates = [user?.seller_id, user?.sellerId, user?.id, user?.user_id, user?.userId]
-  for (const value of candidates) {
-    if (typeof value === 'number' && Number.isFinite(value)) return value
-    if (typeof value === 'string') {
-      const parsed = Number.parseInt(value, 10)
-      if (!Number.isNaN(parsed)) return parsed
-    }
-  }
-  return null
 }
 
 const loadDraft = () => {
@@ -58,7 +42,6 @@ const loadDraft = () => {
 const saveDraft = (productId?: number) => {
   saveProductDraft({
     id: productId ? String(productId) : undefined,
-    sellerId: sellerId.value ?? undefined,
     name: name.value.trim(),
     shortDesc: shortDesc.value.trim(),
     costPrice: costPrice.value,
@@ -142,7 +125,6 @@ const cancel = () => {
 }
 
 onMounted(() => {
-  sellerId.value = deriveSellerId()
   const resume = route.query.resume
   const shouldResume = resume === '1' || (Array.isArray(resume) && resume[0] === '1')
   if (shouldResume) {

@@ -19,6 +19,8 @@ public class VodMaintenanceService {
 
     private final VodRepository vodRepository;
     private final AwsS3Service s3Service;
+    private final VodStatsService vodStatsService;
+    private final RedisService redisService;
 
     @Scheduled(cron = "0 0 3 * * *")
     @Transactional
@@ -33,6 +35,9 @@ public class VodMaintenanceService {
                 if (vod.getVodUrl() != null && !vod.getVodUrl().isBlank()) {
                     s3Service.deleteObjectByUrl(vod.getVodUrl());
                 }
+                Long broadcastId = vod.getBroadcast().getBroadcastId();
+                vodStatsService.flushVodStats(broadcastId);
+                redisService.deleteVodKeys(broadcastId);
                 vod.markDeleted();
             } catch (Exception e) {
                 log.error("VOD 자동 삭제 실패: vodId={}", vod.getVodId(), e);

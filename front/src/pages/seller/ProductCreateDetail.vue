@@ -10,7 +10,6 @@ import {
   upsertProduct,
   type SellerProductDraft,
 } from '../../composables/useSellerProducts'
-import { getAuthUser } from '../../lib/auth'
 
 const router = useRouter()
 const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080'
@@ -27,18 +26,6 @@ const buildAuthHeaders = (): Record<string, string> => {
   return { Authorization: `Bearer ${access}` }
 }
 
-const deriveSellerId = () => {
-  const user = getAuthUser() as any
-  const candidates = [user?.seller_id, user?.sellerId, user?.id, user?.user_id, user?.userId]
-  for (const value of candidates) {
-    if (typeof value === 'number' && Number.isFinite(value)) return value
-    if (typeof value === 'string') {
-      const parsed = Number.parseInt(value, 10)
-      if (!Number.isNaN(parsed)) return parsed
-    }
-  }
-  return null
-}
 
 const exec = (command: string, value?: string) => {
   document.execCommand(command, false, value)
@@ -182,26 +169,46 @@ const handleSubmit = async () => {
     return
   }
 
-  const sellerId = draft.value.sellerId ?? deriveSellerId()
-  if (!sellerId) {
-    error.value = '판매자 정보를 확인할 수 없습니다.'
-    return
-  }
-
   const productId = Number(draft.value.id)
   if (!Number.isFinite(productId)) {
     error.value = '상품 정보를 확인할 수 없습니다.'
     return
   }
 
+  const authHeaders = buildAuthHeaders()
+
   // 마지막 동기화
   syncFromEditor()
 
   try {
+    const detailResponse = await fetch(`${apiBase}/api/seller/products/${productId}/detail`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        ...authHeaders,
+      },
+      credentials: 'include',
+      body: JSON.stringify({ detail_html: detailHtml.value }),
+    })
+    if (!detailResponse.ok) {
+      throw new Error('detail update failed')
+    }
+
     await uploadProductImages(productId, Array.isArray(draft.value.images) ? draft.value.images : [])
+
+    const completeResponse = await fetch(`${apiBase}/api/seller/products/${productId}/complete`, {
+      method: 'PATCH',
+      headers: {
+        ...authHeaders,
+      },
+      credentials: 'include',
+    })
+    if (!completeResponse.ok) {
+      throw new Error('complete failed')
+    }
   } catch {
     // Image upload failure does not rollback product creation by design (no rollback yet).
-    error.value = '이미지 업로드에 실패했습니다.'
+    error.value = '상품 등록에 실패했습니다.'
     return
   }
 
@@ -209,7 +216,6 @@ const handleSubmit = async () => {
 
   upsertProduct({
     id: draft.value.id || `new-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-    sellerId,
     name,
     shortDesc,
     costPrice,

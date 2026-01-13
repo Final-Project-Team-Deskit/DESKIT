@@ -2,6 +2,7 @@ package com.deskit.deskit.product.service;
 
 import com.deskit.deskit.product.dto.ProductCreateRequest;
 import com.deskit.deskit.product.dto.ProductCreateResponse;
+import com.deskit.deskit.product.dto.ProductDetailUpdateRequest;
 import com.deskit.deskit.product.dto.ProductResponse;
 import com.deskit.deskit.product.dto.ProductResponse.ProductTags;
 import com.deskit.deskit.product.dto.SellerProductListResponse;
@@ -141,8 +142,8 @@ public class ProductService {
       throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "short_desc required");
     }
     String detailHtml = request.detailHtml();
-    if (detailHtml == null || detailHtml.isBlank()) {
-      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "detail_html required");
+    if (detailHtml == null) {
+      detailHtml = "";
     }
 
     Integer price = request.price();
@@ -206,6 +207,63 @@ public class ProductService {
 
     Product saved = productRepository.save(product);
     return SellerProductStatusUpdateResponse.from(saved);
+  }
+
+  public void updateProductDetailHtml(Long sellerId, Long productId, ProductDetailUpdateRequest request) {
+    if (sellerId == null) {
+      throw new ResponseStatusException(HttpStatus.FORBIDDEN, "seller_id required");
+    }
+    if (productId == null) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "product_id required");
+    }
+    if (request == null || request.detailHtml() == null) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "detail_html required");
+    }
+
+    Product product = productRepository.findByIdAndDeletedAtIsNull(productId)
+      .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "product not found"));
+
+    if (!Objects.equals(product.getSellerId(), sellerId)) {
+      throw new ResponseStatusException(HttpStatus.FORBIDDEN, "forbidden");
+    }
+
+    try {
+      product.changeDetailHtml(request.detailHtml());
+    } catch (IllegalArgumentException ex) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, ex.getMessage());
+    }
+
+    productRepository.save(product);
+  }
+
+  public void completeProductRegistration(Long sellerId, Long productId) {
+    if (sellerId == null) {
+      throw new ResponseStatusException(HttpStatus.FORBIDDEN, "seller_id required");
+    }
+    if (productId == null) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "product_id required");
+    }
+
+    Product product = productRepository.findByIdAndDeletedAtIsNull(productId)
+      .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "product not found"));
+
+    if (!Objects.equals(product.getSellerId(), sellerId)) {
+      throw new ResponseStatusException(HttpStatus.FORBIDDEN, "forbidden");
+    }
+    if (product.getStatus() != Product.Status.DRAFT) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "status must be DRAFT");
+    }
+    if (product.getDetailHtml() == null || product.getDetailHtml().isBlank()) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "detail_html required");
+    }
+
+    try {
+      product.changeStatus(Product.Status.READY);
+    } catch (IllegalStateException ex) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, ex.getMessage());
+    }
+
+    productRepository.save(product);
   }
 
   // DB에서 가져온 tag row들을 productId별로 묶어서 tags/tagsFlat을 만든다

@@ -138,6 +138,14 @@ public class OpenViduService {
                 .findFirst();
     }
 
+    public void deleteRecording(String recordingId) throws OpenViduJavaClientException, OpenViduHttpException {
+        if (recordingId == null || recordingId.isBlank()) {
+            return;
+        }
+        openVidu.deleteRecording(recordingId);
+        log.info("OpenVidu recording deleted: recordingId={}", recordingId);
+    }
+
     public void forceDisconnect(Long broadcastId, String connectionId) {
         String sessionId = sessionMap.get(broadcastId);
         if (sessionId == null) {

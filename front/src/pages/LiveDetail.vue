@@ -9,9 +9,10 @@ import PageHeader from '../components/PageHeader.vue'
 import ConfirmModal from '../components/ConfirmModal.vue'
 import { parseLiveDate } from '../lib/live/utils'
 import { useNow } from '../lib/live/useNow'
-import { getAuthUser } from '../lib/auth'
+import { getAuthUser, hydrateSessionUser } from '../lib/auth'
 import { resolveViewerId } from '../lib/live/viewer'
 import {
+  fetchBroadcastLikeStatus,
   fetchBroadcastProducts,
   fetchBroadcastStats,
   fetchChatPermission,
@@ -217,8 +218,24 @@ const loadDetail = async () => {
     const detail = await fetchPublicBroadcastDetail(broadcastId.value)
     liveItem.value = buildLiveItem(detail)
     likeCount.value = detail.totalLikes ?? 0
+    if (isLoggedIn.value) {
+      await loadLikeStatus()
+    } else {
+      isLiked.value = false
+    }
   } catch {
     liveItem.value = null
+  }
+}
+
+const loadLikeStatus = async () => {
+  if (!broadcastId.value || !isLoggedIn.value) return
+  try {
+    const result = await fetchBroadcastLikeStatus(broadcastId.value)
+    isLiked.value = result.liked
+    likeCount.value = result.likeCount ?? likeCount.value
+  } catch {
+    return
   }
 }
 
@@ -330,6 +347,7 @@ const submitReport = async () => {
 const isSettingsOpen = ref(false)
 const settingsButtonRef = ref<HTMLElement | null>(null)
 const settingsPanelRef = ref<HTMLElement | null>(null)
+const volume = ref(60)
 const selectedQuality = ref<'auto' | '1080p' | '720p' | '480p'>('auto')
 const qualityObserver = ref<MutationObserver | null>(null)
 
@@ -347,11 +365,31 @@ const qualityOptions: QualityOption[] = [
   { value: '480p', label: '480p', width: 854, height: 480 },
 ]
 
+const applySubscriberVolume = () => {
+  const container = stageRef.value
+  if (!container) return
+  const video = container.querySelector('video') as HTMLVideoElement | null
+  if (!video) return
+  video.muted = false
+  video.volume = Math.min(1, Math.max(0, volume.value / 100))
+}
+
 const applyVideoQuality = async (value: typeof selectedQuality.value) => {
   try {
     const container = stageRef.value
     if (!container) return
     container.dataset.quality = value
+    const subscriber = openviduSubscriber.value as { setPreferredResolution?: (width: number, height: number) => void } | null
+    if (subscriber?.setPreferredResolution) {
+      if (value === 'auto') {
+        subscriber.setPreferredResolution(0, 0)
+      } else {
+        const option = qualityOptions.find((item) => item.value === value)
+        if (option?.width && option?.height) {
+          subscriber.setPreferredResolution(option.width, option.height)
+        }
+      }
+    }
     const video = container.querySelector('video') as HTMLVideoElement | null
     if (!video) return
     const stream = video.srcObject
@@ -414,9 +452,11 @@ const connectSubscriber = async (token: string) => {
         openviduSubscriber.value = null
         clearViewerContainer()
       }
-    openviduSubscriber.value = openviduSession.value.subscribe(event.stream, viewerContainerRef.value, {
-      insertMode: 'append',
-    })
+      openviduSubscriber.value = openviduSession.value.subscribe(event.stream, viewerContainerRef.value, {
+        insertMode: 'append',
+      })
+      applySubscriberVolume()
+      void applyVideoQuality(selectedQuality.value)
     })
     openviduSession.value.on('streamDestroyed', () => {
       openviduSubscriber.value = null
@@ -558,6 +598,38 @@ const parseSseData = (event: MessageEvent) => {
   }
 }
 
+const resolveProductId = (data: unknown) => {
+  if (typeof data === 'number') return String(data)
+  if (typeof data === 'string') return data
+  if (data && typeof data === 'object') {
+    const record = data as { productId?: number | string; bpId?: number | string; id?: number | string }
+    if (record.productId !== undefined) return String(record.productId)
+    if (record.bpId !== undefined) return String(record.bpId)
+    if (record.id !== undefined) return String(record.id)
+  }
+  return null
+}
+
+const applyPinnedProduct = (productId: string | null) => {
+  products.value = products.value.map((product) => ({
+    ...product,
+    isPinned: productId ? product.id === productId : false,
+  }))
+}
+
+const markProductSoldOut = (productId: string | null) => {
+  if (!productId) return
+  products.value = products.value.map((product) =>
+    product.id === productId
+      ? {
+        ...product,
+        isSoldOut: true,
+        stockQty: 0,
+      }
+      : product,
+  )
+}
+
 const buildStopConfirmMessage = () => {
   return '방송 운영 정책 위반으로 방송이 중지되었습니다.\n방송에서 나가시겠습니까?'
 }
@@ -612,6 +684,12 @@ const refreshChatPermission = async () => {
   }
 }
 
+watch(hasChatPermission, (next) => {
+  if (!next) {
+    input.value = ''
+  }
+})
+
 const handleSseEvent = (event: MessageEvent) => {
   const data = parseSseData(event)
   switch (event.type) {
@@ -621,27 +699,38 @@ const handleSseEvent = (event: MessageEvent) => {
       scheduleRefresh()
       break
     case 'PRODUCT_PINNED':
+      applyPinnedProduct(resolveProductId(data))
+      scheduleRefresh()
+      break
     case 'PRODUCT_UNPINNED':
+      applyPinnedProduct(null)
+      scheduleRefresh()
+      break
     case 'PRODUCT_SOLD_OUT':
+      markProductSoldOut(resolveProductId(data))
       scheduleRefresh()
       break
     case 'SANCTION_ALERT':
       if (typeof data === 'object' && data) {
         const sanctionType = String((data as { type?: string }).type || '').toUpperCase()
+        const actorType = String((data as { actorType?: string }).actorType || '').toUpperCase()
+        const actorLabel = actorType === 'ADMIN' ? '관리자' : actorType === 'SELLER' ? '판매자' : ''
+        const actorSuffix = actorLabel ? `${actorLabel}에 의해 ` : ''
         if (sanctionType === 'MUTE') {
           hasChatPermission.value = false
-          alert('채팅이 금지되었습니다.')
+          const message = `${actorSuffix}채팅이 금지되었습니다.`
+          alert(message)
           appendMessage({
             id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
             user: 'system',
-            text: '채팅이 금지되었습니다.',
+            text: message,
             at: new Date(),
             kind: 'system',
           })
           break
         }
         if (sanctionType === 'OUT') {
-          alert('방송에서 퇴장당했습니다.')
+          alert(`${actorSuffix}강제 퇴장되었습니다.`)
           void sendLeaveSignal()
           disconnectChat()
           disconnectOpenVidu()
@@ -695,8 +784,8 @@ const scheduleReconnect = (id: number) => {
 const connectSse = (id: number) => {
   sseSource.value?.close()
   const user = getAuthUser()
-  const viewerId = resolveViewerId(user)
-  const query = viewerId ? `?viewerId=${encodeURIComponent(viewerId)}` : ''
+  const currentViewerId = viewerId.value ?? resolveViewerId(user)
+  const query = currentViewerId ? `?viewerId=${encodeURIComponent(currentViewerId)}` : ''
   const source = new EventSource(`${apiBase}/api/broadcasts/${id}/subscribe${query}`)
   const events = [
     'BROADCAST_READY',
@@ -734,6 +823,9 @@ const startStatsPolling = () => {
     if (document.visibilityState !== 'visible') {
       return
     }
+    if (!['READY', 'ON_AIR', 'ENDED', 'STOPPED'].includes(lifecycleStatus.value)) {
+      return
+    }
     void loadStats()
     if (!sseConnected.value) {
       void loadProducts()
@@ -750,7 +842,12 @@ const requestJoinToken = async () => {
   try {
     streamToken.value = await joinBroadcast(broadcastId.value, viewerId.value)
     joinedBroadcastId.value = broadcastId.value
-  } catch {
+  } catch (error) {
+    const code = (error as { code?: string } | null)?.code
+    if (code === 'B007') {
+      alert('관리자(판매자)에 의해 퇴장 처리되어 방송에 입장할 수 없습니다.')
+      router.push({ name: 'live' }).catch(() => {})
+    }
     return
   } finally {
     joinInFlight.value = false
@@ -1051,6 +1148,7 @@ onMounted(() => {
   qualityObserver.value?.disconnect()
   qualityObserver.value = new MutationObserver(() => {
     void applyVideoQuality(selectedQuality.value)
+    applySubscriberVolume()
   })
   qualityObserver.value.observe(stageRef.value, { childList: true, subtree: true })
 })
@@ -1059,15 +1157,45 @@ onMounted(() => {
   window.addEventListener('pagehide', handlePageHide)
 })
 
+const reconnectSseIfNeeded = (nextViewerId: string | null, previousViewerId: string | null) => {
+  if (!broadcastId.value || !nextViewerId || nextViewerId === previousViewerId) {
+    return
+  }
+  sseSource.value?.close()
+  sseSource.value = null
+  sseConnected.value = false
+  if (sseRetryTimer.value) window.clearTimeout(sseRetryTimer.value)
+  sseRetryTimer.value = null
+  connectSse(broadcastId.value)
+}
+
+const syncViewerIdentity = () => {
+  const previousViewerId = viewerId.value
+  const nextViewerId = resolveViewerId(getAuthUser())
+  viewerId.value = nextViewerId
+  reconnectSseIfNeeded(nextViewerId, previousViewerId)
+}
+
 const handleAuthUpdate = () => {
   refreshAuth()
-  viewerId.value = resolveViewerId(getAuthUser())
+  syncViewerIdentity()
   void refreshChatPermission()
+  void loadLikeStatus()
+}
+
+const initializeAuth = async () => {
+  const previousViewerId = viewerId.value
+  await hydrateSessionUser()
+  refreshAuth()
+  const nextViewerId = resolveViewerId(getAuthUser())
+  viewerId.value = nextViewerId
+  reconnectSseIfNeeded(nextViewerId, previousViewerId)
+  void refreshChatPermission()
+  void loadLikeStatus()
 }
 
 onMounted(() => {
-  refreshAuth()
-  void refreshChatPermission()
+  void initializeAuth()
   window.addEventListener('deskit-user-updated', handleAuthUpdate)
 })
 
@@ -1157,6 +1285,14 @@ watch(
   selectedQuality,
   (value) => {
     void applyVideoQuality(value)
+  },
+  { immediate: true },
+)
+
+watch(
+  volume,
+  () => {
+    applySubscriberVolume()
   },
   { immediate: true },
 )
@@ -1342,7 +1478,7 @@ onBeforeUnmount(() => {
                       type="range"
                       min="0"
                       max="100"
-                      value="60"
+                      v-model.number="volume"
                       aria-label="볼륨 조절"
                     />
                   </label>
@@ -1660,7 +1796,6 @@ onBeforeUnmount(() => {
   place-items: center;
   color: #fff;
   font-weight: 700;
-  min-height: clamp(160px, auto, 560px);
   max-width: min(100%, calc((100vh - 180px) * (16 / 9)));
   overflow: hidden;
 }
@@ -1677,15 +1812,16 @@ onBeforeUnmount(() => {
   width: 100%;
   height: 100%;
   object-fit: contain;
+  transform: scaleX(-1);
 }
 
-.player-frame[data-quality='720p'] video,
-.player-frame[data-quality='720p'] img {
+.player-frame[data-quality='720p'] :deep(video),
+.player-frame[data-quality='720p'] :deep(img) {
   filter: blur(0.3px);
 }
 
-.player-frame[data-quality='480p'] video,
-.player-frame[data-quality='480p'] img {
+.player-frame[data-quality='480p'] :deep(video),
+.player-frame[data-quality='480p'] :deep(img) {
   filter: blur(0.6px);
   image-rendering: pixelated;
 }
