@@ -280,7 +280,7 @@ public class BroadcastService {
         var productTable = table(name("product")).as("p");
         var productId = field(name("p", "product_id"), Long.class);
         var productName = field(name("p", "product_name"), String.class);
-        var costPrice = field(name("p", "cost_price"), Integer.class);
+        var price = field(name("p", "price"), Integer.class);
         var stockQty = field(name("p", "stock_qty"), Integer.class);
         var safetyStock = field(name("p", "safety_stock"), Integer.class);
         var sellerField = field(name("p", "seller_id"), Long.class);
