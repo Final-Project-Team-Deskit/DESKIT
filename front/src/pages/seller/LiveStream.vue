@@ -569,6 +569,16 @@ const toMediaId = (value: string, fallback: string) => {
   return value
 }
 
+const normalizeMediaSelection = (
+  value: string,
+  devices: Array<{ id: string }>,
+  fallback: string,
+) => {
+  if (!value || value === fallback) return fallback
+  const exists = devices.some((device) => device.id === value)
+  return exists ? value : fallback
+}
+
 const loadMediaDevices = async () => {
   if (!navigator.mediaDevices?.enumerateDevices) {
     availableMics.value = []
@@ -589,6 +599,12 @@ const loadMediaDevices = async () => {
         id: device.deviceId,
         label: device.label || `카메라 ${idx + 1}`,
       }))
+    selectedMic.value = normalizeMediaSelection(selectedMic.value, availableMics.value, '기본 마이크')
+    selectedCamera.value = normalizeMediaSelection(
+      selectedCamera.value,
+      availableCameras.value,
+      '기본 카메라',
+    )
   } catch {
     availableMics.value = []
     availableCameras.value = []
@@ -634,7 +650,7 @@ const attachPublisherHandlers = (publisher: Publisher) => {
 const disconnectOpenVidu = () => {
   if (openviduSession.value) {
     try {
-      if (openviduPublisher.value) {
+      if (openviduPublisher.value?.stream?.streamId) {
         openviduSession.value.unpublish(openviduPublisher.value as Publisher)
       }
       openviduSession.value.disconnect()
@@ -680,7 +696,7 @@ const waitForPublisherContainer = async () => {
 const restartPublisher = async () => {
   if (!openviduSession.value || !openviduInstance.value || !publisherContainerRef.value) return
   try {
-    if (openviduPublisher.value) {
+    if (openviduPublisher.value?.stream?.streamId) {
       openviduSession.value.unpublish(openviduPublisher.value as Publisher)
     }
     publisherContainerRef.value.innerHTML = ''
@@ -748,6 +764,7 @@ const requestPublisherToken = async (broadcastId: number) => {
 const ensurePublisherConnected = async (broadcastId: number) => {
   if (openviduConnected.value) return
   await ensureLocalMediaAccess()
+  await loadMediaDevices()
   if (!publisherToken.value) {
     const token = await requestPublisherToken(broadcastId)
     if (!token) return
@@ -828,7 +845,16 @@ const startMicMeter = async () => {
       micMeterFrame.value = requestAnimationFrame(update)
     }
     update()
-  } catch {
+  } catch (error) {
+    if (
+      error instanceof DOMException &&
+      error.name === 'OverconstrainedError' &&
+      selectedMic.value !== '기본 마이크'
+    ) {
+      selectedMic.value = '기본 마이크'
+      void startMicMeter()
+      return
+    }
     micInputLevel.value = 0
   }
 }
