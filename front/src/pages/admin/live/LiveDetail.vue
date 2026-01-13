@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { OpenVidu, type Session, type Subscriber } from 'openvidu-browser'
+import { OpenVidu, type Session, type StreamEvent, type Subscriber } from 'openvidu-browser'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Client, type StompSubscription } from '@stomp/stompjs'
@@ -644,7 +644,8 @@ const connectSubscriber = async (token: string) => {
       applySubscriberVolume()
       applyVideoQuality(selectedQuality.value)
     })
-    openviduSession.value.on('streamDestroyed', () => {
+    openviduSession.value.on('streamDestroyed', (event: StreamEvent) => {
+      event.preventDefault()
       openviduSubscriber.value = null
       clearViewerContainer()
     })
