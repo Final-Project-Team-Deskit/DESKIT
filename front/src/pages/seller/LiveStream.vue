@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { OpenVidu, type Publisher, type Session } from 'openvidu-browser'
+import { OpenVidu, type Publisher, type Session, type StreamEvent } from 'openvidu-browser'
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
 import { Client, type StompSubscription } from '@stomp/stompjs'
@@ -625,6 +625,12 @@ const resetOpenViduState = () => {
   }
 }
 
+const attachPublisherHandlers = (publisher: Publisher) => {
+  publisher.on('streamDestroyed', (event: StreamEvent) => {
+    event.preventDefault()
+  })
+}
+
 const disconnectOpenVidu = () => {
   if (openviduSession.value) {
     try {
@@ -682,6 +688,7 @@ const restartPublisher = async () => {
       publisherContainerRef.value,
       buildPublisherOptions(),
     )
+    attachPublisherHandlers(openviduPublisher.value)
     await openviduSession.value.publish(openviduPublisher.value as Publisher)
     applyPublisherVolume()
   } catch {
@@ -705,6 +712,7 @@ const connectPublisher = async (broadcastId: number, token: string) => {
       container,
       buildPublisherOptions(),
     )
+    attachPublisherHandlers(openviduPublisher.value)
     await openviduSession.value.publish(openviduPublisher.value as Publisher)
     openviduConnected.value = true
     applyPublisherVolume()
