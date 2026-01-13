@@ -41,6 +41,9 @@ export const resolveViewerId = (user: AuthUser | null): string | null => {
   if (directId !== null && directId !== undefined) {
     return String(directId)
   }
+  if (user?.email) {
+    return user.email
+  }
 
   const access =
     localStorage.getItem('access') ||
