@@ -116,7 +116,7 @@ const buildAuthHeaders = (): Record<string, string> => {
 
 const loadSellerMyPage = async () => {
   try {
-    const response = await fetch(`${apiBase}/api/seller/mypage`, {
+    const response = await fetch(`${apiBase}/seller/mypage`, {
       credentials: 'include',
       headers: buildAuthHeaders(),
     })
@@ -225,7 +225,7 @@ const confirmSend = async () => {
   inviteSending.value = true
   inviteError.value = ''
   try {
-    const response = await fetch(`${apiBase}/api/invitations`, {
+    const response = await fetch(`${apiBase}/invitations`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -923,3 +923,4 @@ onBeforeUnmount(() => {
   cursor: not-allowed;
 }
 </style>
+

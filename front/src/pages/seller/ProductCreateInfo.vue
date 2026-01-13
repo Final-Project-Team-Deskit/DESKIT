@@ -1,4 +1,4 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 import {onMounted, ref} from 'vue'
 import {useRoute, useRouter} from 'vue-router'
 import PageContainer from '../../components/PageContainer.vue'
@@ -86,7 +86,7 @@ const goNext = async () => {
     return
   }
   try {
-    const response = await fetch(`${apiBase}/api/seller/products`, {
+    const response = await fetch(`${apiBase}/seller/products`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -350,3 +350,4 @@ input {
   }
 }
 </style>
+

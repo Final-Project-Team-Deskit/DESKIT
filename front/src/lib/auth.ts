@@ -144,7 +144,7 @@ export const requestWithdraw = async (): Promise<{ ok: boolean; message?: string
   }
 
   try {
-    const response = await fetch(`${apiBase}/api/quit`, {
+    const response = await fetch(`${apiBase}/quit`, {
       method: 'POST',
       credentials: 'include',
       headers,

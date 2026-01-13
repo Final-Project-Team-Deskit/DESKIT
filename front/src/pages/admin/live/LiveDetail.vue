@@ -1,4 +1,4 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 import { OpenVidu, type Session, type Subscriber } from 'openvidu-browser'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
@@ -300,7 +300,7 @@ const handleIncomingMessage = (payload: LiveChatMessageDTO) => {
 const fetchRecentMessages = async () => {
   if (!broadcastId.value) return
   try {
-    const response = await fetch(`${apiBase}/api/livechats/${broadcastId.value}/recent?seconds=300`)
+    const response = await fetch(`${apiBase}/livechats/${broadcastId.value}/recent?seconds=300`)
     if (!response.ok) return
     const recent = (await response.json()) as LiveChatMessageDTO[]
     if (!Array.isArray(recent)) return
@@ -680,7 +680,7 @@ const sendLeaveSignal = async (useBeacon = false) => {
   const leavingViewerId = joinedViewerId.value ?? viewerId.value
   if (!joinedBroadcastId.value || !leavingViewerId || leaveRequested.value) return
   leaveRequested.value = true
-  const url = `${apiBase}/api/broadcasts/${joinedBroadcastId.value}/leave?viewerId=${encodeURIComponent(leavingViewerId)}`
+  const url = `${apiBase}/broadcasts/${joinedBroadcastId.value}/leave?viewerId=${encodeURIComponent(leavingViewerId)}`
   if (useBeacon && navigator.sendBeacon) {
     navigator.sendBeacon(url)
     return
@@ -828,7 +828,7 @@ const connectSse = (broadcastId: number) => {
   if (sseSource.value) {
     sseSource.value.close()
   }
-  const source = new EventSource(`${apiBase}/api/broadcasts/${broadcastId}/subscribe`)
+  const source = new EventSource(`${apiBase}/broadcasts/${broadcastId}/subscribe`)
   const events = [
     'BROADCAST_READY',
     'BROADCAST_UPDATED',
@@ -2314,3 +2314,4 @@ watch(
   }
 }
 </style>
+

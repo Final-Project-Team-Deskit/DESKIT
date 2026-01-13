@@ -786,7 +786,7 @@ const connectSse = (id: number) => {
   const user = getAuthUser()
   const currentViewerId = viewerId.value ?? resolveViewerId(user)
   const query = currentViewerId ? `?viewerId=${encodeURIComponent(currentViewerId)}` : ''
-  const source = new EventSource(`${apiBase}/api/broadcasts/${id}/subscribe${query}`)
+  const source = new EventSource(`${apiBase}/broadcasts/${id}/subscribe${query}`)
   const events = [
     'BROADCAST_READY',
     'BROADCAST_UPDATED',
@@ -857,7 +857,7 @@ const requestJoinToken = async () => {
 const sendLeaveSignal = async (useBeacon = false) => {
   if (!joinedBroadcastId.value || !viewerId.value || leaveRequested.value) return
   leaveRequested.value = true
-  const url = `${apiBase}/api/broadcasts/${joinedBroadcastId.value}/leave?viewerId=${encodeURIComponent(viewerId.value)}`
+  const url = `${apiBase}/broadcasts/${joinedBroadcastId.value}/leave?viewerId=${encodeURIComponent(viewerId.value)}`
   if (useBeacon && navigator.sendBeacon) {
     navigator.sendBeacon(url)
     return
@@ -2177,3 +2177,4 @@ onBeforeUnmount(() => {
   }
 }
 </style>
+

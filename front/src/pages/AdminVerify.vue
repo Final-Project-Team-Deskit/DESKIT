@@ -1,4 +1,4 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import PageContainer from '../components/PageContainer.vue'
@@ -28,7 +28,7 @@ const form = reactive({
 })
 
 const loadPending = async () => {
-  const response = await fetch(`${apiBase}/api/admin/auth/pending`, {
+  const response = await fetch(`${apiBase}/admin/auth/pending`, {
     credentials: 'include',
   })
 
@@ -41,7 +41,7 @@ const loadPending = async () => {
 }
 
 const sendCode = async () => {
-  const response = await fetch(`${apiBase}/api/admin/auth/send`, {
+  const response = await fetch(`${apiBase}/admin/auth/send`, {
     method: 'POST',
     credentials: 'include',
   })
@@ -74,7 +74,7 @@ const verifyCode = async () => {
     return
   }
 
-  const response = await fetch(`${apiBase}/api/admin/auth/verify`, {
+  const response = await fetch(`${apiBase}/admin/auth/verify`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -264,3 +264,4 @@ onMounted(() => {
   }
 }
 </style>
+

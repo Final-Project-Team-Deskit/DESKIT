@@ -1,4 +1,4 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch, type ComponentPublicInstance } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import PageHeader from '../../components/PageHeader.vue'
@@ -545,7 +545,7 @@ const connectSse = () => {
   const user = getAuthUser()
   const viewerId = resolveViewerId(user)
   const query = viewerId ? `?viewerId=${encodeURIComponent(viewerId)}` : ''
-  const source = new EventSource(`${apiBase}/api/broadcasts/subscribe/all${query}`)
+  const source = new EventSource(`${apiBase}/broadcasts/subscribe/all${query}`)
   const events = [
     'BROADCAST_READY',
     'BROADCAST_UPDATED',
@@ -2370,3 +2370,4 @@ onBeforeUnmount(() => {
   }
 }
 </style>
+

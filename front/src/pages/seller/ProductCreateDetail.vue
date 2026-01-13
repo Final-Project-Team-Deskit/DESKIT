@@ -1,4 +1,4 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import PageContainer from '../../components/PageContainer.vue'
@@ -125,7 +125,7 @@ const uploadProductImages = async (productId: number, images: string[]) => {
     formData.append('imageType', payload.imageType)
     formData.append('slotIndex', String(payload.slotIndex))
 
-    const response = await fetch(`${apiBase}/api/seller/products/${productId}/images`, {
+    const response = await fetch(`${apiBase}/seller/products/${productId}/images`, {
       method: 'POST',
       headers: {
         ...buildAuthHeaders(),
@@ -184,7 +184,7 @@ const handleSubmit = async () => {
   syncFromEditor()
 
   try {
-    const detailResponse = await fetch(`${apiBase}/api/seller/products/${productId}/detail`, {
+    const detailResponse = await fetch(`${apiBase}/seller/products/${productId}/detail`, {
       method: 'PATCH',
       headers: {
         'Content-Type': 'application/json',
@@ -199,7 +199,7 @@ const handleSubmit = async () => {
 
     await uploadProductImages(productId, Array.isArray(draft.value.images) ? draft.value.images : [])
 
-    const completeResponse = await fetch(`${apiBase}/api/seller/products/${productId}/complete`, {
+    const completeResponse = await fetch(`${apiBase}/seller/products/${productId}/complete`, {
       method: 'PATCH',
       headers: {
         ...authHeaders,
@@ -397,3 +397,4 @@ onMounted(() => {
   border-color: transparent;
 }
 </style>
+

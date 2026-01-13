@@ -1,4 +1,4 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import PageContainer from '../../components/PageContainer.vue'
@@ -42,7 +42,7 @@ const loadInitial = async () => {
     return
   }
   try {
-    const response = await fetch(`${apiBase}/api/seller/products/${id}`, {
+    const response = await fetch(`${apiBase}/seller/products/${id}`, {
       method: 'GET',
       headers: {
         ...buildAuthHeaders(),
@@ -159,7 +159,7 @@ const handleSubmit = async () => {
   }
 
   try {
-    const response = await fetch(`${apiBase}/api/seller/products/${id}`, {
+    const response = await fetch(`${apiBase}/seller/products/${id}`, {
       method: 'PUT',
       headers: {
         'Content-Type': 'application/json',
@@ -402,3 +402,4 @@ input {
   }
 }
 </style>
+
