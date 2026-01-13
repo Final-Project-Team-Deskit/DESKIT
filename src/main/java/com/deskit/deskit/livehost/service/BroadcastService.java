@@ -1,6 +1,8 @@
 package com.deskit.deskit.livehost.service;
 
+import com.deskit.deskit.account.entity.Member;
 import com.deskit.deskit.account.entity.Seller;
+import com.deskit.deskit.account.repository.MemberRepository;
 import com.deskit.deskit.account.repository.SellerRepository;
 import com.deskit.deskit.livehost.common.enums.BroadcastProductStatus;
 import com.deskit.deskit.livehost.common.enums.BroadcastStatus;
@@ -114,6 +116,7 @@ public class BroadcastService {
     private final BroadcastResultRepository broadcastResultRepository;
     private final VodRepository vodRepository;
 
+    private final MemberRepository memberRepository;
     private final SellerRepository sellerRepository;
     private final TagCategoryRepository tagCategoryRepository;
     private final ProductRepository productRepository;
@@ -586,7 +589,7 @@ public class BroadcastService {
             throw new BusinessException(ErrorCode.BROADCAST_NOT_ON_AIR);
         }
 
-        Long memberId = parseMemberId(viewerId);
+        Long memberId = resolveMemberId(viewerId);
         if (memberId != null && isViewerSanctioned(broadcastId, memberId)) {
             throw new BusinessException(ErrorCode.BROADCAST_ALREADY_SANCTIONED);
         }
@@ -1965,6 +1968,21 @@ public class BroadcastService {
         } catch (NumberFormatException e) {
             return null;
         }
+    }
+
+    private Long resolveMemberId(String viewerId) {
+        Long memberId = parseMemberId(viewerId);
+        if (memberId != null) {
+            return memberId;
+        }
+        if (viewerId == null || viewerId.isBlank()) {
+            return null;
+        }
+        Member member = memberRepository.findByLoginId(viewerId);
+        if (member == null) {
+            return null;
+        }
+        return member.getMemberId();
     }
 
     private boolean isViewerSanctioned(Long broadcastId, Long memberId, SanctionType... types) {
