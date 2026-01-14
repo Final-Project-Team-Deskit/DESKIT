@@ -24,6 +24,12 @@ public interface OrderItemRepository extends JpaRepository<OrderItem, Long> {
    */
   List<OrderItem> findByOrder_Id(Long orderId);
 
+  List<OrderItem> findByOrder_IdAndSellerIdAndDeletedAtIsNull(Long orderId, Long sellerId);
+
+  List<OrderItem> findByOrder_IdInAndSellerIdAndDeletedAtIsNullOrderByIdAsc(List<Long> orderIds, Long sellerId);
+
+  boolean existsByOrder_IdAndSellerIdAndDeletedAtIsNull(Long orderId, Long sellerId);
+
   @Query("""
       select (count(oi) > 0)
       from OrderItem oi

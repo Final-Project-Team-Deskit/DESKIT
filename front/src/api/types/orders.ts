@@ -1,4 +1,12 @@
-export type OrderStatus = 'CREATED' | 'PAID' | 'CANCELLED' | 'COMPLETED'
+export type OrderStatus =
+  | 'CREATED'
+  | 'PAID'
+  | 'CANCEL_REQUESTED'
+  | 'CANCELLED'
+  | 'REFUND_REQUESTED'
+  | 'REFUND_REJECTED'
+  | 'REFUNDED'
+  | 'COMPLETED'
 
 export interface CreateOrderItemRequest {
   product_id: number
@@ -31,6 +39,7 @@ export interface OrderSummaryResponse {
 }
 
 export interface OrderItemResponse {
+  order_item_id?: number
   product_id: number
   product_name?: string
   quantity: number
@@ -45,13 +54,4 @@ export interface OrderDetailResponse {
   order_amount: number
   created_at: string
   items: OrderItemResponse[]
-}
-
-export interface OrderStatusUpdateRequest {
-  status: OrderStatus
-}
-
-export interface OrderStatusUpdateResponse {
-  order_id: number
-  status: OrderStatus
 }

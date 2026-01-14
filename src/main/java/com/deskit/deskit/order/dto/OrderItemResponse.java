@@ -4,6 +4,9 @@ import com.deskit.deskit.order.entity.OrderItem;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
 public record OrderItemResponse(
+  @JsonProperty("order_item_id")
+  Long orderItemId,
+
   @JsonProperty("product_id")
   Long productId,
 
@@ -21,9 +24,10 @@ public record OrderItemResponse(
 ) {
   public static OrderItemResponse from(OrderItem item) {
     if (item == null) {
-      return new OrderItemResponse(null, null, null, null, null);
+      return new OrderItemResponse(null, null, null, null, null, null);
     }
     return new OrderItemResponse(
+      item.getId(),
       item.getProductId(),
       item.getProductName(),
       item.getQuantity(),
