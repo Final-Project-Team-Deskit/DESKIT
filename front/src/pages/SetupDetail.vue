@@ -51,12 +51,13 @@ onMounted(() => {
 const setup = computed(() => rawSetup.value)
 
 const uiProducts = computed<UiProduct[]>(() => mapProducts(products.value))
-const productById = computed(() => new Map(uiProducts.value.map((p) => [Number(p.id), p])))
+const productById = computed(() => new Map(uiProducts.value.map((p: UiProduct) => [Number(p.id), p])))
 
 const setupProducts = computed<UiProduct[]>(() => {
   if (!setup.value) return []
-  return setup.value.product_ids
-    .map((id) => productById.value.get(id))
+  const ids = setup.value.product_ids as Array<number | string>
+  return ids
+    .map((id) => productById.value.get(Number(id)))
     .filter((p): p is UiProduct => Boolean(p))
 })
 </script>

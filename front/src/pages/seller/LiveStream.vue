@@ -1,5 +1,5 @@
-<script setup lang="ts">
-import { OpenVidu, type Publisher, type Session } from 'openvidu-browser'
+﻿<script setup lang="ts">
+import { OpenVidu, type Publisher, type Session, type StreamEvent } from 'openvidu-browser'
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
 import { Client, type StompSubscription } from '@stomp/stompjs'
@@ -54,6 +54,7 @@ type StreamChat = {
   time?: string
   senderRole?: string
   memberLoginId?: string
+  connectionId?: string
 }
 
 type StreamData = {
@@ -137,7 +138,7 @@ const confirmAction = ref<() => void>(() => {})
 const confirmCancelAction = ref<() => void>(() => {})
 
 const pinnedProductId = ref<string | null>(null)
-const sanctionTarget = ref<string | null>(null)
+const sanctionTarget = ref<{ loginId: string; connectionId?: string } | null>(null)
 const sanctionedUsers = ref<Record<string, { type: string; reason: string }>>({})
 const broadcastInfo = ref<(EditableBroadcastInfo & { qCards: string[] }) | null>(null)
 const latestDetail = ref<BroadcastDetailResponse | null>(null)
@@ -290,6 +291,7 @@ type LiveChatMessageDTO = {
   sender: string
   content: string
   senderRole?: string
+  connectionId?: string
   vodPlayTime: number
   sentAt?: number
 }
@@ -302,6 +304,7 @@ const appendMessage = (payload: LiveChatMessageDTO) => {
     message: payload.content ?? '',
     senderRole: payload.senderRole,
     memberLoginId: payload.memberEmail,
+    connectionId: payload.connectionId,
     time: payload.sentAt
       ? new Date(payload.sentAt).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })
       : formatChatTime(),
@@ -355,7 +358,7 @@ const connectChat = () => {
         withCredentials: true,
       }),
     reconnectDelay: 5000,
-    debug: (str) => console.log('[STOMP]', str),
+    debug: () => {},
   })
   const access = getAccessToken()
   if (access) {
@@ -566,6 +569,16 @@ const toMediaId = (value: string, fallback: string) => {
   return value
 }
 
+const normalizeMediaSelection = (
+  value: string,
+  devices: Array<{ id: string }>,
+  fallback: string,
+) => {
+  if (!value || value === fallback) return fallback
+  const exists = devices.some((device) => device.id === value)
+  return exists ? value : fallback
+}
+
 const loadMediaDevices = async () => {
   if (!navigator.mediaDevices?.enumerateDevices) {
     availableMics.value = []
@@ -586,6 +599,12 @@ const loadMediaDevices = async () => {
         id: device.deviceId,
         label: device.label || `카메라 ${idx + 1}`,
       }))
+    selectedMic.value = normalizeMediaSelection(selectedMic.value, availableMics.value, '기본 마이크')
+    selectedCamera.value = normalizeMediaSelection(
+      selectedCamera.value,
+      availableCameras.value,
+      '기본 카메라',
+    )
   } catch {
     availableMics.value = []
     availableCameras.value = []
@@ -622,10 +641,16 @@ const resetOpenViduState = () => {
   }
 }
 
+const attachPublisherHandlers = (publisher: Publisher) => {
+  publisher.on('streamDestroyed', (event: StreamEvent) => {
+    event.preventDefault()
+  })
+}
+
 const disconnectOpenVidu = () => {
   if (openviduSession.value) {
     try {
-      if (openviduPublisher.value) {
+      if (openviduPublisher.value?.stream?.streamId) {
         openviduSession.value.unpublish(openviduPublisher.value as Publisher)
       }
       openviduSession.value.disconnect()
@@ -671,7 +696,7 @@ const waitForPublisherContainer = async () => {
 const restartPublisher = async () => {
   if (!openviduSession.value || !openviduInstance.value || !publisherContainerRef.value) return
   try {
-    if (openviduPublisher.value) {
+    if (openviduPublisher.value?.stream?.streamId) {
       openviduSession.value.unpublish(openviduPublisher.value as Publisher)
     }
     publisherContainerRef.value.innerHTML = ''
@@ -679,6 +704,7 @@ const restartPublisher = async () => {
       publisherContainerRef.value,
       buildPublisherOptions(),
     )
+    attachPublisherHandlers(openviduPublisher.value as Publisher)
     await openviduSession.value.publish(openviduPublisher.value as Publisher)
     applyPublisherVolume()
   } catch {
@@ -702,6 +728,7 @@ const connectPublisher = async (broadcastId: number, token: string) => {
       container,
       buildPublisherOptions(),
     )
+    attachPublisherHandlers(openviduPublisher.value as Publisher)
     await openviduSession.value.publish(openviduPublisher.value as Publisher)
     openviduConnected.value = true
     applyPublisherVolume()
@@ -737,6 +764,7 @@ const requestPublisherToken = async (broadcastId: number) => {
 const ensurePublisherConnected = async (broadcastId: number) => {
   if (openviduConnected.value) return
   await ensureLocalMediaAccess()
+  await loadMediaDevices()
   if (!publisherToken.value) {
     const token = await requestPublisherToken(broadcastId)
     if (!token) return
@@ -817,7 +845,16 @@ const startMicMeter = async () => {
       micMeterFrame.value = requestAnimationFrame(update)
     }
     update()
-  } catch {
+  } catch (error) {
+    if (
+      error instanceof DOMException &&
+      error.name === 'OverconstrainedError' &&
+      selectedMic.value !== '기본 마이크'
+    ) {
+      selectedMic.value = '기본 마이크'
+      void startMicMeter()
+      return
+    }
     micInputLevel.value = 0
   }
 }
@@ -937,7 +974,7 @@ const sendLeaveSignal = async (useBeacon = false) => {
   const leavingViewerId = joinedViewerId.value ?? viewerId.value
   if (!joinedBroadcastId.value || !leavingViewerId || leaveRequested.value) return
   leaveRequested.value = true
-  const url = `${apiBase}/api/broadcasts/${joinedBroadcastId.value}/leave?viewerId=${encodeURIComponent(leavingViewerId)}`
+  const url = `${apiBase}/broadcasts/${joinedBroadcastId.value}/leave?viewerId=${encodeURIComponent(leavingViewerId)}`
   if (useBeacon && navigator.sendBeacon) {
     navigator.sendBeacon(url)
     return
@@ -1292,7 +1329,7 @@ const connectSse = (broadcastId: number) => {
   const user = getAuthUser()
   const viewerId = resolveViewerId(user)
   const query = viewerId ? `?viewerId=${encodeURIComponent(viewerId)}` : ''
-  const source = new EventSource(`${apiBase}/api/broadcasts/${broadcastId}/subscribe${query}`)
+  const source = new EventSource(`${apiBase}/broadcasts/${broadcastId}/subscribe${query}`)
   const events = [
     'BROADCAST_READY',
     'BROADCAST_UPDATED',
@@ -1403,7 +1440,7 @@ const handleKeydown = (event: KeyboardEvent) => {
     window.addEventListener('deskit-user-updated', handleAuthUpdate)
     viewerId.value = resolveViewerId(getAuthUser())
     refreshAuth()
-    monitorRef.value = streamGridRef.value
+    monitorRef.value = streamGridRef.value ?? streamCenterRef.value
     updateGridWidth()
     void loadMediaDevices()
     if (navigator.mediaDevices?.addEventListener) {
@@ -1499,7 +1536,7 @@ const openSanction = (item: StreamChat) => {
     alert('로그인된 시청자만 제재할 수 있습니다.')
     return
   }
-  sanctionTarget.value = item.memberLoginId
+  sanctionTarget.value = { loginId: item.memberLoginId, connectionId: item.connectionId }
   showSanctionModal.value = true
 }
 
@@ -1508,15 +1545,16 @@ const applySanction = (payload: { type: string; reason: string }) => {
   if (!broadcastId.value) return
   const sanctionType = payload.type === '채팅 금지' ? 'MUTE' : 'OUT'
   void sanctionSellerViewer(broadcastId.value, {
-    memberLoginId: sanctionTarget.value,
+    memberLoginId: sanctionTarget.value.loginId,
     status: sanctionType,
     reason: payload.reason,
+    connectionId: sanctionTarget.value.connectionId,
   })
   sanctionedUsers.value = {
     ...sanctionedUsers.value,
-    [sanctionTarget.value]: { type: payload.type, reason: payload.reason },
+    [sanctionTarget.value.loginId]: { type: payload.type, reason: payload.reason },
   }
-  alert(`${sanctionTarget.value}님에게 제재가 적용되었습니다.`)
+  alert(`${sanctionTarget.value.loginId}님에게 제재가 적용되었습니다.`)
   sanctionTarget.value = null
   const now = new Date()
   const at = `${now.getHours()}시 ${String(now.getMinutes()).padStart(2, '0')}분`
@@ -2093,7 +2131,7 @@ const toggleFullscreen = async () => {
       />
       <QCardModal v-model="showQCards" :q-cards="qCards" :initial-index="qCardIndex" @update:initialIndex="qCardIndex = $event" />
       <BasicInfoEditModal v-if="broadcastInfo" v-model="showBasicInfo" :broadcast="broadcastInfo" @save="handleBasicInfoSave" />
-      <ChatSanctionModal v-model="showSanctionModal" :username="sanctionTarget" @save="applySanction" />
+      <ChatSanctionModal v-model="showSanctionModal" :username="sanctionTarget?.loginId ?? null" @save="applySanction" />
     </Teleport>
     <DeviceSetupModal
       v-model="showDeviceModal"

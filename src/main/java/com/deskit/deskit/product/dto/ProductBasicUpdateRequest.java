@@ -2,6 +2,7 @@ package com.deskit.deskit.product.dto;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import jakarta.validation.constraints.Min;
+import java.util.List;
 
 public record ProductBasicUpdateRequest(
   @JsonProperty("product_name")
@@ -16,5 +17,14 @@ public record ProductBasicUpdateRequest(
 
   @JsonProperty("stock_qty")
   @Min(0)
-  Integer stockQty
+  Integer stockQty,
+
+  @JsonProperty("detail_html")
+  String detailHtml,
+
+  @JsonProperty("image_urls")
+  List<String> imageUrls,
+
+  @JsonProperty("image_keys")
+  List<String> imageKeys
 ) {}

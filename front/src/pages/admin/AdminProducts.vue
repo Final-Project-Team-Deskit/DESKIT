@@ -3,7 +3,6 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import PageHeader from '../../components/PageHeader.vue'
 import { type DbProduct } from '../../lib/products-data'
 import { deleteProduct, listProducts } from '../../api/products'
-import { SELLER_PRODUCTS_EVENT } from '../../lib/mocks/sellerProducts'
 import { USE_MOCK_API } from '../../api/config'
 
 type ProductStatus = 'selling' | 'soldout' | 'hidden'
@@ -22,6 +21,7 @@ const baseProducts = ref<DbProduct[]>([])
 const isLoading = ref(false)
 const errorMessage = ref('')
 const deletingKey = ref<string | null>(null)
+const mockEventName = ref<string | null>(null)
 
 const statusLabelMap: Record<ProductStatus, string> = {
   selling: '판매중',
@@ -153,14 +153,16 @@ const handleDelete = async (product: any) => {
 onMounted(async () => {
   loadStatusMap()
   await refreshProducts()
-  if (USE_MOCK_API) {
+  if (import.meta.env.DEV && USE_MOCK_API) {
+    const { SELLER_PRODUCTS_EVENT } = await import('../../lib/mocks/sellerProducts')
+    mockEventName.value = SELLER_PRODUCTS_EVENT
     window.addEventListener(SELLER_PRODUCTS_EVENT, onProductsChanged)
   }
 })
 
 onBeforeUnmount(() => {
-  if (USE_MOCK_API) {
-    window.removeEventListener(SELLER_PRODUCTS_EVENT, onProductsChanged)
+  if (mockEventName.value) {
+    window.removeEventListener(mockEventName.value, onProductsChanged)
   }
 })
 </script>
@@ -211,20 +213,20 @@ onBeforeUnmount(() => {
         <div class="product-card ds-surface">
           <div class="thumb">
             <img
-              v-if="item.product.imageUrl || item.product.images?.[0]"
-              :src="item.product.imageUrl || item.product.images?.[0]"
+              v-if="item.product.imageUrl"
+              :src="item.product.imageUrl"
               :alt="item.product.name"
             />
             <div v-else class="thumb__placeholder"></div>
           </div>
           <div class="product-main">
             <div class="product-title">{{ item.product.name }}</div>
-            <p class="product-desc">{{ item.product.short_desc ?? item.product.shortDesc }}</p>
+            <p class="product-desc">{{ item.product.short_desc }}</p>
             <p v-if="resolveSellerId(item.product)" class="seller-info">
               판매자: {{ resolveSellerId(item.product) }}
             </p>
             <div class="product-prices">
-              <span class="price-original">{{ formatPrice(item.product.cost_price ?? item.product.costPrice ?? 0) }}</span>
+              <span class="price-original">{{ formatPrice(item.product.cost_price ?? 0) }}</span>
               <span class="price-sale">{{ formatPrice(item.product.price) }}</span>
               <span v-if="getDiscountPercent(item.product) > 0" class="price-discount">
                 -{{ getDiscountPercent(item.product) }}%

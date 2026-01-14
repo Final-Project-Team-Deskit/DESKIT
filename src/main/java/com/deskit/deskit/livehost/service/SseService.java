@@ -128,8 +128,10 @@ public class SseService {
     private void sendToClient(SseEmitter emitter, String id, String name, Object data) {
         try {
             emitter.send(SseEmitter.event().id(id).name(name).data(data));
-        } catch (IOException e) {
+        } catch (IOException | IllegalStateException e) {
             emitters.remove(id);
+            emitter.complete();
+            log.debug("SSE connection closed: key={}, reason={}", id, e.getMessage());
         }
     }
 

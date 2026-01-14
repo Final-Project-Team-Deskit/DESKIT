@@ -1,3 +1,5 @@
+import { http } from '../api/http'
+
 export type SellerProduct = {
   id: string
   sellerId?: number
@@ -22,6 +24,7 @@ export type SellerProductDraft = {
   stock: number
   images: string[]
   detailHtml: string
+  tags?: string[]
 }
 
 const STORAGE_KEY = 'deskit_seller_products_v1'
@@ -103,4 +106,31 @@ export const loadProductDraft = (): SellerProductDraft | null => {
 
 export const clearProductDraft = (): void => {
   localStorage.removeItem(DRAFT_KEY)
+}
+
+export type SellerTag = {
+  tagId: number
+  tagName: string
+}
+
+export const fetchSellerTags = async (): Promise<SellerTag[]> => {
+  const response = await http.get('/api/seller/tags')
+  const data = response.data
+  if (!Array.isArray(data)) return []
+  return data
+    .map((raw) => {
+      if (!raw || typeof raw !== 'object') return null
+      const record = raw as Record<string, unknown>
+      const tagId = typeof record.tag_id === 'number' ? record.tag_id : null
+      const tagName = typeof record.tag_name === 'string' ? record.tag_name : null
+      if (tagId == null || tagName == null) return null
+      return { tagId, tagName }
+    })
+    .filter((item): item is SellerTag => Boolean(item))
+}
+
+export const updateProductTags = async (productId: number, tagIds: number[]): Promise<void> => {
+  await http.put(`/api/seller/products/${productId}/tags`, {
+    tag_ids: tagIds,
+  })
 }

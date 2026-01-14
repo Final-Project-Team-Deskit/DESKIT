@@ -16,6 +16,7 @@ public class LiveChatMessageDTO {
     private String content;
     private boolean isWorld;
     private String senderRole;
+    private String connectionId;
     @JsonIgnore
     private String rawContent;
     private int vodPlayTime;

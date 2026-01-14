@@ -3,7 +3,8 @@ import { computed, onMounted, ref } from 'vue'
 import { RouterLink, useRouter } from 'vue-router'
 import PageContainer from '../components/PageContainer.vue'
 import PageHeader from '../components/PageHeader.vue'
-import { productsData } from '../lib/products-data'
+import { type DbProduct } from '../lib/products-data'
+import { normalizeProducts } from '../api/products-normalizer'
 import { getAuthUser, requestLogout, requestWithdraw } from '../lib/auth'
 
 type UserInfo = {
@@ -27,9 +28,12 @@ const EMPTY_USER: UserInfo = {
 }
 
 const router = useRouter()
-const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080'
 const user = ref<UserInfo | null>(null)
 const profileImageFailed = ref(false)
+const recommendedProducts = ref<DbProduct[]>([])
+const apiBase = (import.meta.env.VITE_API_BASE_URL || '').trim()
+const preferencePrompt =
+  '지금 MBTI(직업군)를 입력하고 나에게 맞춘 데스크테리어 상품 추천을 받아보세요!'
 
 const loadUser = () => {
   const parsed = getAuthUser()
@@ -51,13 +55,22 @@ const loadUser = () => {
 
 const hasUser = computed(() => !!user.value)
 const display = computed(() => user.value ?? EMPTY_USER)
+const hasPreference = computed(() => {
+  const mbti = display.value.mbti?.trim()
+  const job = display.value.job?.trim()
+  if (!mbti || mbti === 'NONE') return false
+  if (!job || job === 'NONE') return false
+  return true
+})
 
 const initials = computed(() => {
   const name = display.value.name || ''
   if (!name.trim()) return 'D'
   const parts = name.trim().split(/\s+/)
-  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase()
-  return `${parts[0][0]}${parts[1][0]}`.toUpperCase()
+  const first = parts[0] ?? ''
+  const second = parts[1] ?? ''
+  if (!second) return first.slice(0, 2).toUpperCase()
+  return `${first[0] ?? ''}${second[0] ?? ''}`.toUpperCase()
 })
 
 const profileImageUrl = computed(() => (display.value.profileUrl || '').trim())
@@ -90,52 +103,27 @@ const handleLogout = async () => {
   router.push('/').catch(() => {})
 }
 
-const mbtiKeywordsMap: Record<string, string[]> = {
-  INFJ: ['서재', '집중', '깔끔한', '모던'],
-  INFP: ['감성', '따뜻한', '홈카페'],
-  INTJ: ['집중', '모던', '미니멀'],
-  ENFP: ['컬러풀', '홈카페', '따뜻한'],
-  ENTJ: ['오피스', '모던', '집중'],
-}
+const loadRecommendations = async () => {
+  recommendedProducts.value = []
+  if (!hasUser.value || !hasPreference.value) return
 
-const jobKeywordsMap: Record<string, string[]> = {
-  '크리에이티브': ['영상편집', '집중', '게이밍룸'],
-  '프리랜서/유연근무': ['홈카페', '재택근무', '따뜻한'],
-  '교육/연구': ['오피스', '재택근무', '집중'],
-  '의료/전문직': ['오피스', '집중', '모던'],
-  '기획/관리': ['오피스', '재택근무', '화상회의'],
-}
-
-const recommendedProducts = computed(() => {
-  const userData = display.value
-  const mbtiKeys = mbtiKeywordsMap[userData.mbti] || ['모던', '깔끔한']
-  const jobKeys = jobKeywordsMap[userData.job] || ['재택근무', '오피스']
-  const keywords = [...new Set([...mbtiKeys, ...jobKeys])]
-
-  const scored = productsData.map((p) => {
-    const tags = p.tagsFlat || []
-    const score = keywords.reduce((sum, key) => (tags.includes(key) ? sum + 1 : sum), 0)
-    return { product: p, score }
-  })
-
-  const sorted = scored
-    .sort((a, b) => {
-      if (b.score !== a.score) return b.score - a.score
-      return (b.product.popularity ?? 0) - (a.product.popularity ?? 0)
+  try {
+    const response = await fetch(`${apiBase}/recommendations/deskterior`, {
+      credentials: 'include',
     })
-    .map((x) => x.product)
-
-  const top = sorted.filter((_, idx) => idx < 4)
-  if (top.length > 0 && top[0].tagsFlat?.some((t) => keywords.includes(t))) return top
-
-  return productsData
-    .slice()
-    .sort((a, b) => (b.popularity ?? 0) - (a.popularity ?? 0))
-    .slice(0, 4)
-})
+    if (!response.ok) return
+    const payload = await response.json().catch(() => [])
+    if (Array.isArray(payload)) {
+      recommendedProducts.value = normalizeProducts(payload)
+    }
+  } catch (error) {
+    console.error('recommendation load failed', error)
+  }
+}
 
 onMounted(() => {
   loadUser()
+  loadRecommendations()
 })
 </script>
 
@@ -221,8 +209,8 @@ onMounted(() => {
                 <path d="M6 19c0-2.5 2.5-4 6-4s6 1.5 6 4" />
               </svg>
             </span>
-            <p class="quick-title">계정 설정</p>
-            <p class="quick-desc">계정을 관리해요</p>
+            <p class="quick-title">정보 관리</p>
+            <p class="quick-desc">내 정보를 관리해요</p>
           </RouterLink>
         </div>
       </section>
@@ -232,7 +220,8 @@ onMounted(() => {
           <h3>내 추천</h3>
           <p class="sub">MBTI와 직업 기반 맞춤 추천 데스크테리어</p>
         </div>
-        <div class="recommend-scroll">
+        <p v-if="hasUser && !hasPreference" class="recommend-empty">{{ preferencePrompt }}</p>
+        <div v-else class="recommend-scroll">
           <RouterLink
             v-for="item in recommendedProducts"
             :key="item.product_id"
@@ -517,6 +506,17 @@ onMounted(() => {
   -webkit-overflow-scrolling: touch;
 }
 
+.recommend-empty {
+  margin: 0;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px dashed var(--border-color);
+  background: var(--surface-weak);
+  color: var(--text-muted);
+  font-weight: 700;
+  font-size: 13px;
+}
+
 .recommend-scroll .product-card:last-of-type {
   margin-right: 4px;
 }
@@ -697,5 +697,3 @@ onMounted(() => {
   }
 }
 </style>
-
-

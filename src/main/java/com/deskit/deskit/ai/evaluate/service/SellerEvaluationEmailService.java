@@ -19,7 +19,9 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 
+import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -32,8 +34,8 @@ import java.util.regex.Pattern;
 @Service
 public class SellerEvaluationEmailService {
 
-	private static final String ADMITTED_TEMPLATE_PATH = "com/deskit/deskit/admin/doc/eval_result_admitted.html";
-	private static final String REJECTED_TEMPLATE_PATH = "com/deskit/deskit/admin/doc/eval_result_rejected.html";
+	private static final String ADMITTED_TEMPLATE_PATH = "email/doc/eval_result_admitted.html";
+	private static final String REJECTED_TEMPLATE_PATH = "email/doc/eval_result_rejected.html";
 	private static final Pattern TITLE_PATTERN = Pattern.compile("(?is)<title>\\s*(.*?)\\s*</title>");
 	private static final Pattern BODY_PATTERN = Pattern.compile("(?is)<body[^>]*>(.*)</body>");
 	private static final Pattern FIRST_NON_EMPTY_LINE = Pattern.compile("(?m)^\\s*\\S.*$");
@@ -134,17 +136,13 @@ public class SellerEvaluationEmailService {
 
 	private String readTemplate(String path) throws IOException {
 		ClassPathResource resource = new ClassPathResource(path);
-		if (resource.exists()) {
-			return new String(resource.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+		if (!resource.exists()) {
+			throw new FileNotFoundException("Template not found in classpath: " + path);
 		}
-		Path filePath = Path.of(path);
-		if (!filePath.isAbsolute()) {
-			Path projectPath = Path.of("src/main/java").resolve(path);
-			if (Files.exists(projectPath)) {
-				return Files.readString(projectPath, StandardCharsets.UTF_8);
-			}
+
+		try (InputStream is = resource.getInputStream()) {
+			return new String(is.readAllBytes(), StandardCharsets.UTF_8);
 		}
-		return Files.readString(filePath, StandardCharsets.UTF_8);
 	}
 
 	private Map<String, String> buildReplacements(SellerGradeEnum grade, String adminComment, String sellerName, Integer totalScore) {

@@ -148,13 +148,20 @@ public class OpenViduService {
 
     public void forceDisconnect(Long broadcastId, String connectionId) {
         String sessionId = sessionMap.get(broadcastId);
-        if (sessionId == null) {
+        if (sessionId == null || connectionId == null || connectionId.isBlank()) {
             return;
         }
 
         try {
             Session session = openVidu.getActiveSession(sessionId);
             if (session != null) {
+                session.fetch();
+                boolean exists = session.getConnections().stream()
+                        .anyMatch(connection -> connectionId.equals(connection.getConnectionId()));
+                if (!exists) {
+                    log.info("Skip force disconnect for unknown connection: {}", connectionId);
+                    return;
+                }
                 session.forceDisconnect(connectionId);
                 log.info("Force disconnected connection: {}", connectionId);
             }

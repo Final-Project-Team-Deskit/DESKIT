@@ -180,6 +180,9 @@ public class AwsS3Service {
     }
 
     private void validateImageRatio(MultipartFile file, UploadType type) {
+        if (type.getWidthRatio() <= 0 || type.getHeightRatio() <= 0) {
+            return;
+        }
         try {
             BufferedImage image = ImageIO.read(file.getInputStream());
 

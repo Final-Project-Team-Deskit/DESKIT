@@ -60,14 +60,29 @@ let stompClient: SimpleStompClient | null = null
 let statusPoller: number | null = null
 
 const memberId = ref<string | null>(null)
-const resolveMemberId = () => {
+const resolveMemberId = async () => {
   const user = getAuthUser()
-  memberId.value = resolveViewerId(user) ?? resolveViewerId(null)
+  const viewerId = resolveViewerId(user) ?? resolveViewerId(null)
+  if (viewerId && /^\d+$/.test(viewerId)) {
+    memberId.value = viewerId
+    return
+  }
+
+  try {
+    const response = await fetchWithCredentials(buildApiUrl('/api/my/member-id'))
+    if (response.ok) {
+      const data = (await response.json()) as { member_id?: number | string }
+      if (data?.member_id !== null && data?.member_id !== undefined) {
+        memberId.value = String(data.member_id)
+        return
+      }
+    }
+  } catch (error) {
+    console.error('member id resolve failed', error)
+  }
+
+  memberId.value = null
 }
-const fallbackChatId = computed(() => {
-  const numeric = Number.parseInt(memberId.value, 10)
-  return Number.isFinite(numeric) ? numeric : 1
-})
 
 const scrollToBottom = async () => {
   await nextTick()
@@ -134,6 +149,18 @@ const wsEndpoint = computed(() => {
 
 const fetchWithCredentials = (url: string, options: RequestInit = {}) =>
   fetch(url, { credentials: 'include', ...options })
+
+const buildApiUrl = (path: string) => {
+  const base = apiBase.replace(/\/+$/, '')
+  const normalized = path.startsWith('/') ? path : `/${path}`
+  if (!base) {
+    return normalized
+  }
+  if (base.endsWith('/api') && normalized.startsWith('/api/')) {
+    return `${base}${normalized.slice(4)}`
+  }
+  return `${base}${normalized}`
+}
 
 const stopStatusPolling = () => {
   if (statusPoller !== null) {
@@ -320,22 +347,6 @@ const startNewInquiry = async () => {
   }
 }
 
-const checkConversationStatus = async () => {
-  if (!memberId.value) return
-  try {
-    const response = await fetchWithCredentials(`${apiBase}/chat/status/${memberId.value}`)
-    if (!response.ok) return
-    const data = (await response.json()) as { status?: string }
-    statusLabel.value = data.status ?? 'BOT_ACTIVE'
-    if (statusLabel.value !== 'BOT_ACTIVE') {
-      isLocked.value = true
-      appendMessage('system', '채팅이 관리자로 이관되었어요. 관리자가 곧 답변 드릴 예정이에요.')
-    }
-  } catch (error) {
-    console.error('status check failed', error)
-  }
-}
-
 const sendMessage = async () => {
   const text = inputText.value.trim()
   if (!text || isSending.value || isLocked.value) return
@@ -390,7 +401,7 @@ const sendMessage = async () => {
 
 onMounted(async () => {
   await hydrateSessionUser()
-  resolveMemberId()
+  await resolveMemberId()
   await syncConversationStatus()
   if (chatId.value) {
     if (isAdminChat.value || isEscalated.value || isClosed.value) {

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { OpenVidu, type Session, type Subscriber } from 'openvidu-browser'
+import { OpenVidu, type Session, type StreamEvent, type Subscriber } from 'openvidu-browser'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Client, type StompSubscription } from '@stomp/stompjs'
@@ -49,6 +49,7 @@ type LiveChatMessageDTO = {
   sender: string
   content: string
   senderRole?: string
+  connectionId?: string
   vodPlayTime: number
   sentAt?: number
 }
@@ -61,6 +62,7 @@ type ChatMessageUI = {
   kind?: 'system' | 'user'
   senderRole?: string
   memberLoginId?: string
+  connectionId?: string
 }
 
 // --- State ---
@@ -103,7 +105,7 @@ const nickname = ref("관리자")
 
 // Moderation State
 const showModerationModal = ref(false)
-const moderationTarget = ref<{ user: string; memberLoginId?: string } | null>(null)
+const moderationTarget = ref<{ user: string; memberLoginId?: string; connectionId?: string } | null>(null)
 const moderationType = ref('')
 const moderationReason = ref('')
 const moderatedUsers = ref<Record<string, { type: string; reason: string; at: string }>>({})
@@ -235,6 +237,7 @@ const mapLiveProduct = (item: {
   id: string
   name: string
   price: number
+  originalPrice?: number
   isSoldOut: boolean
   isPinned?: boolean
   imageUrl?: string
@@ -244,11 +247,12 @@ const mapLiveProduct = (item: {
   const totalQty = item.totalQty ?? item.stockQty ?? 0
   const stockQty = item.stockQty ?? totalQty
   const sold = Math.max(0, totalQty - stockQty)
+  const originalPrice = item.originalPrice && item.originalPrice > item.price ? item.originalPrice : item.price
   return {
     id: item.id,
     name: item.name,
     option: item.name,
-    price: `₩${item.price.toLocaleString('ko-KR')}`,
+    price: `₩${originalPrice.toLocaleString('ko-KR')}`,
     sale: `₩${item.price.toLocaleString('ko-KR')}`,
     status: item.isSoldOut ? '품절' : '판매중',
     thumb: item.imageUrl ?? '',
@@ -286,6 +290,7 @@ const handleIncomingMessage = (payload: LiveChatMessageDTO) => {
     kind: payload.type === 'TALK' ? 'user' : 'system',
     senderRole: payload.senderRole,
     memberLoginId: payload.memberEmail,
+    connectionId: payload.connectionId,
   })
 
   nextTick(() => {
@@ -300,7 +305,7 @@ const handleIncomingMessage = (payload: LiveChatMessageDTO) => {
 const fetchRecentMessages = async () => {
   if (!broadcastId.value) return
   try {
-    const response = await fetch(`${apiBase}/api/livechats/${broadcastId.value}/recent?seconds=300`)
+    const response = await fetch(`${apiBase}/livechats/${broadcastId.value}/recent?seconds=300`)
     if (!response.ok) return
     const recent = (await response.json()) as LiveChatMessageDTO[]
     if (!Array.isArray(recent)) return
@@ -320,6 +325,7 @@ const fetchRecentMessages = async () => {
             kind: 'user',
             senderRole: item.senderRole,
             memberLoginId: item.memberEmail,
+            connectionId: item.connectionId,
           }
         })
     nextTick(() => {
@@ -638,7 +644,8 @@ const connectSubscriber = async (token: string) => {
       applySubscriberVolume()
       applyVideoQuality(selectedQuality.value)
     })
-    openviduSession.value.on('streamDestroyed', () => {
+    openviduSession.value.on('streamDestroyed', (event: StreamEvent) => {
+      event.preventDefault()
       openviduSubscriber.value = null
       clearViewerContainer()
     })
@@ -680,7 +687,7 @@ const sendLeaveSignal = async (useBeacon = false) => {
   const leavingViewerId = joinedViewerId.value ?? viewerId.value
   if (!joinedBroadcastId.value || !leavingViewerId || leaveRequested.value) return
   leaveRequested.value = true
-  const url = `${apiBase}/api/broadcasts/${joinedBroadcastId.value}/leave?viewerId=${encodeURIComponent(leavingViewerId)}`
+  const url = `${apiBase}/broadcasts/${joinedBroadcastId.value}/leave?viewerId=${encodeURIComponent(leavingViewerId)}`
   if (useBeacon && navigator.sendBeacon) {
     navigator.sendBeacon(url)
     return
@@ -828,7 +835,7 @@ const connectSse = (broadcastId: number) => {
   if (sseSource.value) {
     sseSource.value.close()
   }
-  const source = new EventSource(`${apiBase}/api/broadcasts/${broadcastId}/subscribe`)
+  const source = new EventSource(`${apiBase}/broadcasts/${broadcastId}/subscribe`)
   const events = [
     'BROADCAST_READY',
     'BROADCAST_UPDATED',
@@ -967,11 +974,10 @@ const closeChat = () => {
 }
 
 // Moderation
-const openModeration = (msg: { user: string; kind?: string; memberLoginId?: string }) => {
+const openModeration = (msg: { user: string; kind?: string; memberLoginId?: string; connectionId?: string }) => {
   if (!isInteractive.value) return
   if (msg.user === 'SYSTEM' || msg.kind === 'system' || msg.user === '관리자') return
-  console.log('[admin chat] moderation open', msg.user)
-  moderationTarget.value = { user: msg.user, memberLoginId: msg.memberLoginId }
+  moderationTarget.value = { user: msg.user, memberLoginId: msg.memberLoginId, connectionId: msg.connectionId }
   moderationType.value = ''
   moderationReason.value = ''
   showModerationModal.value = true
@@ -1004,6 +1010,7 @@ const saveModeration = async () => {
       memberLoginId: target.memberLoginId,
       status: sanctionType,
       reason: moderationReason.value.trim(),
+      connectionId: target.connectionId,
     })
   } catch (error) {
     const message = (error as { message?: string } | null)?.message ?? '제재 처리에 실패했습니다.'
@@ -1310,7 +1317,12 @@ watch(
                       alt="대기 화면"
                       @error="handleImageError"
                   />
-                  <p v-if="playerMessage" class="player-placeholder__message">{{ playerMessage }}</p>
+                  <p
+                    v-if="playerMessage && (!waitingScreenUrl || lifecycleStatus === 'STOPPED')"
+                    class="player-placeholder__message"
+                  >
+                    {{ playerMessage }}
+                  </p>
                 </div>
                 <div v-else-if="!hasSubscriberStream" class="player-label">송출 화면</div>
               </div>

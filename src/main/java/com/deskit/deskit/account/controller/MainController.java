@@ -7,10 +7,12 @@ import org.springframework.web.bind.annotation.ResponseBody;
 @Controller
 public class MainController {
 
-    @GetMapping("/")
-    @ResponseBody
+    @GetMapping(value = {
+            "/",
+            "/{path:^(?!api$)(?!.*\\..*$).*$}",
+            "/{path:^(?!api$)(?!.*\\..*$).*$}/**"
+    })
     public String mainAPI() {
-
-        return "main route";
+        return "forward:/index.html";
     }
 }

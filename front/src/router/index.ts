@@ -93,6 +93,11 @@ const routes: RouteRecordRaw[] = [
     component: () => import('../pages/MyPage.vue'),
   },
   {
+    path: '/my/settings',
+    name: 'my-settings',
+    component: () => import('../pages/MySettings.vue'),
+  },
+  {
     path: '/my/address',
     name: 'my-address',
     component: () => import('../pages/MyAddress.vue'),
@@ -121,7 +126,7 @@ const routes: RouteRecordRaw[] = [
       {
         path: '',
         name: 'admin-dashboard',
-        component: () => import('../pages/admin/AdminDashboard.vue'),
+        component: () => import('../pages/admin/live/Stats.vue'),
       },
       {
         path: 'users',
@@ -178,7 +183,7 @@ const routes: RouteRecordRaw[] = [
   {
     path: '/seller',
     name: 'seller',
-    component: () => import('../pages/Seller.vue'),
+    component: () => import('../pages/seller/LiveStats.vue'),
     children: [
       {
         path: 'live',
@@ -194,6 +199,16 @@ const routes: RouteRecordRaw[] = [
         path: 'products',
         name: 'seller-products',
         component: () => import('../pages/seller/Products.vue'),
+      },
+      {
+        path: 'orders',
+        name: 'seller-orders',
+        component: () => import('../pages/seller/SellerOrders.vue'),
+      },
+      {
+        path: 'orders/:orderId',
+        name: 'seller-order-detail',
+        component: () => import('../pages/seller/SellerOrderDetail.vue'),
       },
     ],
   },

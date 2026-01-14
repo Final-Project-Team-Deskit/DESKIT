@@ -1,4 +1,4 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import AdminUserTabs from '../../components/AdminUserTabs.vue'
@@ -194,7 +194,7 @@ const loadUsers = async (targetPage = page.value) => {
     if (toDate.value) {
       params.set('toDate', toDate.value)
     }
-    const response = await fetch(`${apiBase}/api/admin/users?${params.toString()}`, {
+    const response = await fetch(`${apiBase}/admin/users?${params.toString()}`, {
       credentials: 'include',
     })
     if (!response.ok) {
@@ -239,7 +239,7 @@ const loadCompanies = async (targetPage = companyPage.value) => {
     if (companyToDate.value) {
       params.set('toDate', companyToDate.value)
     }
-    const response = await fetch(`${apiBase}/api/admin/companies?${params.toString()}`, {
+    const response = await fetch(`${apiBase}/admin/companies?${params.toString()}`, {
       credentials: 'include',
     })
     if (!response.ok) {
@@ -968,3 +968,4 @@ watch(
   }
 }
 </style>
+

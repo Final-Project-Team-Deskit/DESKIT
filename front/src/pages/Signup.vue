@@ -35,6 +35,7 @@ type Policy = {
 }
 
 const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080'
+const oauthBase = import.meta.env.VITE_OAUTH_BASE_URL || window.location.origin
 const pending = ref<PendingSignup | null>(null)
 const signupToken = ref('')
 const inviteToken = ref('')
@@ -201,11 +202,6 @@ const jobOptions: JobOption[] = [
   { value: 'ADMIN_PLAN_TYPE', label: '기획/관리' },
 ]
 
-const jobLabelMap = jobOptions.reduce<Record<string, string>>((acc, option) => {
-  acc[option.value] = option.label
-  return acc
-}, {})
-
 const isInviteSignup = computed(() => !!inviteToken.value)
 
 const requiredAgreed = computed(
@@ -298,7 +294,8 @@ const renderMarkdown = (value: string) => {
         htmlParts.push('<ol>')
         inOrderedList = true
       }
-      htmlParts.push(`<li>${escapeHtml(listMatch[1])}</li>`)
+      const itemText = listMatch[1] ?? ''
+      htmlParts.push(`<li>${escapeHtml(itemText)}</li>`)
       continue
     }
 
@@ -321,7 +318,7 @@ const loadPending = async () => {
     return
   }
 
-  const response = await fetch(`${apiBase}/api/signup/social/pending`, {
+  const response = await fetch(`${apiBase}/signup/social/pending`, {
     headers: { Authorization: `Bearer ${signupToken.value}` },
     credentials: 'include',
   })
@@ -340,7 +337,7 @@ const sendCode = async () => {
     return
   }
 
-  const response = await fetch(`${apiBase}/api/signup/social/phone/send`, {
+  const response = await fetch(`${apiBase}/signup/social/phone/send`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -365,7 +362,7 @@ const verifyCode = async () => {
     return
   }
 
-  const response = await fetch(`${apiBase}/api/signup/social/phone/verify`, {
+  const response = await fetch(`${apiBase}/signup/social/phone/verify`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -399,7 +396,7 @@ const submitSignup = async () => {
     return
   }
 
-  const response = await fetch(`${apiBase}/api/signup/social/complete`, {
+  const response = await fetch(`${apiBase}/signup/social/complete`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -502,7 +499,7 @@ const validateInviteToken = async () => {
   }
 
   const response = await fetch(
-    `${apiBase}/api/invitations/validate?token=${encodeURIComponent(inviteToken.value)}`,
+    `${apiBase}/invitations/validate?token=${encodeURIComponent(inviteToken.value)}`,
     { credentials: 'include' },
   )
 
@@ -513,7 +510,7 @@ const validateInviteToken = async () => {
 }
 
 const startLogin = (provider: 'naver' | 'google' | 'kakao') => {
-  window.location.href = `${apiBase}/oauth2/authorization/${provider}`
+  window.location.href = `${oauthBase}/oauth2/authorization/${provider}`
 }
 
 onMounted(() => {
@@ -992,7 +989,6 @@ onMounted(() => {
   }
 }
 </style>
-
 
 
 

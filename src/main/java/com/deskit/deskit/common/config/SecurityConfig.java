@@ -59,7 +59,7 @@ public class SecurityConfig {
 
                         CorsConfiguration configuration = new CorsConfiguration();
 
-                        configuration.setAllowedOrigins(Collections.singletonList("http://localhost:5173"));
+                        configuration.setAllowedOrigins(Collections.singletonList("https://ssg.deskit.o-r.kr"));
                         configuration.setAllowedMethods(Collections.singletonList("*"));
                         configuration.setAllowCredentials(true);
                         configuration.setAllowedHeaders(Collections.singletonList("*"));
@@ -149,7 +149,8 @@ public class SecurityConfig {
                                 "/login",
                                 "/login/**",
                                 "/login/oauth2/**",
-                                "/ws/**"
+                                "/ws/**",
+                                "/api/signup/**"
                         ).permitAll()
                         .requestMatchers("/api/admin/**").hasAuthority("ROLE_ADMIN")
                         .requestMatchers("/api/quit").hasAnyAuthority(
@@ -157,7 +158,9 @@ public class SecurityConfig {
                                 "ROLE_SELLER_OWNER",
                                 "ROLE_SELLER_MANAGER"
                         )
-                        .requestMatchers("/my").hasAnyAuthority(
+                        .requestMatchers("/api/my/member-id").hasAuthority("ROLE_MEMBER")
+                        .requestMatchers("/api/my/settings/**").hasAuthority("ROLE_MEMBER")
+                        .requestMatchers("/api/my").hasAnyAuthority(
                                 "ROLE_MEMBER",
                                 "ROLE_SELLER",
                                 "ROLE_SELLER_OWNER",

@@ -35,7 +35,7 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
     @Override
     public void registerStompEndpoints(StompEndpointRegistry registry) {
         registry.addEndpoint("/ws-live", "/ws")
-                .setAllowedOriginPatterns("http://localhost:5173", "http://localhost:3000", "*")
+                .setAllowedOriginPatterns("https://ssg.deskit.o-r.kr", "http://localhost:3000", "*")
                 .addInterceptors(new WebSocketAuthHandshakeInterceptor(jwtUtil))
                 .setHandshakeHandler(new WebSocketAuthHandshakeHandler())
                 .withSockJS();

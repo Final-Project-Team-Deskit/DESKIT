@@ -181,6 +181,7 @@ public class Broadcast {
         }
         return switch (from) {
             case RESERVED -> to == BroadcastStatus.READY || to == BroadcastStatus.CANCELED;
+            case CANCELED -> to == BroadcastStatus.RESERVED;
             case READY -> to == BroadcastStatus.ON_AIR || to == BroadcastStatus.CANCELED || to == BroadcastStatus.STOPPED;
             case ON_AIR -> to == BroadcastStatus.ENDED || to == BroadcastStatus.STOPPED;
             case ENDED -> to == BroadcastStatus.VOD || to == BroadcastStatus.STOPPED;

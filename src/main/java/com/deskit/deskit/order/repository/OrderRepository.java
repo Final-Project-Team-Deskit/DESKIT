@@ -1,9 +1,12 @@
 package com.deskit.deskit.order.repository;
 
 import com.deskit.deskit.order.entity.Order;
+import com.deskit.deskit.order.enums.OrderStatus;
+import jakarta.persistence.LockModeType;
 import java.util.List;
 import java.util.Optional;
-import jakarta.persistence.LockModeType;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -38,4 +41,30 @@ public interface OrderRepository extends JpaRepository<Order, Long> {
   @Lock(LockModeType.PESSIMISTIC_WRITE)
   @Query("select o from Order o where o.orderNumber = :orderNumber")
   Optional<Order> findByOrderNumberForUpdate(@Param("orderNumber") String orderNumber);
+
+  Optional<Order> findByIdAndDeletedAtIsNull(Long id);
+
+  @Query(
+    value = """
+      select distinct o
+      from Order o
+      join OrderItem oi on oi.order = o
+      where o.deletedAt is null
+        and oi.deletedAt is null
+        and oi.sellerId = :sellerId
+        and (:status is null or o.status = :status)
+      """,
+    countQuery = """
+      select count(distinct o.id)
+      from Order o
+      join OrderItem oi on oi.order = o
+      where o.deletedAt is null
+        and oi.deletedAt is null
+        and oi.sellerId = :sellerId
+        and (:status is null or o.status = :status)
+      """
+  )
+  Page<Order> findSellerOrders(@Param("sellerId") Long sellerId,
+                               @Param("status") OrderStatus status,
+                               Pageable pageable);
 }

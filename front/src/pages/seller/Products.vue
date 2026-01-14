@@ -214,7 +214,6 @@ onMounted(() => {
     <section v-else class="product-list">
       <article v-for="product in filteredProducts" :key="product.product_id" class="product-card ds-surface">
         <div class="thumb">
-          <!-- TODO: seller list API does not return thumbnail yet -->
           <div class="thumb__placeholder"></div>
         </div>
         <div class="product-main">

@@ -20,6 +20,7 @@ type SessionPayload = Partial<AuthUser> & {
   memberCategory?: string
 }
 
+const webBase = import.meta.env.VITE_WEB_BASE_URL || window.location.origin
 const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080'
 let sessionUser: AuthUser | null = null
 
@@ -122,7 +123,7 @@ export const requestLogout = async (): Promise<boolean> => {
   }
   let success = false
   try {
-    const response = await fetch(`${apiBase}/logout`, {
+    const response = await fetch(`${webBase}/logout`, {
       method: 'POST',
       credentials: 'include',
       headers,
@@ -144,7 +145,7 @@ export const requestWithdraw = async (): Promise<{ ok: boolean; message?: string
   }
 
   try {
-    const response = await fetch(`${apiBase}/api/quit`, {
+    const response = await fetch(`${apiBase}/quit`, {
       method: 'POST',
       credentials: 'include',
       headers,
@@ -170,15 +171,15 @@ export const requestWithdraw = async (): Promise<{ ok: boolean; message?: string
 
 export const hydrateSessionUser = async (): Promise<boolean> => {
   try {
-    let response = await fetch(`${apiBase}/my`, { credentials: 'include' })
+    let response = await fetch(`/api/my`, { credentials: 'include' })
     if (!response.ok) {
       if (response.status === 401) {
-        const reissue = await fetch(`${apiBase}/reissue`, {
+        const reissue = await fetch(`${webBase}/reissue`, {
           method: 'POST',
           credentials: 'include',
         })
         if (!reissue.ok) return false
-        response = await fetch(`${apiBase}/my`, { credentials: 'include' })
+        response = await fetch(`/api/my`, { credentials: 'include' })
       }
       if (!response.ok) return false
     }

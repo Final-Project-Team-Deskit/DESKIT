@@ -6,10 +6,10 @@ import PageHeader from '../components/PageHeader.vue'
 type Provider = 'kakao' | 'naver' | 'google'
 
 const router = useRouter()
-const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080'
+const oauthBase = import.meta.env.VITE_OAUTH_BASE_URL || window.location.origin
 
 const handleLogin = (provider: Provider) => {
-  window.location.href = `${apiBase}/oauth2/authorization/${provider}`
+  window.location.href = `${oauthBase}/oauth2/authorization/${provider}`
 }
 </script>
 

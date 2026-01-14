@@ -1,4 +1,4 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 import {type ComponentPublicInstance, computed, nextTick, onBeforeUnmount, onMounted, ref, watch} from 'vue'
 import {useRoute, useRouter} from 'vue-router'
 import PageHeader from '../../components/PageHeader.vue'
@@ -426,7 +426,7 @@ const connectSse = () => {
   const user = getAuthUser()
   const viewerId = resolveViewerId(user)
   const query = viewerId ? `?viewerId=${encodeURIComponent(viewerId)}` : ''
-  const source = new EventSource(`${apiBase}/api/broadcasts/subscribe/all${query}`)
+  const source = new EventSource(`${apiBase}/broadcasts/subscribe/all${query}`)
   const events = [
     'BROADCAST_READY',
     'BROADCAST_UPDATED',
@@ -642,7 +642,11 @@ const visibleLiveGridItems = computed(() => filteredLive.value.slice(0, LIVE_PAG
 const visibleScheduledItems = computed(() => filteredScheduled.value.slice(0, SCHEDULED_PAGE_SIZE * scheduledPage.value))
 const visibleVodItems = computed(() => filteredVods.value.slice(0, VOD_PAGE_SIZE * vodPage.value))
 
-const { sentinelRef: liveSentinelRef } = useInfiniteScroll({
+const liveSentinelRef = ref<HTMLElement | null>(null)
+const scheduledSentinelRef = ref<HTMLElement | null>(null)
+const vodSentinelRef = ref<HTMLElement | null>(null)
+
+const { sentinelRef: liveObserverRef } = useInfiniteScroll({
   canLoadMore: () => filteredLive.value.length > visibleLiveGridItems.value.length,
   loadMore: () => {
     livePage.value += 1
@@ -650,7 +654,7 @@ const { sentinelRef: liveSentinelRef } = useInfiniteScroll({
   enabled: () => activeTab.value === 'live',
 })
 
-const { sentinelRef: scheduledSentinelRef } = useInfiniteScroll({
+const { sentinelRef: scheduledObserverRef } = useInfiniteScroll({
   canLoadMore: () => filteredScheduled.value.length > visibleScheduledItems.value.length,
   loadMore: () => {
     scheduledPage.value += 1
@@ -658,13 +662,25 @@ const { sentinelRef: scheduledSentinelRef } = useInfiniteScroll({
   enabled: () => activeTab.value === 'scheduled',
 })
 
-const { sentinelRef: vodSentinelRef } = useInfiniteScroll({
+const { sentinelRef: vodObserverRef } = useInfiniteScroll({
   canLoadMore: () => filteredVods.value.length > visibleVodItems.value.length,
   loadMore: () => {
     vodPage.value += 1
   },
   enabled: () => activeTab.value === 'vod',
 })
+
+watch(liveSentinelRef, (value) => {
+  liveObserverRef.value = value
+}, { immediate: true })
+
+watch(scheduledSentinelRef, (value) => {
+  scheduledObserverRef.value = value
+}, { immediate: true })
+
+watch(vodSentinelRef, (value) => {
+  vodObserverRef.value = value
+}, { immediate: true })
 
 const categoryOptions = computed(() => categories.value)
 
@@ -1871,3 +1887,4 @@ onBeforeUnmount(() => {
   }
 }
 </style>
+

@@ -1,0 +1,100 @@
+name: Deploy
+
+on:
+  push:
+    branches: [ "develop" ]
+  workflow_dispatch:
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: front/package-lock.json
+
+      - name: Install front-end dependencies
+        working-directory: front
+        run: npm ci
+
+      - name: Build front-end
+        working-directory: front
+        run: npm run build
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: corretto
+          java-version: "17"
+          cache: gradle
+
+      - name: Build backend jar
+        run: ./gradlew bootJar
+
+      - name: Prepare backend jar
+        run: |
+          set -euo pipefail
+          JAR_PATH=$(ls build/libs/*.jar | head -n 1)
+          cp "$JAR_PATH" build/libs/deskit.jar
+
+      - name: Upload front-end dist to web server
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.WEB_HOST }}
+          username: ${{ secrets.WEB_USER }}
+          password: ${{ secrets.WEB_SSH_KEY }}
+          proxy_host: ${{ secrets.BASTION_HOST }}
+          proxy_username: ${{ secrets.BASTION_USER }}
+          proxy_password: ${{ secrets.BASTION_SSH_KEY }}
+          source: "front/dist/*"
+          target: ${{ secrets.WEB_DEPLOY_PATH }}
+          strip_components: 2
+          rm: true
+
+      - name: Upload backend jar to app server
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.APP_HOST }}
+          username: ${{ secrets.APP_USER }}
+          password: ${{ secrets.APP_SSH_KEY }}
+          proxy_host: ${{ secrets.BASTION_HOST }}
+          proxy_username: ${{ secrets.BASTION_USER }}
+          proxy_password: ${{ secrets.BASTION_SSH_KEY }}
+          source: "build/libs/deskit.jar"
+          target: ${{ secrets.APP_DEPLOY_PATH }}
+          strip_components: 2
+
+      - name: Restart backend service (app server)
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.APP_HOST }}
+          username: ${{ secrets.APP_USER }}
+          password: ${{ secrets.APP_SSH_KEY }}
+          proxy_host: ${{ secrets.BASTION_HOST }}
+          proxy_username: ${{ secrets.BASTION_USER }}
+          proxy_password: ${{ secrets.BASTION_SSH_KEY }}
+          script: |
+            set -euo pipefail
+            cd /srv/livecommerce
+            docker compose down
+            docker build --no-cache -t deskit:latest .
+            docker compose up -d
+
+      - name: Reload nginx (web server)
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.WEB_HOST }}
+          username: ${{ secrets.WEB_USER }}
+          password: ${{ secrets.WEB_SSH_KEY }}
+          proxy_host: ${{ secrets.BASTION_HOST }}
+          proxy_username: ${{ secrets.BASTION_USER }}
+          proxy_password: ${{ secrets.BASTION_SSH_KEY }}
+          script: |
+            set -euo pipefail
+            sudo nginx -t
+            sudo nginx -s reload

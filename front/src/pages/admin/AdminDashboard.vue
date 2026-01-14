@@ -90,7 +90,6 @@ const maxVisitors = computed(() => Math.max(...visitorsChart.value.map((item) =>
 const maxRevenue = computed(() => Math.max(...revenueChart.value.map((item) => item.value), 1))
 
 const handleExport = () => {
-  console.log('[admin] export excel')
 }
 </script>
 

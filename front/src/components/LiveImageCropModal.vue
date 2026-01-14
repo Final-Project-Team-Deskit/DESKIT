@@ -1,11 +1,25 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 
-const props = defineProps<{
-  modelValue: boolean
-  imageSrc: string
-  fileName: string
-}>()
+const props = withDefaults(
+  defineProps<{
+    modelValue: boolean
+    imageSrc: string
+    fileName: string
+    frameWidthRatio?: number
+    frameHeightRatio?: number
+    outputWidth?: number
+    outputHeight?: number
+    title?: string
+  }>(),
+  {
+    frameWidthRatio: 16,
+    frameHeightRatio: 9,
+    outputWidth: 1280,
+    outputHeight: 720,
+    title: '16:9 이미지 자르기',
+  },
+)
 
 const emit = defineEmits<{
   (e: 'update:modelValue', value: boolean): void
@@ -27,17 +41,29 @@ const dragState = ref<{ active: boolean; startX: number; startY: number; originX
 })
 
 const frameRect = ref({ x: 0, y: 0, width: 0, height: 0 })
+const frameSize = ref({ width: 0, height: 0 })
 
 const isOpen = computed(() => props.modelValue)
 
 const close = () => emit('update:modelValue', false)
 
-const syncFrameRect = () => {
+const syncFrameRect = async () => {
   if (!frameRef.value || !containerRef.value || !canvasRef.value) return
-  const frameBox = frameRef.value.getBoundingClientRect()
   const containerBox = containerRef.value.getBoundingClientRect()
   canvasRef.value.width = containerBox.width
   canvasRef.value.height = containerBox.height
+  const ratio = props.frameWidthRatio / props.frameHeightRatio
+  const maxWidth = containerBox.width * 0.9
+  const maxHeight = containerBox.height * 0.9
+  let frameWidth = Math.min(maxWidth, 640)
+  let frameHeight = frameWidth / ratio
+  if (frameHeight > maxHeight) {
+    frameHeight = maxHeight
+    frameWidth = frameHeight * ratio
+  }
+  frameSize.value = { width: frameWidth, height: frameHeight }
+  await nextTick()
+  const frameBox = frameRef.value.getBoundingClientRect()
   frameRect.value = {
     x: frameBox.left - containerBox.left,
     y: frameBox.top - containerBox.top,
@@ -58,7 +84,7 @@ const loadImage = async () => {
   scale.value = 1
   offset.value = { x: 0, y: 0 }
   await nextTick()
-  syncFrameRect()
+  await syncFrameRect()
   drawPreview()
 }
 
@@ -123,8 +149,8 @@ const handleScaleInput = (value: number) => {
 const confirmCrop = () => {
   const img = imageElement.value
   if (!img) return
-  const outputWidth = 1280
-  const outputHeight = 720
+  const outputWidth = props.outputWidth
+  const outputHeight = props.outputHeight
   const outputCanvas = document.createElement('canvas')
   outputCanvas.width = outputWidth
   outputCanvas.height = outputHeight
@@ -175,14 +201,21 @@ onUnmounted(() => {
       <header class="ds-modal__head">
         <div>
           <p class="ds-modal__eyebrow">이미지 편집</p>
-          <h3 class="ds-modal__title">16:9 이미지 자르기</h3>
+          <h3 class="ds-modal__title">{{ title }}</h3>
         </div>
         <button type="button" class="ds-modal__close" aria-label="닫기" @click="close">×</button>
       </header>
 
       <div class="cropper" ref="containerRef">
         <canvas ref="canvasRef" class="cropper__canvas" width="640" height="420" @pointerdown="handlePointerDown"></canvas>
-        <div ref="frameRef" class="cropper__frame"></div>
+        <div
+          ref="frameRef"
+          class="cropper__frame"
+          :style="{
+            width: frameSize.width ? `${frameSize.width}px` : undefined,
+            height: frameSize.height ? `${frameSize.height}px` : undefined,
+          }"
+        ></div>
       </div>
 
       <div class="cropper__controls">
@@ -302,8 +335,6 @@ onUnmounted(() => {
   position: absolute;
   left: 50%;
   top: 50%;
-  width: min(100%, 640px);
-  aspect-ratio: 16 / 9;
   transform: translate(-50%, -50%);
   border: 2px solid rgba(255, 255, 255, 0.9);
   box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.55);

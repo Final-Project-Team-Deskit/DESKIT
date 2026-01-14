@@ -11,10 +11,18 @@ import com.deskit.deskit.product.dto.SellerProductDetailResponse;
 import com.deskit.deskit.product.dto.SellerProductStatusUpdateRequest;
 import com.deskit.deskit.product.dto.SellerProductStatusUpdateResponse;
 import com.deskit.deskit.product.entity.Product;
+import com.deskit.deskit.product.entity.ProductImage;
+import com.deskit.deskit.product.entity.ProductImage.ImageType;
+import com.deskit.deskit.product.repository.ProductImageRepository;
 import com.deskit.deskit.product.repository.ProductRepository;
 import com.deskit.deskit.product.repository.ProductTagRepository;
 import com.deskit.deskit.product.repository.ProductTagRepository.ProductTagRow;
+import com.deskit.deskit.livehost.repository.BroadcastProductRepository;
+import com.deskit.deskit.livehost.service.AwsS3Service;
+import com.deskit.deskit.order.enums.OrderStatus;
+import com.deskit.deskit.order.repository.OrderItemRepository;
 import com.deskit.deskit.tag.entity.TagCategory.TagCode;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.EnumMap;
@@ -24,6 +32,8 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.stream.Collectors;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
@@ -33,12 +43,26 @@ public class ProductService {
 
   private final ProductRepository productRepository; // Product 조회용 JPA Repository
   private final ProductTagRepository productTagRepository; // Product-Tag 매핑 조회용 JPA Repository
+  private final ProductImageRepository productImageRepository;
+  private final BroadcastProductRepository broadcastProductRepository;
+  private final OrderItemRepository orderItemRepository;
+  private final AwsS3Service awsS3Service;
+
+  private static final Logger log = LoggerFactory.getLogger(ProductService.class);
 
   // 생성자 주입: 테스트/대체 구현에 유리하고, final 필드와 잘 맞음
   public ProductService(ProductRepository productRepository,
-                        ProductTagRepository productTagRepository) {
+                        ProductTagRepository productTagRepository,
+                        ProductImageRepository productImageRepository,
+                        BroadcastProductRepository broadcastProductRepository,
+                        OrderItemRepository orderItemRepository,
+                        AwsS3Service awsS3Service) {
     this.productRepository = productRepository;
     this.productTagRepository = productTagRepository;
+    this.productImageRepository = productImageRepository;
+    this.broadcastProductRepository = broadcastProductRepository;
+    this.orderItemRepository = orderItemRepository;
+    this.awsS3Service = awsS3Service;
   }
 
   // 상품 목록 조회: deleted_at IS NULL인 상품만 가져오고, 태그는 productIds로 한 번에 batch 조회 (N+1 방지)
@@ -54,6 +78,13 @@ public class ProductService {
             .map(Product::getId)
             .collect(Collectors.toList());
 
+    Map<Long, Integer> livePrices = broadcastProductRepository.findLiveBpPrices(productIds).stream()
+            .collect(Collectors.toMap(
+                    BroadcastProductRepository.LivePriceRow::getProductId,
+                    BroadcastProductRepository.LivePriceRow::getBpPrice,
+                    (left, right) -> left
+            ));
+
     // (product_id, tagCode, tagName) 형태의 projection row들
     List<ProductTagRow> rows = productTagRepository.findActiveTagsByProductIds(productIds);
 
@@ -66,7 +97,8 @@ public class ProductService {
               TagsBundle bundle = tagsByProductId.get(product.getId());
               ProductTags tags = bundle == null ? ProductTags.empty() : bundle.getTags();
               List<String> tagsFlat = bundle == null ? Collections.emptyList() : bundle.getTagsFlat();
-              return ProductResponse.from(product, tags, tagsFlat);
+              Integer priceOverride = livePrices.get(product.getId());
+              return ProductResponse.fromWithPrice(product, tags, tagsFlat, priceOverride);
             })
             .collect(Collectors.toList());
   }
@@ -87,7 +119,10 @@ public class ProductService {
     ProductTags tags = bundle == null ? ProductTags.empty() : bundle.getTags();
     List<String> tagsFlat = bundle == null ? Collections.emptyList() : bundle.getTagsFlat();
 
-    return Optional.of(ProductResponse.from(product.get(), tags, tagsFlat));
+    Integer priceOverride = broadcastProductRepository.findLiveBpPriceByProductId(id).stream()
+            .findFirst()
+            .orElse(null);
+    return Optional.of(ProductResponse.fromWithPrice(product.get(), tags, tagsFlat, priceOverride));
   }
 
   public List<SellerProductListResponse> getSellerProducts(Long sellerId) {
@@ -256,6 +291,21 @@ public class ProductService {
       throw new ResponseStatusException(HttpStatus.FORBIDDEN, "forbidden");
     }
 
+    boolean hasBasicFields =
+      request.productName() != null
+        || request.shortDesc() != null
+        || request.price() != null
+        || request.stockQty() != null;
+    boolean hasDetail = request.detailHtml() != null;
+    if (request.imageKeys() != null && request.imageUrls() == null) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "image_urls required when image_keys present");
+    }
+    boolean hasImages = request.imageUrls() != null;
+
+    if (!hasBasicFields && !hasDetail && !hasImages) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "request required");
+    }
+
     Product.Status status = product.getStatus();
     if (status != Product.Status.DRAFT
       && status != Product.Status.READY
@@ -273,6 +323,22 @@ public class ProductService {
       }
     }
 
+    boolean triesRestrictedUpdate =
+      (request.productName() != null && !Objects.equals(request.productName(), product.getProductName()))
+        || (request.shortDesc() != null && !Objects.equals(request.shortDesc(), product.getShortDesc()))
+        || (request.price() != null && !Objects.equals(request.price(), product.getPrice()))
+        || (request.detailHtml() != null && !Objects.equals(request.detailHtml(), product.getDetailHtml()));
+
+    if (triesRestrictedUpdate) {
+      boolean hasPaidOrders = orderItemRepository.existsPaidOrderByProductId(
+        productId,
+        List.of(OrderStatus.PAID, OrderStatus.COMPLETED)
+      );
+      if (hasPaidOrders) {
+        throw new ResponseStatusException(HttpStatus.CONFLICT, "주문이 존재하는 상품은 가격/정보를 수정할 수 없습니다.");
+      }
+    }
+
     try {
       if (request.productName() != null) {
         product.updateProductName(request.productName());
@@ -286,8 +352,95 @@ public class ProductService {
       if (request.stockQty() != null) {
         product.updateStockQty(request.stockQty());
       }
+      if (hasDetail) {
+        product.changeDetailHtml(request.detailHtml());
+      }
     } catch (IllegalArgumentException ex) {
       throw new ResponseStatusException(HttpStatus.BAD_REQUEST, ex.getMessage());
+    }
+
+    if (hasImages) {
+      List<String> imageUrls = request.imageUrls();
+      List<String> imageKeys = request.imageKeys();
+      if (imageUrls.size() != 5) {
+        throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "image_urls must be length 5");
+      }
+      if (imageKeys != null && imageKeys.size() != 5) {
+        throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "image_keys must be length 5");
+      }
+      if (imageKeys != null && imageUrls.size() != imageKeys.size()) {
+        throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "image_urls and image_keys length mismatch");
+      }
+
+      List<ProductImage> existingImages =
+        productImageRepository.findAllByProductIdAndDeletedAtIsNullOrderBySlotIndexAsc(productId);
+      Map<Integer, ProductImage> existingBySlot = existingImages.stream()
+        .filter(image -> image.getSlotIndex() != null)
+        .collect(Collectors.toMap(ProductImage::getSlotIndex, image -> image, (left, right) -> left));
+
+      LocalDateTime now = LocalDateTime.now();
+      List<ProductImage> toSoftDelete = new ArrayList<>();
+      List<ProductImage> toCreate = new ArrayList<>();
+
+      for (int index = 0; index < 5; index += 1) {
+        String desiredUrl = imageUrls.get(index);
+        if (desiredUrl != null && desiredUrl.isBlank()) {
+          desiredUrl = null;
+        }
+        String desiredKey = null;
+        if (imageKeys != null) {
+          desiredKey = imageKeys.get(index);
+          if (desiredKey != null && desiredKey.isBlank()) {
+            desiredKey = null;
+          }
+        }
+        if (desiredUrl == null && desiredKey != null) {
+          throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "image_key cannot exist without image_url");
+        }
+
+        ProductImage existing = existingBySlot.get(index);
+        if (desiredUrl == null) {
+          if (existing != null) {
+            existing.setDeletedAt(now);
+            toSoftDelete.add(existing);
+            if (existing.getStoredFileName() != null && !existing.getStoredFileName().isBlank()) {
+              try {
+                awsS3Service.deleteFile(sellerId, existing.getStoredFileName());
+              } catch (RuntimeException ex) {
+                log.warn("Failed to delete product image from storage: productId={}, sellerId={}, key={}", productId, sellerId, existing.getStoredFileName(), ex);
+              }
+            }
+          }
+          continue;
+        }
+
+        if (existing != null) {
+          boolean sameUrl = desiredUrl.equals(existing.getProductImageUrl());
+          boolean sameKey = Objects.equals(desiredKey, existing.getStoredFileName());
+          if (sameUrl && sameKey) {
+            continue;
+          }
+          existing.setDeletedAt(now);
+          toSoftDelete.add(existing);
+          if (existing.getStoredFileName() != null && !existing.getStoredFileName().isBlank()) {
+            try {
+              awsS3Service.deleteFile(sellerId, existing.getStoredFileName());
+            } catch (RuntimeException ex) {
+              log.warn("Failed to delete product image from storage: productId={}, sellerId={}, key={}", productId, sellerId, existing.getStoredFileName(), ex);
+            }
+          }
+        }
+
+        ImageType imageType = index == 0 ? ImageType.THUMBNAIL : ImageType.GALLERY;
+        toCreate.add(ProductImage.create(productId, desiredUrl, desiredKey, imageType, index));
+      }
+
+      if (!toSoftDelete.isEmpty()) {
+        productImageRepository.saveAll(toSoftDelete);
+      }
+      if (!toCreate.isEmpty()) {
+        productImageRepository.saveAll(toCreate);
+      }
     }
 
     productRepository.save(product);
@@ -308,7 +461,16 @@ public class ProductService {
       throw new ResponseStatusException(HttpStatus.FORBIDDEN, "forbidden");
     }
 
-    return SellerProductDetailResponse.from(product);
+    List<ProductImage> images = productImageRepository
+      .findAllByProductIdAndDeletedAtIsNullOrderBySlotIndexAsc(productId);
+    List<String> imageUrls = images.stream()
+      .map(ProductImage::getProductImageUrl)
+      .collect(Collectors.toList());
+    List<String> imageKeys = images.stream()
+      .map(ProductImage::getStoredFileName)
+      .collect(Collectors.toList());
+
+    return SellerProductDetailResponse.from(product, imageUrls, imageKeys);
   }
   public void completeProductRegistration(Long sellerId, Long productId) {
     if (sellerId == null) {
@@ -338,6 +500,55 @@ public class ProductService {
     }
 
     productRepository.save(product);
+  }
+
+  public void softDeleteProduct(Long sellerId, Long productId) {
+    if (sellerId == null) {
+      throw new ResponseStatusException(HttpStatus.FORBIDDEN, "seller_id required");
+    }
+    if (productId == null) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "product_id required");
+    }
+
+    Product product = productRepository.findById(productId)
+      .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "product not found"));
+
+    if (!Objects.equals(product.getSellerId(), sellerId)) {
+      throw new ResponseStatusException(HttpStatus.FORBIDDEN, "forbidden");
+    }
+    if (product.getDeletedAt() != null) {
+      return;
+    }
+
+    product.setDeletedAt(LocalDateTime.now());
+    productRepository.save(product);
+  }
+
+  public List<ProductResponse> getProductsByIds(List<Long> ids) {
+    if (ids == null || ids.isEmpty()) {
+      return Collections.emptyList();
+    }
+
+    List<Product> products = productRepository.findAllByIdInAndDeletedAtIsNull(ids);
+    if (products.isEmpty()) {
+      return Collections.emptyList();
+    }
+
+    List<Long> productIds = products.stream()
+            .map(Product::getId)
+            .collect(Collectors.toList());
+
+    List<ProductTagRow> rows = productTagRepository.findActiveTagsByProductIds(productIds);
+    Map<Long, TagsBundle> tagsByProductId = buildTagsByProductId(rows);
+
+    return products.stream()
+            .map(product -> {
+              TagsBundle bundle = tagsByProductId.get(product.getId());
+              ProductTags tags = bundle == null ? ProductTags.empty() : bundle.getTags();
+              List<String> tagsFlat = bundle == null ? Collections.emptyList() : bundle.getTagsFlat();
+              return ProductResponse.from(product, tags, tagsFlat);
+            })
+            .collect(Collectors.toList());
   }
 
   // DB에서 가져온 tag row들을 productId별로 묶어서 tags/tagsFlat을 만든다

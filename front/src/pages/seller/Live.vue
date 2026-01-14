@@ -1,4 +1,4 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch, type ComponentPublicInstance } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import PageHeader from '../../components/PageHeader.vue'
@@ -545,7 +545,7 @@ const connectSse = () => {
   const user = getAuthUser()
   const viewerId = resolveViewerId(user)
   const query = viewerId ? `?viewerId=${encodeURIComponent(viewerId)}` : ''
-  const source = new EventSource(`${apiBase}/api/broadcasts/subscribe/all${query}`)
+  const source = new EventSource(`${apiBase}/broadcasts/subscribe/all${query}`)
   const events = [
     'BROADCAST_READY',
     'BROADCAST_UPDATED',
@@ -697,7 +697,10 @@ const visibleLive = computed(() => activeTab.value === 'all' || activeTab.value 
 const visibleScheduled = computed(() => activeTab.value === 'all' || activeTab.value === 'scheduled')
 const visibleVod = computed(() => activeTab.value === 'all' || activeTab.value === 'vod')
 
-const { sentinelRef: scheduledSentinelRef } = useInfiniteScroll({
+const scheduledSentinelRef = ref<HTMLElement | null>(null)
+const vodSentinelRef = ref<HTMLElement | null>(null)
+
+const { sentinelRef: scheduledObserverRef } = useInfiniteScroll({
   canLoadMore: () => filteredScheduledItems.value.length > visibleScheduledItems.value.length,
   loadMore: () => {
     scheduledPage.value += 1
@@ -705,13 +708,23 @@ const { sentinelRef: scheduledSentinelRef } = useInfiniteScroll({
   enabled: () => activeTab.value === 'scheduled',
 })
 
-const { sentinelRef: vodSentinelRef } = useInfiniteScroll({
+const { sentinelRef: vodObserverRef } = useInfiniteScroll({
   canLoadMore: () => filteredVodItems.value.length > visibleVodItems.value.length,
   loadMore: () => {
     vodPage.value += 1
   },
   enabled: () => activeTab.value === 'vod',
 })
+void scheduledSentinelRef
+void vodSentinelRef
+
+watch(scheduledSentinelRef, (value) => {
+  scheduledObserverRef.value = value
+}, { immediate: true })
+
+watch(vodSentinelRef, (value) => {
+  vodObserverRef.value = value
+}, { immediate: true })
 
 const loopItemsFor = (kind: LoopKind) => (kind === 'scheduled' ? scheduledLoopItems.value : vodLoopItems.value)
 const baseItemsFor = (kind: LoopKind) => (kind === 'scheduled' ? scheduledSummary.value : vodSummary.value)
@@ -2368,3 +2381,4 @@ onBeforeUnmount(() => {
   }
 }
 </style>
+

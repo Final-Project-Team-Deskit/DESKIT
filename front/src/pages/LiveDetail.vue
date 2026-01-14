@@ -1,5 +1,5 @@
 ﻿<script setup lang="ts">
-import { OpenVidu, type Session, type Subscriber } from 'openvidu-browser'
+import { OpenVidu, type Session, type StreamEvent, type Subscriber } from 'openvidu-browser'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Client, type StompSubscription } from '@stomp/stompjs'
@@ -46,6 +46,7 @@ const openviduInstance = ref<OpenVidu | null>(null)
 const openviduSession = ref<Session | null>(null)
 const openviduSubscriber = ref<Subscriber | null>(null)
 const openviduConnected = ref(false)
+const openviduConnectionId = ref<string | null>(null)
 
 const FALLBACK_IMAGE = 'data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs='
 
@@ -80,6 +81,8 @@ const stopConfirmMessage = ref('')
 
 const isChatEnabled = computed(() => lifecycleStatus.value === 'ON_AIR')
 const hasChatPermission = ref(true)
+const viewerSanctionType = ref<'MUTE' | 'OUT' | null>(null)
+const lastSanctionMessage = ref<string | null>(null)
 const isChatAvailable = computed(() => isChatEnabled.value && hasChatPermission.value)
 const isProductEnabled = computed(() => {
   if (lifecycleStatus.value === 'ON_AIR') return true
@@ -422,6 +425,7 @@ const resetOpenViduState = () => {
   openviduSubscriber.value = null
   openviduSession.value = null
   openviduInstance.value = null
+  openviduConnectionId.value = null
   clearViewerContainer()
 }
 
@@ -458,11 +462,18 @@ const connectSubscriber = async (token: string) => {
       applySubscriberVolume()
       void applyVideoQuality(selectedQuality.value)
     })
-    openviduSession.value.on('streamDestroyed', () => {
+    openviduSession.value.on('streamDestroyed', (event: StreamEvent) => {
+      event.preventDefault()
       openviduSubscriber.value = null
       clearViewerContainer()
     })
+    openviduSession.value.on('sessionDisconnected', (event) => {
+      if (event.reason === 'forceDisconnectByServer') {
+        notifyViewerSanction('OUT')
+      }
+    })
     await openviduSession.value.connect(token)
+    openviduConnectionId.value = openviduSession.value.connection?.connectionId ?? null
     openviduConnected.value = true
   } catch {
     disconnectOpenVidu()
@@ -510,6 +521,7 @@ type LiveChatMessageDTO = {
   sender: string
   content: string
   senderRole?: string
+  connectionId?: string
   vodPlayTime: number
   sentAt?: number
 }
@@ -684,9 +696,48 @@ const refreshChatPermission = async () => {
   }
 }
 
-watch(hasChatPermission, (next) => {
+const notifyViewerSanction = (type: 'MUTE' | 'OUT', actorLabel?: string) => {
+  if (viewerSanctionType.value === type) {
+    return
+  }
+  viewerSanctionType.value = type
+  const actorSuffix = actorLabel ? `${actorLabel}에 의해 ` : '관리자/판매자에 의해 '
+  if (type === 'MUTE') {
+    hasChatPermission.value = false
+    input.value = ''
+    const message = `${actorSuffix}채팅이 금지되었습니다.`
+    if (lastSanctionMessage.value !== message) {
+      lastSanctionMessage.value = message
+      alert(message)
+      appendMessage({
+        id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+        user: 'system',
+        text: message,
+        at: new Date(),
+        kind: 'system',
+      })
+    }
+    return
+  }
+  const message = `${actorSuffix}강제 퇴장되었습니다.`
+  if (lastSanctionMessage.value !== message) {
+    lastSanctionMessage.value = message
+    alert(message)
+  }
+  void sendLeaveSignal()
+  disconnectChat()
+  disconnectOpenVidu()
+  sseSource.value?.close()
+  sseSource.value = null
+  router.push({ name: 'live' }).catch(() => {})
+}
+
+watch(hasChatPermission, (next, prev) => {
   if (!next) {
     input.value = ''
+    if (prev && viewerSanctionType.value !== 'MUTE') {
+      notifyViewerSanction('MUTE')
+    }
   }
 })
 
@@ -715,28 +766,12 @@ const handleSseEvent = (event: MessageEvent) => {
         const sanctionType = String((data as { type?: string }).type || '').toUpperCase()
         const actorType = String((data as { actorType?: string }).actorType || '').toUpperCase()
         const actorLabel = actorType === 'ADMIN' ? '관리자' : actorType === 'SELLER' ? '판매자' : ''
-        const actorSuffix = actorLabel ? `${actorLabel}에 의해 ` : ''
         if (sanctionType === 'MUTE') {
-          hasChatPermission.value = false
-          const message = `${actorSuffix}채팅이 금지되었습니다.`
-          alert(message)
-          appendMessage({
-            id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
-            user: 'system',
-            text: message,
-            at: new Date(),
-            kind: 'system',
-          })
+          notifyViewerSanction('MUTE', actorLabel || undefined)
           break
         }
         if (sanctionType === 'OUT') {
-          alert(`${actorSuffix}강제 퇴장되었습니다.`)
-          void sendLeaveSignal()
-          disconnectChat()
-          disconnectOpenVidu()
-          sseSource.value?.close()
-          sseSource.value = null
-          router.push({ name: 'live' }).catch(() => {})
+          notifyViewerSanction('OUT', actorLabel || undefined)
           break
         }
       }
@@ -786,7 +821,7 @@ const connectSse = (id: number) => {
   const user = getAuthUser()
   const currentViewerId = viewerId.value ?? resolveViewerId(user)
   const query = currentViewerId ? `?viewerId=${encodeURIComponent(currentViewerId)}` : ''
-  const source = new EventSource(`${apiBase}/api/broadcasts/${id}/subscribe${query}`)
+  const source = new EventSource(`${apiBase}/broadcasts/${id}/subscribe${query}`)
   const events = [
     'BROADCAST_READY',
     'BROADCAST_UPDATED',
@@ -843,9 +878,11 @@ const requestJoinToken = async () => {
     streamToken.value = await joinBroadcast(broadcastId.value, viewerId.value)
     joinedBroadcastId.value = broadcastId.value
   } catch (error) {
-    const code = (error as { code?: string } | null)?.code
+    const code =
+      (error as { code?: string } | null)?.code ||
+      (error as { response?: { data?: { error?: { code?: string } } } } | null)?.response?.data?.error?.code
     if (code === 'B007') {
-      alert('관리자(판매자)에 의해 퇴장 처리되어 방송에 입장할 수 없습니다.')
+      alert('관리자/판매자에 의해 방송 방 입장이 금지되었습니다.')
       router.push({ name: 'live' }).catch(() => {})
     }
     return
@@ -857,7 +894,7 @@ const requestJoinToken = async () => {
 const sendLeaveSignal = async (useBeacon = false) => {
   if (!joinedBroadcastId.value || !viewerId.value || leaveRequested.value) return
   leaveRequested.value = true
-  const url = `${apiBase}/api/broadcasts/${joinedBroadcastId.value}/leave?viewerId=${encodeURIComponent(viewerId.value)}`
+  const url = `${apiBase}/broadcasts/${joinedBroadcastId.value}/leave?viewerId=${encodeURIComponent(viewerId.value)}`
   if (useBeacon && navigator.sendBeacon) {
     navigator.sendBeacon(url)
     return
@@ -895,6 +932,7 @@ const sendSocketMessage = (type: LiveMessageType, content: string) => {
     type,
     sender: nickname.value,
     content,
+    connectionId: openviduConnectionId.value ?? undefined,
     vodPlayTime: 0,
     sentAt: Date.now(),
   }
@@ -1391,7 +1429,9 @@ onBeforeUnmount(() => {
                 alt="대기 화면"
                 @error="handleImageError"
               />
-              <p v-if="playerMessage" class="player-frame__message">{{ playerMessage }}</p>
+              <p v-if="playerMessage && (!waitingScreenUrl || lifecycleStatus === 'STOPPED')" class="player-frame__message">
+                {{ playerMessage }}
+              </p>
             </div>
             <span v-else-if="!hasSubscriberStream" class="player-frame__label">LIVE 플레이어</span>
             <div v-if="!isStopRestricted" class="player-actions">
@@ -1566,7 +1606,15 @@ onBeforeUnmount(() => {
             <img class="product-card__thumb" :src="product.imageUrl" :alt="product.name" @error="handleImageError" />
             <div class="product-card__info">
               <p class="product-card__name">{{ product.name }}</p>
-              <p class="product-card__price">{{ formatPrice(product.price) }}</p>
+              <p class="product-card__price">
+                <span
+                  v-if="product.originalPrice && product.originalPrice > product.price"
+                  class="product-card__price--original"
+                >
+                  {{ formatPrice(product.originalPrice) }}
+                </span>
+                <span class="product-card__price--sale">{{ formatPrice(product.price) }}</span>
+              </p>
               <span v-if="product.isSoldOut" class="product-card__badge">품절</span>
             </div>
           </button>
@@ -1712,6 +1760,21 @@ onBeforeUnmount(() => {
   margin: 0;
   color: var(--text-muted);
   font-size: 0.95rem;
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+}
+
+.product-card__price--original {
+  color: var(--text-soft);
+  font-weight: 600;
+  text-decoration: line-through;
+  font-size: 0.85rem;
+}
+
+.product-card__price--sale {
+  color: var(--text-strong);
+  font-weight: 700;
 }
 
 .product-card__badge {
@@ -2177,3 +2240,4 @@ onBeforeUnmount(() => {
   }
 }
 </style>
+

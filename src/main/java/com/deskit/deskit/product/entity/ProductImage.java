@@ -35,6 +35,9 @@ public class ProductImage extends BaseEntity {
   @Column(name = "product_image_url", nullable = false, length = 500)
   private String productImageUrl;
 
+  @Column(name = "stored_file_name", length = 500)
+  private String storedFileName;
+
   @Enumerated(EnumType.STRING)
   @Column(name = "image_type", nullable = false)
   private ImageType imageType;
@@ -43,9 +46,14 @@ public class ProductImage extends BaseEntity {
   private Integer slotIndex;
 
   public static ProductImage create(Long productId, String productImageUrl, ImageType imageType, Integer slotIndex) {
+    return create(productId, productImageUrl, null, imageType, slotIndex);
+  }
+
+  public static ProductImage create(Long productId, String productImageUrl, String storedFileName, ImageType imageType, Integer slotIndex) {
     ProductImage image = new ProductImage();
     image.productId = productId;
     image.productImageUrl = productImageUrl;
+    image.storedFileName = storedFileName;
     image.imageType = imageType;
     image.slotIndex = slotIndex;
     return image;
