@@ -17,6 +17,7 @@ import com.openai.models.responses.ResponseOutputItem;
 import com.openai.models.responses.ResponseOutputMessage;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.log4j.Log4j2;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.ai.chat.messages.SystemMessage;
 import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.ai.document.Document;
@@ -37,7 +38,8 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class SellerPlanEvaluationService {
 
-    private static final String MODEL = "gpt-4o-mini";
+    @Value("${spring.ai.openai.chat.options.model}")
+    private String chatModel;
 
     private final RedisVectorStore vectorStore;
     private final OpenAIClient openAIClient;
@@ -157,7 +159,7 @@ public class SellerPlanEvaluationService {
         String answer;
         try {
             ResponseCreateParams params = ResponseCreateParams.builder()
-                    .model(MODEL)
+                    .model(chatModel)
                     .inputOfResponse(buildResponseInput(List.of(systemMessage, userMessage)))
                     .temperature(0.2)
                     .build();

@@ -14,6 +14,7 @@ import com.openai.models.responses.ResponseOutputItem;
 import com.openai.models.responses.ResponseOutputMessage;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.log4j.Log4j2;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.ai.chat.messages.*;
 import org.springframework.ai.chat.memory.ChatMemoryRepository;
 import org.springframework.ai.embedding.Embedding;
@@ -31,6 +32,9 @@ import java.util.List;
 @Log4j2
 @RequiredArgsConstructor
 public class OpenAIService {
+
+    @Value("${spring.ai.openai.chat.options.model}")
+    private String chatModel;
 
     private final OpenAiEmbeddingModel openAiEmbeddingModel;
     private final OpenAIClient openAIClient;
@@ -69,7 +73,7 @@ public class OpenAIService {
         String answer;
         try {
             ResponseCreateParams params = ResponseCreateParams.builder()
-                    .model("gpt-4o-mini")
+                    .model(chatModel)
                     .inputOfResponse(buildResponseInput(messages))
                     .temperature(0.7)
                     .build();
