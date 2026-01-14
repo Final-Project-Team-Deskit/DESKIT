@@ -15,6 +15,7 @@ import com.openai.models.responses.ResponseOutputItem;
 import com.openai.models.responses.ResponseOutputMessage;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.log4j.Log4j2;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.ai.chat.memory.ChatMemoryRepository;
 import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.chat.messages.AssistantMessage;
@@ -35,7 +36,8 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class RagService {
 
-    private static final String MODEL = "gpt-4o-mini";
+    @Value("${spring.ai.openai.chat.options.model}")
+    private String chatModel;
     private static final double TEMPERATURE = 0.7;
     private static final String NO_CONTEXT_MESSAGE =
             "해당 내용은 현재 제공된 정보로는 안내드릴 수 없습니다. \"관리자 연결\"을 입력하시면 관리자에게 문의가 접수됩니다.";
@@ -92,7 +94,7 @@ public class RagService {
         String answer;
         try {
             ResponseCreateParams params = ResponseCreateParams.builder()
-                    .model(MODEL)
+                    .model(chatModel)
                     .inputOfResponse(buildResponseInput(messages))
                     .temperature(TEMPERATURE)
                     .build();
@@ -144,7 +146,7 @@ public class RagService {
 
                         문맥에 근거하지 않은 사실을 만들어내지 마세요.
                         응답은 간결하고 도움이 되도록 작성하세요.
-                        Respond in Markdown format. Use headings, lists, and code fences when helpful.
+                        마크다운 형식으로 답변해 주세요. 필요에 따라 제목, 목록, 코드 구분 기호를 사용하세요.
                         """
         ));
         messages.add(new UserMessage("""
