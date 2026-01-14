@@ -53,6 +53,7 @@ jobs:
           proxy_password: ${{ secrets.BASTION_SSH_KEY }}
           source: "front/dist/*"
           target: ${{ secrets.WEB_DEPLOY_PATH }}
+          strip_components: 2
           rm: true
 
       - name: Upload backend jar to app server
