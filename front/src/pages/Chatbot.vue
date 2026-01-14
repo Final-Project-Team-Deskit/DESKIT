@@ -93,7 +93,8 @@ const scrollToBottom = async () => {
 
 const renderMarkdown = (content: string) => {
   if (!content) return ''
-  return DOMPurify.sanitize(marked.parse(content, { breaks: true }))
+  const parsed = marked.parse(content, { breaks: true, async: false }) as string
+  return DOMPurify.sanitize(parsed)
 }
 
 const appendMessage = (role: ChatRole, content: string, sources?: string[]) => {
