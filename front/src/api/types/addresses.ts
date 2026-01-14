@@ -1,4 +1,4 @@
-export type AddressResponse = {
+export interface AddressResponse {
   address_id: number
   receiver: string
   postcode: string
@@ -6,9 +6,16 @@ export type AddressResponse = {
   is_default: boolean
 }
 
-export type AddressRequest = {
+export interface AddressCreateRequest {
   receiver: string
   postcode: string
   addr_detail: string
-  is_default: boolean
+  is_default?: boolean
+}
+
+export interface AddressUpdateRequest {
+  receiver: string
+  postcode: string
+  addr_detail: string
+  is_default?: boolean
 }

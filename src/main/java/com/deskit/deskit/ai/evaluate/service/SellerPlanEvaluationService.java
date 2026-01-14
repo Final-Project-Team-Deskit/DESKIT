@@ -16,6 +16,7 @@ import com.openai.models.responses.ResponseInputItem;
 import com.openai.models.responses.ResponseOutputItem;
 import com.openai.models.responses.ResponseOutputMessage;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.log4j.Log4j2;
 import org.springframework.ai.chat.messages.SystemMessage;
 import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.ai.document.Document;
@@ -31,25 +32,20 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
 
+@Log4j2
 @Service
 @RequiredArgsConstructor
 public class SellerPlanEvaluationService {
 
     private static final String MODEL = "gpt-4o-mini";
 
-    // Vector store for policy RAG context lookup.
     private final RedisVectorStore vectorStore;
-    // OpenAI client used to generate the evaluation.
     private final OpenAIClient openAIClient;
-    // RAG configuration for retrieval size.
     private final RagVectorProperties ragVectorProperties;
-    // Tool collection for structured evaluation output.
     private final AiTools chatTools;
-    // Repository used to persist AI evaluation results.
     private final AiEvalRepository aiEvalRepository;
     private final ObjectMapper objectMapper;
 
-    // Evaluate a seller business plan and persist the AI result.
     public AiEvaluation evaluateAndSave(SellerRegister registerEntity) {
         if (registerEntity == null) {
             throw new IllegalArgumentException("seller register is required");
@@ -58,12 +54,9 @@ public class SellerPlanEvaluationService {
             throw new IllegalArgumentException("business plan file is required");
         }
 
-        // Extract plan text for evaluation context.
         String planText = extractPlanText(registerEntity.getPlanFile());
-        // Retrieve policy context using RAG similarity search.
         String policyContext = buildPolicyContext(planText);
 
-        // System prompt guides AI to use policy context and tool output.
         SystemMessage systemMessage = new SystemMessage("""
                 당신은 DESKIT 플랫폼 판매자 회원가입 심사를 담당하는 AI입니다.
                 제공된 사업계획서와 정책 문서(Context)를 바탕으로만 평가하세요.
@@ -71,6 +64,8 @@ public class SellerPlanEvaluationService {
 
                 점수는 0~20 범위로 작성하고, total_score는 항목 합계로 작성하세요.
                 gradeRecommended는 SellerGrade 열거형 값 중 하나로 지정하세요.
+                
+                요약에는 단순히 결과를 요약만 하지 말고, 판매자에게 해당 점수를 부여한 이유를 알려주세요.
 
                 반드시 getEvaluateResultTool 함수를 호출해서 결과를 반환하세요.
                 응답은 아래 JSON 형식으로만 출력하세요.
@@ -86,7 +81,6 @@ public class SellerPlanEvaluationService {
                 }
                 """);
 
-        // User prompt contains seller data, plan text, and policy context.
         UserMessage userMessage = new UserMessage("""
                 [판매자 정보]
                 회사명: %s
@@ -103,16 +97,15 @@ public class SellerPlanEvaluationService {
                 planText,
                 policyContext
         ));
-
-        // Execute evaluation with tool support for structured output.
+        log.info(userMessage);
         EvaluateDTO evaluateDTO = requestEvaluation(systemMessage, userMessage);
+        log.info(evaluateDTO);
 
-        // Map DTO to entity for persistence.
         AiEvaluation evaluation = toEntity(evaluateDTO, registerEntity);
+
         return aiEvalRepository.save(evaluation);
     }
 
-    // Convert evaluation DTO to persisted entity.
     private AiEvaluation toEntity(EvaluateDTO evaluateDTO, SellerRegister registerEntity) {
         AiEvaluation evaluation = new AiEvaluation();
         evaluation.setBusinessStability(evaluateDTO.businessStability());
@@ -128,9 +121,7 @@ public class SellerPlanEvaluationService {
         return evaluation;
     }
 
-    // Extract plain text from the uploaded business plan.
     private String extractPlanText(byte[] planFile) {
-        // Convert byte array into a readable resource for Tika.
         InputStreamResource resource = new InputStreamResource(new ByteArrayInputStream(planFile));
         TikaDocumentReader reader = new TikaDocumentReader(resource);
         List<Document> documents = reader.get();
@@ -139,7 +130,6 @@ public class SellerPlanEvaluationService {
                 .collect(Collectors.joining("\n\n"));
     }
 
-    // Build a policy context string using similarity search.
     private String buildPolicyContext(String planText) {
         int topK = ragVectorProperties.getTopK() > 0 ? ragVectorProperties.getTopK() : 4;
         String query = planText.isBlank() ? "판매자 사업계획서 심사 기준" : trimQuery(planText);
@@ -148,18 +138,17 @@ public class SellerPlanEvaluationService {
                 .topK(topK)
                 .build();
         List<Document> documents = vectorStore.similaritySearch(searchRequest);
+        log.info("Document size: {}", documents.size());
         return documents.stream()
                 .map(Document::getText)
                 .collect(Collectors.joining("\n\n"));
     }
 
-    // Trim long text to a reasonable query size for retrieval.
     private String trimQuery(String planText) {
         int limit = 2000;
         return planText.length() > limit ? planText.substring(0, limit) : planText;
     }
 
-    // Normalize null strings for prompt formatting.
     private String nullSafe(String value) {
         return value == null ? "" : value;
     }

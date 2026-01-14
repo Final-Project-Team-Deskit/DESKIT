@@ -1,31 +1,33 @@
 import { http } from './http'
-import type { AddressRequest, AddressResponse } from './types/addresses'
+import { endpoints } from './endpoints'
+import type { AddressCreateRequest, AddressResponse, AddressUpdateRequest } from './types/addresses'
 
-const ADDRESSES_PATH = '/api/addresses'
 const withCredentials = { withCredentials: true }
 
 export const getMyAddresses = async (): Promise<AddressResponse[]> => {
-  const response = await http.get<AddressResponse[]>(ADDRESSES_PATH, withCredentials)
+  const response = await http.get<AddressResponse[]>(endpoints.addresses, withCredentials)
   return response.data
 }
 
-export const createAddress = async (payload: AddressRequest): Promise<AddressResponse> => {
-  const response = await http.post<AddressResponse>(ADDRESSES_PATH, payload, withCredentials)
+export const createAddress = async (
+  request: AddressCreateRequest,
+): Promise<AddressResponse> => {
+  const response = await http.post<AddressResponse>(endpoints.addresses, request, withCredentials)
   return response.data
 }
 
 export const updateAddress = async (
   addressId: number,
-  payload: AddressRequest,
+  request: AddressUpdateRequest,
 ): Promise<AddressResponse> => {
-  const response = await http.put<AddressResponse>(
-    `${ADDRESSES_PATH}/${addressId}`,
-    payload,
+  const response = await http.patch<AddressResponse>(
+    endpoints.addressDetail(addressId),
+    request,
     withCredentials,
   )
   return response.data
 }
 
 export const deleteAddress = async (addressId: number): Promise<void> => {
-  await http.delete(`${ADDRESSES_PATH}/${addressId}`, withCredentials)
+  await http.delete(endpoints.addressDetail(addressId), withCredentials)
 }

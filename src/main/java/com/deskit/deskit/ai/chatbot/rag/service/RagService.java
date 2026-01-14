@@ -144,6 +144,7 @@ public class RagService {
 
                         문맥에 근거하지 않은 사실을 만들어내지 마세요.
                         응답은 간결하고 도움이 되도록 작성하세요.
+                        Respond in Markdown format. Use headings, lists, and code fences when helpful.
                         """
         ));
         messages.add(new UserMessage("""

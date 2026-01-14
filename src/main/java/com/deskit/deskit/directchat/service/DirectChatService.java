@@ -53,10 +53,15 @@ public class DirectChatService {
                 .toList();
     }
 
-    @Transactional(readOnly = true)
+    @Transactional
     public DirectChatLatestResponse getLatestConversation(Long memberId) {
         ChatInfo chatInfo = conversationRepository.findTopByMemberIdOrderByCreatedAtDesc(memberId)
-                .orElseThrow(() -> new IllegalArgumentException("Conversation not found. memberId=" + memberId));
+                .orElseGet(() -> {
+                    ChatInfo created = new ChatInfo();
+                    created.setMemberId(memberId);
+                    created.setStatus(ConversationStatus.BOT_ACTIVE);
+                    return conversationRepository.save(created);
+                });
         return DirectChatLatestResponse.builder()
                 .chatId(chatInfo.getChatId())
                 .status(chatInfo.getStatus().name())
