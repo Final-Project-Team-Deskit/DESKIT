@@ -2,7 +2,6 @@ import { http } from './http'
 import { endpoints } from './endpoints'
 import { USE_MOCK_API } from './config'
 import { type DbProduct } from '../lib/products-data'
-import { deleteMockProduct, getAllMockProducts } from '../lib/mocks/sellerProducts'
 import { normalizeProduct, normalizeProducts } from './products-normalizer'
 import {
   fetchDetailTextJson,
@@ -13,7 +12,8 @@ import {
 } from './api-text-json'
 
 export const listProducts = async (): Promise<DbProduct[]> => {
-  if (USE_MOCK_API) {
+  if (import.meta.env.DEV && USE_MOCK_API) {
+    const { getAllMockProducts } = await import('../lib/mocks/sellerProducts')
     return getAllMockProducts()
   }
 
@@ -34,7 +34,8 @@ export const listProductsWithAuthGuard = async (): Promise<{
   products: DbProduct[]
   authRequired: boolean
 }> => {
-  if (USE_MOCK_API) {
+  if (import.meta.env.DEV && USE_MOCK_API) {
+    const { getAllMockProducts } = await import('../lib/mocks/sellerProducts')
     return { products: getAllMockProducts(), authRequired: false }
   }
 
@@ -60,7 +61,8 @@ export const listProductsWithAuthGuard = async (): Promise<{
 export const getProductDetail = async (
   id: string | number
 ): Promise<DbProduct | null> => {
-  if (USE_MOCK_API) {
+  if (import.meta.env.DEV && USE_MOCK_API) {
+    const { getAllMockProducts } = await import('../lib/mocks/sellerProducts')
     const products = getAllMockProducts()
     const found = products.find(
       (product) => String(product.product_id ?? product.id) === String(id)
@@ -77,7 +79,8 @@ export const getProductDetail = async (
 }
 
 export const deleteProduct = async (id: string | number): Promise<void> => {
-  if (USE_MOCK_API) {
+  if (import.meta.env.DEV && USE_MOCK_API) {
+    const { deleteMockProduct } = await import('../lib/mocks/sellerProducts')
     deleteMockProduct(String(id))
     return
   }

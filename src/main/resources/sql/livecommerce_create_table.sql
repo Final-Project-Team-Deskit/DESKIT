@@ -216,6 +216,7 @@ CREATE TABLE product_image
     product_image_id  BIGINT UNSIGNED              NOT NULL AUTO_INCREMENT COMMENT '상품 이미지 ID',
     product_id        BIGINT UNSIGNED              NOT NULL COMMENT '상품 ID(논리 FK: product.product_id)',
     product_image_url VARCHAR(500)                 NOT NULL COMMENT '이미지 URL(NCP Object Storage 등)',
+    stored_file_name  VARCHAR(500)                 NULL COMMENT 'NCP Object Storage 키',
     image_type        ENUM ('THUMBNAIL','GALLERY') NOT NULL COMMENT '이미지 타입(THUMBNAIL=대표 1칸, GALLERY=갤러리)',
     slot_index        TINYINT UNSIGNED             NOT NULL DEFAULT 0 COMMENT '슬롯 인덱스(정렬/고정용: THUMBNAIL=0, GALLERY=1~4 권장)',
     created_at        DATETIME                     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '등록 시각',

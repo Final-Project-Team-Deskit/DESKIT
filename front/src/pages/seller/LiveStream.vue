@@ -358,7 +358,7 @@ const connectChat = () => {
         withCredentials: true,
       }),
     reconnectDelay: 5000,
-    debug: (str) => console.log('[STOMP]', str),
+    debug: () => {},
   })
   const access = getAccessToken()
   if (access) {
