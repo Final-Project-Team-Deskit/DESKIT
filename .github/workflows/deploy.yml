@@ -66,6 +66,7 @@ jobs:
           proxy_password: ${{ secrets.BASTION_SSH_KEY }}
           source: "build/libs/deskit.jar"
           target: ${{ secrets.APP_DEPLOY_PATH }}
+          strip_components: 2
 
       - name: Restart backend service (app server)
         uses: appleboy/ssh-action@v1.0.3
