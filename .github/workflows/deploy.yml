@@ -78,6 +78,7 @@ jobs:
           proxy_password: ${{ secrets.BASTION_SSH_KEY }}
           script: |
             set -euo pipefail
+            cd /srv/livecommerce
             docker compose down
             docker build --no-cache -t deskit:latest .
             docker compose up -d
