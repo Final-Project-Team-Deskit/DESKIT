@@ -79,7 +79,6 @@ jobs:
           proxy_password: ${{ secrets.BASTION_SSH_KEY }}
           script: |
             set -euo pipefail
-            cp "${{ secrets.APP_DEPLOY_PATH }}/deskit.jar" /srv/livecommerce/deskit.jar
             cd /srv/livecommerce
             docker compose down
             docker build --no-cache -t deskit:latest .
