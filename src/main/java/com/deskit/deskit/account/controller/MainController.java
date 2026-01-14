@@ -9,8 +9,8 @@ public class MainController {
 
     @GetMapping(value = {
             "/",
-            "/{path:^(?!api$).*$}",
-            "/{path:^(?!api$).*$}/**"
+            "/{path:^(?!api$)(?!.*\\..*$).*$}",
+            "/{path:^(?!api$)(?!.*\\..*$).*$}/**"
     })
     public String mainAPI() {
         return "forward:/index.html";

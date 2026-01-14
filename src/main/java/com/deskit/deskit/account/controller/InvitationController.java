@@ -121,7 +121,7 @@ public class InvitationController {
         invitationRepository.save(invitation);
 
         // Build invite URL for the signup page.
-        String inviteUrl = "http://ssg.deskit.o-r.kr/signup?invite=" +
+        String inviteUrl = "https://ssg.deskit.o-r.kr/signup?invite=" +
                 URLEncoder.encode(token, StandardCharsets.UTF_8);
 
         try {

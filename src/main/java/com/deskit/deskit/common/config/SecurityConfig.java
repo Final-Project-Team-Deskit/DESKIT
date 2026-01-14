@@ -59,7 +59,7 @@ public class SecurityConfig {
 
                         CorsConfiguration configuration = new CorsConfiguration();
 
-                        configuration.setAllowedOrigins(Collections.singletonList("http://ssg.deskit.o-r.kr"));
+                        configuration.setAllowedOrigins(Collections.singletonList("https://ssg.deskit.o-r.kr"));
                         configuration.setAllowedMethods(Collections.singletonList("*"));
                         configuration.setAllowCredentials(true);
                         configuration.setAllowedHeaders(Collections.singletonList("*"));
@@ -149,7 +149,8 @@ public class SecurityConfig {
                                 "/login",
                                 "/login/**",
                                 "/login/oauth2/**",
-                                "/ws/**"
+                                "/ws/**",
+                                "/api/signup/**"
                         ).permitAll()
                         .requestMatchers("/api/admin/**").hasAuthority("ROLE_ADMIN")
                         .requestMatchers("/api/quit").hasAnyAuthority(
