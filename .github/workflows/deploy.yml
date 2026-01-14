@@ -64,7 +64,7 @@ jobs:
           proxy_host: ${{ secrets.BASTION_HOST }}
           proxy_username: ${{ secrets.BASTION_USER }}
           proxy_key: ${{ secrets.BASTION_SSH_KEY }}
-          source: "build/libs/deskit-0.0.1-SNAPSHOT.jar"
+          source: "build/libs/deskit.jar"
           target: ${{ secrets.APP_DEPLOY_PATH }}
 
       - name: Restart backend service (app server)
