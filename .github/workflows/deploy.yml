@@ -47,10 +47,10 @@ jobs:
         with:
           host: ${{ secrets.WEB_HOST }}
           username: ${{ secrets.WEB_USER }}
-          key: ${{ secrets.WEB_SSH_KEY }}
+          password: ${{ secrets.WEB_SSH_KEY }}
           proxy_host: ${{ secrets.BASTION_HOST }}
           proxy_username: ${{ secrets.BASTION_USER }}
-          proxy_key: ${{ secrets.BASTION_SSH_KEY }}
+          proxy_password: ${{ secrets.BASTION_SSH_KEY }}
           source: "front/dist/*"
           target: ${{ secrets.WEB_DEPLOY_PATH }}
           rm: true
@@ -60,10 +60,10 @@ jobs:
         with:
           host: ${{ secrets.APP_HOST }}
           username: ${{ secrets.APP_USER }}
-          key: ${{ secrets.APP_SSH_KEY }}
+          password: ${{ secrets.APP_SSH_KEY }}
           proxy_host: ${{ secrets.BASTION_HOST }}
           proxy_username: ${{ secrets.BASTION_USER }}
-          proxy_key: ${{ secrets.BASTION_SSH_KEY }}
+          proxy_password: ${{ secrets.BASTION_SSH_KEY }}
           source: "build/libs/deskit.jar"
           target: ${{ secrets.APP_DEPLOY_PATH }}
 
@@ -72,10 +72,10 @@ jobs:
         with:
           host: ${{ secrets.APP_HOST }}
           username: ${{ secrets.APP_USER }}
-          key: ${{ secrets.APP_SSH_KEY }}
+          password: ${{ secrets.APP_SSH_KEY }}
           proxy_host: ${{ secrets.BASTION_HOST }}
           proxy_username: ${{ secrets.BASTION_USER }}
-          proxy_key: ${{ secrets.BASTION_SSH_KEY }}
+          proxy_password: ${{ secrets.BASTION_SSH_KEY }}
           script: |
             set -euo pipefail
             docker compose down
@@ -87,10 +87,10 @@ jobs:
         with:
           host: ${{ secrets.WEB_HOST }}
           username: ${{ secrets.WEB_USER }}
-          key: ${{ secrets.WEB_SSH_KEY }}
+          password: ${{ secrets.WEB_SSH_KEY }}
           proxy_host: ${{ secrets.BASTION_HOST }}
           proxy_username: ${{ secrets.BASTION_USER }}
-          proxy_key: ${{ secrets.BASTION_SSH_KEY }}
+          proxy_password: ${{ secrets.BASTION_SSH_KEY }}
           script: |
             set -euo pipefail
             sudo nginx -t
