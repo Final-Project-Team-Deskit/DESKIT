@@ -1,4 +1,4 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watchEffect } from 'vue'
 import { useRouter } from 'vue-router'
 import ConfirmModal from '../components/ConfirmModal.vue'
@@ -443,7 +443,7 @@ const connectSse = () => {
   const user = getAuthUser()
   const viewerId = resolveViewerId(user)
   const query = viewerId ? `?viewerId=${encodeURIComponent(viewerId)}` : ''
-  const source = new EventSource(`${apiBase}/api/broadcasts/subscribe/all${query}`)
+  const source = new EventSource(`${apiBase}/broadcasts/subscribe/all${query}`)
   const events = [
     'BROADCAST_READY',
     'BROADCAST_UPDATED',
@@ -986,3 +986,4 @@ onMounted(() => {
   }
 }
 </style>
+

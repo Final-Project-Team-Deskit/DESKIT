@@ -79,7 +79,7 @@ const fetchTags = async () => {
   loadError.value = ''
   isLoading.value = true
   try {
-    const response = await fetch(`${apiBase}/api/seller/tags`, {
+    const response = await fetch(`${apiBase}/seller/tags`, {
       method: 'GET',
       headers: {
         ...buildAuthHeaders(),

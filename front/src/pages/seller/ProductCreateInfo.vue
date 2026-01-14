@@ -117,7 +117,7 @@ const uploadImageFile = async (index: number, file: File) => {
   try {
     const formData = new FormData()
     formData.append('file', file)
-    const response = await fetch(`${apiBase}/api/seller/products/images/upload`, {
+    const response = await fetch(`${apiBase}/seller/products/images/upload`, {
       method: 'POST',
       headers: {
         ...buildAuthHeaders(),
@@ -212,7 +212,7 @@ const goNext = async () => {
   }
   isSaving.value = true
   try {
-    const response = await fetch(`${apiBase}/api/seller/products`, {
+    const response = await fetch(`${apiBase}/seller/products`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -244,7 +244,7 @@ const goNext = async () => {
     const imageUrls = images.value
       .map((slot) => slot.preview)
       .filter((url): url is string => Boolean(url))
-    const imageResponse = await fetch(`${apiBase}/api/seller/products/${payload.product_id}`, {
+    const imageResponse = await fetch(`${apiBase}/seller/products/${payload.product_id}`, {
       method: 'PUT',
       headers: {
         'Content-Type': 'application/json',

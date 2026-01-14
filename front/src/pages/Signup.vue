@@ -317,7 +317,7 @@ const loadPending = async () => {
     return
   }
 
-  const response = await fetch(`${apiBase}/api/signup/social/pending`, {
+  const response = await fetch(`${apiBase}/signup/social/pending`, {
     headers: { Authorization: `Bearer ${signupToken.value}` },
     credentials: 'include',
   })
@@ -336,7 +336,7 @@ const sendCode = async () => {
     return
   }
 
-  const response = await fetch(`${apiBase}/api/signup/social/phone/send`, {
+  const response = await fetch(`${apiBase}/signup/social/phone/send`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -361,7 +361,7 @@ const verifyCode = async () => {
     return
   }
 
-  const response = await fetch(`${apiBase}/api/signup/social/phone/verify`, {
+  const response = await fetch(`${apiBase}/signup/social/phone/verify`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -395,7 +395,7 @@ const submitSignup = async () => {
     return
   }
 
-  const response = await fetch(`${apiBase}/api/signup/social/complete`, {
+  const response = await fetch(`${apiBase}/signup/social/complete`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -498,7 +498,7 @@ const validateInviteToken = async () => {
   }
 
   const response = await fetch(
-    `${apiBase}/api/invitations/validate?token=${encodeURIComponent(inviteToken.value)}`,
+    `${apiBase}/invitations/validate?token=${encodeURIComponent(inviteToken.value)}`,
     { credentials: 'include' },
   )
 
