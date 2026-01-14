@@ -26,16 +26,25 @@ public class MyPageService {
 		String loginId = safe(user.getUsername());
 		String name = safe(user.getName());
 		String email = safe(user.getEmail());
-		String profileUrl = safe(user.getProfileUrl());
 		String mbti = "";
 		String job = "";
+
+		Member member = null;
+		if ("ROLE_MEMBER".equals(normalizedRole) && !loginId.isBlank()) {
+			member = memberRepository.findByLoginId(loginId);
+			if (member != null) {
+				mbti = resolveMbti(member.getMbti());
+				job = resolveJobCategory(member.getJobCategory());
+			}
+		}
+		String profileUrl = safe(user.getProfileUrl());
 
 		if (email.isEmpty() && !loginId.isEmpty()) {
 			email = loginId;
 		}
 
 		if (name.isEmpty() && !loginId.isEmpty()) {
-			name = resolveName(normalizedRole, loginId);
+			name = member == null ? resolveName(normalizedRole, loginId) : safe(member.getName());
 		}
 
 		if (profileUrl.isEmpty() && !loginId.isEmpty()) {
@@ -132,6 +141,27 @@ public class MyPageService {
 		return switch (role) {
 			case "ROLE_SELLER_OWNER" -> "대표자";
 			case "ROLE_SELLER_MANAGER" -> "매니저";
+			default -> "";
+		};
+	}
+
+	private String resolveMbti(com.deskit.deskit.account.enums.MBTI mbti) {
+		if (mbti == null || mbti == com.deskit.deskit.account.enums.MBTI.NONE) {
+			return "";
+		}
+		return mbti.name();
+	}
+
+	private String resolveJobCategory(com.deskit.deskit.account.enums.JobCategory jobCategory) {
+		if (jobCategory == null || jobCategory == com.deskit.deskit.account.enums.JobCategory.NONE) {
+			return "";
+		}
+		return switch (jobCategory) {
+			case CREATIVE_TYPE -> "크리에이티브";
+			case FLEXIBLE_TYPE -> "프리랜서/유연근무";
+			case EDU_RES_TYPE -> "교육/연구";
+			case MED_PRO_TYPE -> "의료/전문직";
+			case ADMIN_PLAN_TYPE -> "기획/관리";
 			default -> "";
 		};
 	}
