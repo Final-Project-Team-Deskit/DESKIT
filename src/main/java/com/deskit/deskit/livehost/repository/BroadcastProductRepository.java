@@ -8,6 +8,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.time.LocalDateTime;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -48,4 +49,42 @@ public interface BroadcastProductRepository extends JpaRepository<BroadcastProdu
             "WHERE bp.broadcast.broadcastId IN :broadcastIds " +
             "ORDER BY bp.broadcast.broadcastId ASC, bp.displayOrder ASC")
     List<BroadcastProduct> findAllWithProductByBroadcastIdIn(@Param("broadcastIds") List<Long> broadcastIds);
+
+    @Query("""
+            SELECT bp.product.id AS productId, bp.bpPrice AS bpPrice
+            FROM BroadcastProduct bp
+            JOIN bp.broadcast b
+            WHERE b.status = 'ON_AIR'
+              AND bp.status <> 'DELETED'
+              AND bp.bpPrice IS NOT NULL
+              AND bp.product.id IN :productIds
+            """)
+    List<LivePriceRow> findLiveBpPrices(@Param("productIds") Collection<Long> productIds);
+
+    @Query("""
+            SELECT bp.bpPrice
+            FROM BroadcastProduct bp
+            JOIN bp.broadcast b
+            WHERE b.status = 'ON_AIR'
+              AND bp.status <> 'DELETED'
+              AND bp.bpPrice IS NOT NULL
+              AND bp.product.id = :productId
+            """)
+    List<Integer> findLiveBpPriceByProductId(@Param("productId") Long productId);
+
+    @Query("""
+            SELECT b.broadcastId
+            FROM BroadcastProduct bp
+            JOIN bp.broadcast b
+            WHERE b.status = 'ON_AIR'
+              AND bp.status <> 'DELETED'
+              AND bp.product.id = :productId
+            """)
+    List<Long> findOnAirBroadcastIdsByProductId(@Param("productId") Long productId);
+
+    interface LivePriceRow {
+        Long getProductId();
+
+        Integer getBpPrice();
+    }
 }

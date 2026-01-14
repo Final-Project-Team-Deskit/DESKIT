@@ -100,15 +100,14 @@ export class SimpleStompClient {
       const headers: StompHeaders = {}
       for (; index < lines.length; index += 1) {
         const line = lines[index]
-        if (line === undefined) break
+        if (line === undefined) continue
         if (line === '') {
           index += 1
           break
         }
         const [key, ...rest] = line.split(':')
-        if (key) {
-          headers[key] = rest.join(':')
-        }
+        if (!key) continue
+        headers[key] = rest.join(':')
       }
       const body = lines.slice(index).join('\n')
 

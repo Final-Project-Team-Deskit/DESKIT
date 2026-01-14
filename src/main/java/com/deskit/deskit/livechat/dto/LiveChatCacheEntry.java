@@ -18,6 +18,7 @@ public class LiveChatCacheEntry {
     private String sender;
     private String content;
     private String senderRole;
+    private String connectionId;
     private int vodPlayTime;
     private Long sentAt;
 }

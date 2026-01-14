@@ -3,6 +3,7 @@ import { onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import PageContainer from '../../components/PageContainer.vue'
 import PageHeader from '../../components/PageHeader.vue'
+import ProductTagInput from '../../components/seller/ProductTagInput.vue'
 import {
   clearProductDraft,
   loadProductDraft,
@@ -19,9 +20,11 @@ const detailHtml = ref('')
 const error = ref('')
 const success = ref('')
 const draft = ref<SellerProductDraft | null>(null)
+const tags = ref<string[]>([])
+const tagMap = ref<Map<string, number> | null>(null)
 
 const buildAuthHeaders = (): Record<string, string> => {
-  const access = localStorage.getItem('access') || sessionStorage.getItem('access')
+  const access = localStorage.getItem('access_token') || sessionStorage.getItem('access_token')
   if (!access) return {}
   return { Authorization: `Bearer ${access}` }
 }
@@ -53,6 +56,7 @@ const saveDraftOnly = () => {
   saveProductDraft({
     ...draft.value,
     detailHtml: detailHtml.value,
+    tags: tags.value,
   })
 }
 
@@ -73,19 +77,21 @@ const handleInput = () => {
   saveDraftOnly()
 }
 
+const handleTagsUpdate = (next: string[]) => {
+  tags.value = next
+  saveDraftOnly()
+}
+
 // Draft-only helpers: stored previews are data URLs, so we rebuild files on submit.
 const parseDataUrl = (dataUrl: string) => {
   const match = /^data:([^;]+);base64,(.+)$/.exec(dataUrl)
   if (!match) return null
-  const mime = match[1]
-  const data = match[2]
-  if (!mime || !data) return null
-  return { mime, data }
+  return { mime: match[1], data: match[2] }
 }
 
 const dataUrlToFile = (dataUrl: string, fileName: string) => {
   const parsed = parseDataUrl(dataUrl)
-  if (!parsed) return null
+  if (!parsed || typeof parsed.data !== 'string') return null
   const binary = atob(parsed.data)
   const bytes = new Uint8Array(binary.length)
   for (let i = 0; i < binary.length; i += 1) {
@@ -144,6 +150,8 @@ const goBack = () => {
   router.push('/seller/products/create').catch(() => {})
 }
 
+const normalizeTag = (value: string) => value.trim()
+
 const handleSubmit = async () => {
   error.value = ''
   success.value = ''
@@ -184,7 +192,48 @@ const handleSubmit = async () => {
   syncFromEditor()
 
   try {
-    const detailResponse = await fetch(`${apiBase}/seller/products/${productId}/detail`, {
+    const normalizedTags = tags.value
+      .map((tag) => normalizeTag(tag))
+      .filter((tag) => tag.length > 0)
+    const uniqueTags = Array.from(new Set(normalizedTags))
+
+    if (!tagMap.value || tagMap.value.size === 0) {
+      const tagResponse = await fetch(`${apiBase}/api/seller/tags`, {
+        method: 'GET',
+        headers: {
+          ...authHeaders,
+        },
+        credentials: 'include',
+      })
+      if (!tagResponse.ok) {
+        throw new Error('tag list failed')
+      }
+      const tagData = await tagResponse.json()
+      const map = new Map<string, number>()
+      if (Array.isArray(tagData)) {
+        tagData.forEach((raw) => {
+          if (!raw || typeof raw !== 'object') return
+          const record = raw as Record<string, unknown>
+          const tagId = typeof record.tag_id === 'number' ? record.tag_id : null
+          const tagName = typeof record.tag_name === 'string' ? record.tag_name : null
+          if (tagId == null || tagName == null) return
+          map.set(normalizeTag(tagName), tagId)
+        })
+      }
+      tagMap.value = map
+    }
+
+    const unknownTags = uniqueTags.filter((tag) => !tagMap.value?.has(tag))
+    if (unknownTags.length > 0) {
+      error.value = `등록되지 않은 태그입니다: ${unknownTags.join(', ')}`
+      return
+    }
+
+    const tagIds = uniqueTags
+      .map((tag) => tagMap.value?.get(tag))
+      .filter((tagId): tagId is number => typeof tagId === 'number')
+
+    const detailResponse = await fetch(`${apiBase}/api/seller/products/${productId}/detail`, {
       method: 'PATCH',
       headers: {
         'Content-Type': 'application/json',
@@ -199,6 +248,19 @@ const handleSubmit = async () => {
 
     await uploadProductImages(productId, Array.isArray(draft.value.images) ? draft.value.images : [])
 
+    const tagUpdateResponse = await fetch(`${apiBase}/seller/products/${productId}/tags`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        ...authHeaders,
+      },
+      credentials: 'include',
+      body: JSON.stringify({ tag_ids: tagIds }),
+    })
+    if (!tagUpdateResponse.ok) {
+      throw new Error('tag update failed')
+    }
+
     const completeResponse = await fetch(`${apiBase}/seller/products/${productId}/complete`, {
       method: 'PATCH',
       headers: {
@@ -210,7 +272,7 @@ const handleSubmit = async () => {
       throw new Error('complete failed')
     }
   } catch {
-    // Image upload failure does not rollback product creation by design (no rollback yet).
+    // Image upload failure does not rolback product creation by design (no rollback yet).
     error.value = '상품 등록에 실패했습니다.'
     return
   }
@@ -246,6 +308,7 @@ onMounted(() => {
   }
   draft.value = loaded
   detailHtml.value = loaded.detailHtml || ''
+  tags.value = Array.isArray(loaded.tags) ? loaded.tags : []
 
   // contenteditable 초기 값 주입
   window.setTimeout(() => {
@@ -301,6 +364,8 @@ onMounted(() => {
 
       <p v-if="error" class="error">{{ error }}</p>
       <p v-else-if="success" class="hint">{{ success }}</p>
+
+      <ProductTagInput :tags="tags" @update:tags="handleTagsUpdate" />
 
       <div class="actions">
         <button type="button" class="btn" @click="goBack">이전</button>
@@ -397,4 +462,3 @@ onMounted(() => {
   border-color: transparent;
 }
 </style>
-

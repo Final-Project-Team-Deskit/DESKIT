@@ -133,21 +133,6 @@ const resolveSellerId = (product: any) => {
   return null
 }
 
-const getProductImage = (product: DbProduct) => {
-  const typed = product as DbProduct & { imageUrl?: string; images?: string[] }
-  return typed.imageUrl || typed.images?.[0] || ''
-}
-
-const getProductDescription = (product: DbProduct) => {
-  const typed = product as DbProduct & { shortDesc?: string }
-  return product.short_desc ?? typed.shortDesc ?? ''
-}
-
-const getProductCostPrice = (product: DbProduct) => {
-  const typed = product as DbProduct & { costPrice?: number }
-  return product.cost_price ?? typed.costPrice ?? 0
-}
-
 const handleDelete = async (product: any) => {
   const key = getProductKey(product)
   if (!key) return
@@ -225,17 +210,21 @@ onBeforeUnmount(() => {
       <article v-for="item in keyedProducts" :key="item.key">
         <div class="product-card ds-surface">
           <div class="thumb">
-            <img v-if="getProductImage(item.product)" :src="getProductImage(item.product)" :alt="item.product.name" />
+            <img
+              v-if="item.product.imageUrl"
+              :src="item.product.imageUrl"
+              :alt="item.product.name"
+            />
             <div v-else class="thumb__placeholder"></div>
           </div>
           <div class="product-main">
             <div class="product-title">{{ item.product.name }}</div>
-            <p class="product-desc">{{ getProductDescription(item.product) }}</p>
+            <p class="product-desc">{{ item.product.short_desc }}</p>
             <p v-if="resolveSellerId(item.product)" class="seller-info">
               판매자: {{ resolveSellerId(item.product) }}
             </p>
             <div class="product-prices">
-              <span class="price-original">{{ formatPrice(getProductCostPrice(item.product)) }}</span>
+              <span class="price-original">{{ formatPrice(item.product.cost_price ?? 0) }}</span>
               <span class="price-sale">{{ formatPrice(item.product.price) }}</span>
               <span v-if="getDiscountPercent(item.product) > 0" class="price-discount">
                 -{{ getDiscountPercent(item.product) }}%

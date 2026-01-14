@@ -293,8 +293,8 @@ const renderMarkdown = (value: string) => {
         htmlParts.push('<ol>')
         inOrderedList = true
       }
-      const listItem = listMatch[1] ?? ''
-      htmlParts.push(`<li>${escapeHtml(listItem)}</li>`)
+      const itemText = listMatch[1] ?? ''
+      htmlParts.push(`<li>${escapeHtml(itemText)}</li>`)
       continue
     }
 
@@ -988,7 +988,6 @@ onMounted(() => {
   }
 }
 </style>
-
 
 
 

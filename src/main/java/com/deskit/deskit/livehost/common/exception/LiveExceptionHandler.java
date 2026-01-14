@@ -12,6 +12,8 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.context.request.WebRequest;
 import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler;
 
+import java.io.IOException;
+
 @Slf4j
 @RestControllerAdvice(basePackages = "com.deskit.deskit.livehost.controller")
 @Order(Ordered.HIGHEST_PRECEDENCE) // 혹시 deskit의 전역 핸들러가 있다면, 이게 먼저 실행되도록 우선순위 높임
@@ -41,6 +43,13 @@ public class LiveExceptionHandler extends ResponseEntityExceptionHandler {
     }
 
     // 3. 그 외 알 수 없는 에러 (내 영역 안에서 터진 것만)
+    @ExceptionHandler(IOException.class)
+    protected ResponseEntity<Void> handleIOException(IOException e) {
+        log.debug("[Live Error] Client disconnected: {}", e.getMessage());
+        return ResponseEntity.noContent().build();
+    }
+
+    // 4. 그 외 알 수 없는 에러 (내 영역 안에서 터진 것만)
     @ExceptionHandler(Exception.class)
     protected ResponseEntity<ApiResult<?>> handleException(Exception e) {
         log.error("[Live Error] Unknown Exception: ", e);

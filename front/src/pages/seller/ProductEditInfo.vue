@@ -1,9 +1,10 @@
-﻿<script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+<script setup lang="ts">
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import PageContainer from '../../components/PageContainer.vue'
 import PageHeader from '../../components/PageHeader.vue'
 import ProductBasicFields from '../../components/seller/ProductBasicFields.vue'
+import LiveImageCropModal from '../../components/LiveImageCropModal.vue'
 
 const router = useRouter()
 const route = useRoute()
@@ -18,6 +19,15 @@ const stock = ref(0)
 const images = ref<string[]>(['', '', '', '', ''])
 const error = ref('')
 const status = ref<ProductStatus | null>(null)
+const isDeleting = ref(false)
+const imagesDirty = ref(false)
+const uploadings = ref<boolean[]>([false, false, false, false, false])
+const MAX_IMAGE_BYTES = 5 * 1024 * 1024
+const cropperOpen = ref(false)
+const cropperSource = ref('')
+const cropperFileName = ref('')
+const cropperIndex = ref<number | null>(null)
+const cropperInputRef = ref<HTMLInputElement | null>(null)
 
 const statusLabelMap: Record<ProductStatus, string> = {
   DRAFT: '작성중',
@@ -33,6 +43,105 @@ const buildAuthHeaders = (): Record<string, string> => {
   const access = localStorage.getItem('access') || sessionStorage.getItem('access')
   if (!access) return {}
   return { Authorization: `Bearer ${access}` }
+}
+
+const setUploading = (index: number, value: boolean) => {
+  uploadings.value = uploadings.value.map((slot, idx) => (idx === index ? value : slot))
+}
+
+const resetCropperState = () => {
+  cropperSource.value = ''
+  cropperFileName.value = ''
+  cropperIndex.value = null
+  cropperInputRef.value = null
+}
+
+const openCropper = (file: File, index: number, input: HTMLInputElement) => {
+  const reader = new FileReader()
+  reader.onload = () => {
+    cropperSource.value = typeof reader.result === 'string' ? reader.result : ''
+    cropperFileName.value = file.name
+    cropperIndex.value = index
+    cropperInputRef.value = input
+    cropperOpen.value = true
+  }
+  reader.readAsDataURL(file)
+}
+
+const dataUrlToFile = (dataUrl: string, fileName: string) => {
+  const [header, base64] = dataUrl.split(',')
+  if (!header || !base64) return null
+  const mimeMatch = header.match(/data:(.*?);base64/)
+  const mimeType = mimeMatch?.[1] ?? 'image/jpeg'
+  const binary = atob(base64)
+  const bytes = new Uint8Array(binary.length)
+  for (let i = 0; i < binary.length; i += 1) {
+    bytes[i] = binary.charCodeAt(i)
+  }
+  return new File([bytes], fileName, { type: mimeType })
+}
+
+const uploadImageFile = async (index: number, file: File) => {
+  error.value = ''
+  setUploading(index, true)
+  try {
+    const formData = new FormData()
+    formData.append('file', file)
+    const response = await fetch(`${apiBase}/api/seller/products/images/upload`, {
+      method: 'POST',
+      headers: {
+        ...buildAuthHeaders(),
+      },
+      credentials: 'include',
+      body: formData,
+    })
+    if (response.status === 401 || response.status === 403) {
+      error.value = '권한이 없습니다. 다시 로그인해주세요.'
+      return
+    }
+    if (response.status === 413) {
+      error.value = '파일 크기가 제한을 초과했습니다.'
+      return
+    }
+    if (!response.ok) {
+      error.value = '이미지 업로드에 실패했습니다.'
+      return
+    }
+    const data = (await response.json()) as { url?: string }
+    if (!data.url) {
+      error.value = '이미지 업로드에 실패했습니다.'
+      return
+    }
+    const next = [...images.value]
+    next[index] = data.url
+    images.value = next
+    imagesDirty.value = true
+  } catch {
+    error.value = '이미지 업로드에 실패했습니다.'
+  } finally {
+    setUploading(index, false)
+    if (cropperInputRef.value) {
+      cropperInputRef.value.value = ''
+    }
+  }
+}
+
+const handleCropConfirm = async (payload: { dataUrl: string; fileName: string }) => {
+  const index = cropperIndex.value
+  if (index === null) return
+  const file = dataUrlToFile(payload.dataUrl, payload.fileName)
+  if (!file) {
+    error.value = '이미지 업로드에 실패했습니다.'
+    cropperOpen.value = false
+    return
+  }
+  if (file.size > MAX_IMAGE_BYTES) {
+    error.value = '파일 크기가 제한을 초과했습니다.'
+    cropperOpen.value = false
+    return
+  }
+  await uploadImageFile(index, file)
+  cropperOpen.value = false
 }
 
 const loadInitial = async () => {
@@ -58,46 +167,95 @@ const loadInitial = async () => {
       short_desc?: string
       price?: number
       stock_qty?: number
+      image_urls?: string[]
       status?: ProductStatus
     }
     name.value = data.product_name ?? ''
     shortDesc.value = data.short_desc ?? ''
     price.value = typeof data.price === 'number' ? data.price : 0
     stock.value = typeof data.stock_qty === 'number' ? data.stock_qty : 0
+    const imageUrls = Array.isArray(data.image_urls) ? data.image_urls.slice(0, 5) : []
+    images.value = Array.from({ length: 5 }, (_, index) => imageUrls[index] ?? '')
+    uploadings.value = [false, false, false, false, false]
+    imagesDirty.value = false
     status.value = data.status ?? null
   } catch {
     error.value = '상품 정보를 불러올 수 없습니다.'
   }
 }
 
-const setImageAt = (index: number, event: Event) => {
+const setImageAt = async (index: number, event: Event) => {
   const input = event.target as HTMLInputElement
   const file = input.files?.[0]
   if (!file) return
-  if (!file.type.startsWith('image/')) {
+  if (!file.type || !file.type.startsWith('image/')) {
     error.value = '이미지 파일만 업로드할 수 있습니다.'
     input.value = ''
     return
   }
-  const reader = new FileReader()
-  reader.onload = () => {
-    if (typeof reader.result === 'string') {
-      const next = [...images.value]
-      next[index] = reader.result
-      images.value = next
-    }
+  if (file.size > MAX_IMAGE_BYTES) {
+    error.value = '파일 크기가 제한을 초과했습니다.'
+    input.value = ''
+    return
   }
-  reader.readAsDataURL(file)
+
+  error.value = ''
+  openCropper(file, index, input)
 }
 
 const clearImageAt = (index: number) => {
   const next = [...images.value]
   next[index] = ''
   images.value = next
+  imagesDirty.value = true
 }
 
 const cancel = () => {
-  router.push('/seller/products').catch(() => {})
+  router.push({ name: 'seller-products' }).catch(() => {})
+}
+
+const handleDelete = async () => {
+  const id = typeof route.params.id === 'string' ? route.params.id : ''
+  if (!id) {
+    error.value = '상품 정보를 확인할 수 없습니다.'
+    return
+  }
+  if (uploadings.value.some((slot) => slot)) {
+    error.value = '이미지 업로드가 완료될 때까지 기다려주세요.'
+    return
+  }
+  if (!window.confirm('정말 삭제하시겠습니까?')) return
+
+  error.value = ''
+  isDeleting.value = true
+  try {
+    const response = await fetch(`${apiBase}/api/seller/products/${id}`, {
+      method: 'DELETE',
+      headers: {
+        ...buildAuthHeaders(),
+      },
+      credentials: 'include',
+    })
+    if (response.status === 401 || response.status === 403) {
+      error.value = '권한이 없습니다. 다시 로그인해주세요.'
+      return
+    }
+    if (response.status === 404) {
+      window.alert('이미 삭제되었거나 상품을 찾을 수 없습니다.')
+      router.push({ name: 'seller-products' }).catch(() => {})
+      return
+    }
+    if (!response.ok && response.status !== 204) {
+      error.value = '상품 삭제에 실패했습니다.'
+      return
+    }
+    window.alert('상품이 삭제되었습니다.')
+    router.push({ name: 'seller-products' }).catch(() => {})
+  } catch {
+    error.value = '상품 삭제에 실패했습니다.'
+  } finally {
+    isDeleting.value = false
+  }
 }
 
 const canEditAll = computed(() => {
@@ -140,6 +298,10 @@ const handleSubmit = async () => {
     error.value = '수정할 수 없는 상품 상태입니다.'
     return
   }
+  if (uploadings.value.some((slot) => slot)) {
+    error.value = '이미지 업로드가 완료될 때까지 기다려주세요.'
+    return
+  }
 
   const id = typeof route.params.id === 'string' ? route.params.id : ''
   if (!id) {
@@ -157,6 +319,13 @@ const handleSubmit = async () => {
     payload.short_desc = shortDesc.value.trim()
     payload.price = price.value
   }
+  if (imagesDirty.value) {
+    if (!images.value[0]) {
+      error.value = '썸네일 이미지를 등록해주세요.'
+      return
+    }
+    payload.image_urls = images.value.filter((url) => url)
+  }
 
   try {
     const response = await fetch(`${apiBase}/seller/products/${id}`, {
@@ -172,7 +341,7 @@ const handleSubmit = async () => {
       error.value = '상품 수정에 실패했습니다.'
       return
     }
-    router.push('/seller/products').catch(() => {})
+    router.push({ name: 'seller-products-edit-detail', params: { id } }).catch(() => {})
   } catch {
     error.value = '상품 수정에 실패했습니다.'
   }
@@ -181,11 +350,31 @@ const handleSubmit = async () => {
 onMounted(() => {
   loadInitial()
 })
+
+watch(cropperOpen, (open, wasOpen) => {
+  if (!open && wasOpen) {
+    if (cropperInputRef.value) {
+      cropperInputRef.value.value = ''
+    }
+    resetCropperState()
+  }
+})
 </script>
 
 <template>
   <PageContainer>
     <PageHeader eyebrow="DESKIT" title="상품 수정 - 기본 정보" />
+    <LiveImageCropModal
+      v-model="cropperOpen"
+      :image-src="cropperSource"
+      :file-name="cropperFileName"
+      title="1:1 이미지 자르기"
+      :frame-width-ratio="1"
+      :frame-height-ratio="1"
+      :output-width="1024"
+      :output-height="1024"
+      @confirm="handleCropConfirm"
+    />
     <section class="create-card ds-surface">
       <div v-if="status" class="status-info">
         <span class="status-label">현재 상태: {{ statusLabelMap[status] }}</span>
@@ -211,8 +400,14 @@ onMounted(() => {
             <div class="image-slot__preview">
               <img v-if="img" :src="img" :alt="`상품 이미지 ${idx}`" />
               <label v-if="!img" class="btn ghost image-slot__upload">
-                업로드
-                <input type="file" accept="image/*" @change="setImageAt(idx, $event)" hidden />
+                {{ uploadings[idx] ? '업로드 중' : '업로드' }}
+                <input
+                  type="file"
+                  accept="image/*"
+                  :disabled="uploadings[idx]"
+                  @change="setImageAt(idx, $event)"
+                  hidden
+                />
               </label>
             </div>
             <div class="image-slot__actions">
@@ -226,7 +421,15 @@ onMounted(() => {
       <p v-if="error" class="error">{{ error }}</p>
       <div class="actions">
         <button type="button" class="btn" @click="cancel">취소</button>
-        <button type="button" class="btn primary" @click="handleSubmit">저장</button>
+        <button
+          type="button"
+          class="btn danger"
+          :disabled="isDeleting || uploadings.some((slot) => slot)"
+          @click="handleDelete"
+        >
+          삭제
+        </button>
+        <button type="button" class="btn primary" @click="handleSubmit">상세 수정</button>
       </div>
     </section>
   </PageContainer>
@@ -402,4 +605,3 @@ input {
   }
 }
 </style>
-

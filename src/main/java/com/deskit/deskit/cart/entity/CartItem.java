@@ -80,6 +80,13 @@ public class CartItem extends BaseEntity {
     this.quantity = quantity;
   }
 
+  public void updatePriceSnapshot(Integer priceSnapshot) {
+    if (priceSnapshot == null || priceSnapshot < 0) {
+      throw new IllegalArgumentException("price_snapshot must be >= 0");
+    }
+    this.priceSnapshot = priceSnapshot;
+  }
+
   public void softDelete() {
     setDeletedAt(LocalDateTime.now());
   }

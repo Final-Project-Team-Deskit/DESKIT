@@ -56,9 +56,9 @@ const initials = computed(() => {
   if (!name.trim()) return 'D'
   const parts = name.trim().split(/\s+/)
   const first = parts[0] ?? ''
-  if (parts.length === 1) return first.slice(0, 2).toUpperCase()
   const second = parts[1] ?? ''
-  return `${first.charAt(0)}${second.charAt(0)}`.toUpperCase()
+  if (!second) return first.slice(0, 2).toUpperCase()
+  return `${first[0] ?? ''}${second[0] ?? ''}`.toUpperCase()
 })
 
 const profileImageUrl = computed(() => (display.value.profileUrl || '').trim())
@@ -128,7 +128,7 @@ const recommendedProducts = computed(() => {
 
   const top = sorted.filter((_, idx) => idx < 4)
   const topItem = top[0]
-  if (topItem?.tagsFlat?.some((t) => keywords.includes(t))) return top
+  if (topItem && topItem.tagsFlat?.some((t) => keywords.includes(t))) return top
 
   return productsData
     .slice()
@@ -699,5 +699,4 @@ onMounted(() => {
   }
 }
 </style>
-
 

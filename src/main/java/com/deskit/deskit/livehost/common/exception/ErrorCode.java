@@ -58,7 +58,7 @@ public enum ErrorCode {
     FILE_UPLOAD_FAILED(HttpStatus.INTERNAL_SERVER_ERROR, "F001", "파일 업로드에 실패했습니다."),
     INVALID_FILE_EXTENSION(HttpStatus.BAD_REQUEST, "F002", "지원하지 않는 파일 형식입니다. (jpg, png, gif만 가능)"),
     FILE_DELETE_FAILED(HttpStatus.INTERNAL_SERVER_ERROR, "F003", "파일 삭제에 실패했습니다."),
-    FILE_SIZE_EXCEEDED(HttpStatus.BAD_REQUEST, "F004", "파일 크기가 제한을 초과했습니다."),
+    FILE_SIZE_EXCEEDED(HttpStatus.PAYLOAD_TOO_LARGE, "F004", "파일 크기가 제한을 초과했습니다."),
     INVALID_IMAGE_RATIO(HttpStatus.BAD_REQUEST, "F005", "이미지 비율이 올바르지 않습니다."),
 
     // 11. 시스템 에러
