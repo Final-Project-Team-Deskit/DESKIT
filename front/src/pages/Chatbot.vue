@@ -58,9 +58,28 @@ let stompClient: SimpleStompClient | null = null
 let statusPoller: number | null = null
 
 const memberId = ref<string | null>(null)
-const resolveMemberId = () => {
+const resolveMemberId = async () => {
   const user = getAuthUser()
-  memberId.value = resolveViewerId(user) ?? resolveViewerId(null)
+  const viewerId = resolveViewerId(user) ?? resolveViewerId(null)
+  if (viewerId && /^\d+$/.test(viewerId)) {
+    memberId.value = viewerId
+    return
+  }
+
+  try {
+    const response = await fetchWithCredentials(buildApiUrl('/api/my/member-id'))
+    if (response.ok) {
+      const data = (await response.json()) as { member_id?: number | string }
+      if (data?.member_id !== null && data?.member_id !== undefined) {
+        memberId.value = String(data.member_id)
+        return
+      }
+    }
+  } catch (error) {
+    console.error('member id resolve failed', error)
+  }
+
+  memberId.value = null
 }
 
 const scrollToBottom = async () => {
@@ -123,6 +142,18 @@ const wsEndpoint = computed(() => {
 
 const fetchWithCredentials = (url: string, options: RequestInit = {}) =>
   fetch(url, { credentials: 'include', ...options })
+
+const buildApiUrl = (path: string) => {
+  const base = apiBase.replace(/\/+$/, '')
+  const normalized = path.startsWith('/') ? path : `/${path}`
+  if (!base) {
+    return normalized
+  }
+  if (base.endsWith('/api') && normalized.startsWith('/api/')) {
+    return `${base}${normalized.slice(4)}`
+  }
+  return `${base}${normalized}`
+}
 
 const stopStatusPolling = () => {
   if (statusPoller !== null) {
@@ -363,7 +394,7 @@ const sendMessage = async () => {
 
 onMounted(async () => {
   await hydrateSessionUser()
-  resolveMemberId()
+  await resolveMemberId()
   await syncConversationStatus()
   if (chatId.value) {
     if (isAdminChat.value || isEscalated.value || isClosed.value) {
