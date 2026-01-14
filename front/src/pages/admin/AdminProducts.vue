@@ -3,7 +3,6 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import PageHeader from '../../components/PageHeader.vue'
 import { type DbProduct } from '../../lib/products-data'
 import { deleteProduct, listProducts } from '../../api/products'
-import { SELLER_PRODUCTS_EVENT } from '../../lib/mocks/sellerProducts'
 import { USE_MOCK_API } from '../../api/config'
 
 type ProductStatus = 'selling' | 'soldout' | 'hidden'
@@ -22,6 +21,7 @@ const baseProducts = ref<DbProduct[]>([])
 const isLoading = ref(false)
 const errorMessage = ref('')
 const deletingKey = ref<string | null>(null)
+const mockEventName = ref<string | null>(null)
 
 const statusLabelMap: Record<ProductStatus, string> = {
   selling: '판매중',
@@ -153,14 +153,16 @@ const handleDelete = async (product: any) => {
 onMounted(async () => {
   loadStatusMap()
   await refreshProducts()
-  if (USE_MOCK_API) {
+  if (import.meta.env.DEV && USE_MOCK_API) {
+    const { SELLER_PRODUCTS_EVENT } = await import('../../lib/mocks/sellerProducts')
+    mockEventName.value = SELLER_PRODUCTS_EVENT
     window.addEventListener(SELLER_PRODUCTS_EVENT, onProductsChanged)
   }
 })
 
 onBeforeUnmount(() => {
-  if (USE_MOCK_API) {
-    window.removeEventListener(SELLER_PRODUCTS_EVENT, onProductsChanged)
+  if (mockEventName.value) {
+    window.removeEventListener(mockEventName.value, onProductsChanged)
   }
 })
 </script>

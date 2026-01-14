@@ -51,18 +51,6 @@ public class MyPageService {
 			profileUrl = resolveProfileUrl(normalizedRole, loginId);
 		}
 
-		if ("ROLE_MEMBER".equals(normalizedRole) && !loginId.isEmpty()) {
-			Member member = memberRepository.findByLoginId(loginId);
-			if (member != null) {
-				if (member.getMbti() != null) {
-					mbti = member.getMbti().name();
-				}
-				if (member.getJobCategory() != null) {
-					job = mapJobCategory(member.getJobCategory());
-				}
-			}
-		}
-
 		return new MyPageResponse(
 				name,
 				email,

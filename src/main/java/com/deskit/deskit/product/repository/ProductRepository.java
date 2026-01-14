@@ -41,6 +41,8 @@ public interface ProductRepository extends JpaRepository<Product, Long> {
    */
   Optional<Product> findByIdAndDeletedAtIsNull(Long id);
 
+  List<Product> findAllByIdInAndDeletedAtIsNull(List<Long> ids);
+
   Optional<Product> findByIdAndStatusAndDeletedAtIsNull(Long id, Product.Status status);
 
   @Lock(LockModeType.PESSIMISTIC_WRITE)

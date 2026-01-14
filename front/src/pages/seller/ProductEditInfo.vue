@@ -17,6 +17,7 @@ const shortDesc = ref('')
 const price = ref(0)
 const stock = ref(0)
 const images = ref<string[]>(['', '', '', '', ''])
+const imageKeys = ref<string[]>(['', '', '', '', ''])
 const error = ref('')
 const status = ref<ProductStatus | null>(null)
 const isDeleting = ref(false)
@@ -107,7 +108,7 @@ const uploadImageFile = async (index: number, file: File) => {
       error.value = '이미지 업로드에 실패했습니다.'
       return
     }
-    const data = (await response.json()) as { url?: string }
+    const data = (await response.json()) as { url?: string; key?: string }
     if (!data.url) {
       error.value = '이미지 업로드에 실패했습니다.'
       return
@@ -115,6 +116,9 @@ const uploadImageFile = async (index: number, file: File) => {
     const next = [...images.value]
     next[index] = data.url
     images.value = next
+    const nextKeys = [...imageKeys.value]
+    nextKeys[index] = data.key ?? ''
+    imageKeys.value = nextKeys
     imagesDirty.value = true
   } catch {
     error.value = '이미지 업로드에 실패했습니다.'
@@ -168,6 +172,7 @@ const loadInitial = async () => {
       price?: number
       stock_qty?: number
       image_urls?: string[]
+      image_keys?: string[]
       status?: ProductStatus
     }
     name.value = data.product_name ?? ''
@@ -175,7 +180,9 @@ const loadInitial = async () => {
     price.value = typeof data.price === 'number' ? data.price : 0
     stock.value = typeof data.stock_qty === 'number' ? data.stock_qty : 0
     const imageUrls = Array.isArray(data.image_urls) ? data.image_urls.slice(0, 5) : []
+    const imageKeyValues = Array.isArray(data.image_keys) ? data.image_keys.slice(0, 5) : []
     images.value = Array.from({ length: 5 }, (_, index) => imageUrls[index] ?? '')
+    imageKeys.value = Array.from({ length: 5 }, (_, index) => imageKeyValues[index] ?? '')
     uploadings.value = [false, false, false, false, false]
     imagesDirty.value = false
     status.value = data.status ?? null
@@ -207,6 +214,9 @@ const clearImageAt = (index: number) => {
   const next = [...images.value]
   next[index] = ''
   images.value = next
+  const nextKeys = [...imageKeys.value]
+  nextKeys[index] = ''
+  imageKeys.value = nextKeys
   imagesDirty.value = true
 }
 
@@ -324,7 +334,8 @@ const handleSubmit = async () => {
       error.value = '썸네일 이미지를 등록해주세요.'
       return
     }
-    payload.image_urls = images.value.filter((url) => url)
+    payload.image_urls = images.value.slice(0, 5)
+    payload.image_keys = imageKeys.value.slice(0, 5)
   }
 
   try {

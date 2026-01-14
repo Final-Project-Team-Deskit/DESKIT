@@ -24,6 +24,7 @@ const costPrice = ref(0)
 const price = ref(0)
 const stock = ref(0)
 const images = ref<ImageSlot[]>([])
+const imageKeys = ref<string[]>(Array.from({ length: 5 }, () => ''))
 const error = ref('')
 const isSaving = ref(false)
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024
@@ -49,6 +50,7 @@ const loadDraft = () => {
   stock.value = draft.stock
   const previews = Array.isArray(draft.images) ? [...draft.images].slice(0, 5) : []
   images.value = buildImageSlots(previews)
+  imageKeys.value = Array.from({ length: 5 }, () => '')
 }
 
 const saveDraft = (productId?: number) => {
@@ -137,11 +139,14 @@ const uploadImageFile = async (index: number, file: File) => {
       error.value = '이미지 업로드에 실패했습니다.'
       return
     }
-    const data = (await response.json()) as { url?: string }
+    const data = (await response.json()) as { url?: string; key?: string }
     if (!data.url) {
       error.value = '이미지 업로드에 실패했습니다.'
       return
     }
+    const nextKeys = [...imageKeys.value]
+    nextKeys[index] = data.key ?? ''
+    imageKeys.value = nextKeys
     updateSlot(index, { preview: data.url, file: undefined })
   } catch {
     error.value = '이미지 업로드에 실패했습니다.'
@@ -193,6 +198,9 @@ const setImageAt = async (index: number, event: Event) => {
 
 const clearImageAt = (index: number) => {
   updateSlot(index, { preview: undefined, file: undefined, uploading: false })
+  const nextKeys = [...imageKeys.value]
+  nextKeys[index] = ''
+  imageKeys.value = nextKeys
 }
 
 const goNext = async () => {
@@ -241,17 +249,16 @@ const goNext = async () => {
       error.value = '상품 등록에 실패했습니다.'
       return
     }
-    const imageUrls = images.value
-      .map((slot) => slot.preview)
-      .filter((url): url is string => Boolean(url))
-    const imageResponse = await fetch(`${apiBase}/seller/products/${payload.product_id}`, {
+    const imageUrls = images.value.map((slot) => slot.preview ?? '')
+    const normalizedKeys = Array.from({ length: 5 }, (_, idx) => imageKeys.value[idx] ?? '')
+    const imageResponse = await fetch(`${apiBase}/api/seller/products/${payload.product_id}`, {
       method: 'PUT',
       headers: {
         'Content-Type': 'application/json',
         ...buildAuthHeaders(),
       },
       credentials: 'include',
-      body: JSON.stringify({ image_urls: imageUrls }),
+      body: JSON.stringify({ image_urls: imageUrls, image_keys: normalizedKeys }),
     })
     if (imageResponse.status === 401 || imageResponse.status === 403) {
       error.value = '권한이 없습니다. 다시 로그인해주세요.'
@@ -298,6 +305,7 @@ onMounted(() => {
   price.value = 0
   stock.value = 0
   images.value = buildImageSlots()
+  imageKeys.value = Array.from({ length: 5 }, () => '')
 })
 
 watch(cropperOpen, (open, wasOpen) => {

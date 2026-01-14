@@ -29,7 +29,9 @@ const EMPTY_USER: UserInfo = {
 
 const router = useRouter()
 const user = ref<UserInfo | null>(null)
+const profileImageFailed = ref(false)
 const recommendedProducts = ref<DbProduct[]>([])
+const apiBase = (import.meta.env.VITE_API_BASE_URL || '').trim()
 const preferencePrompt =
   '지금 MBTI(직업군)를 입력하고 나에게 맞춘 데스크테리어 상품 추천을 받아보세요!'
 
@@ -695,4 +697,3 @@ onMounted(() => {
   }
 }
 </style>
-
