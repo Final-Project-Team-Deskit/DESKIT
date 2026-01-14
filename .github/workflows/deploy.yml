@@ -40,7 +40,7 @@ jobs:
         run: |
           set -euo pipefail
           JAR_PATH=$(ls build/libs/*.jar | head -n 1)
-          cp "$JAR_PATH" build/libs/deskit.jar
+          cp "$JAR_PATH" build/libs/deskit-0.0.1-SNAPSHOT.jar
 
       - name: Upload front-end dist to web server
         uses: appleboy/scp-action@v0.1.7
