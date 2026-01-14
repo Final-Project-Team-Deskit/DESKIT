@@ -977,7 +977,6 @@ const closeChat = () => {
 const openModeration = (msg: { user: string; kind?: string; memberLoginId?: string; connectionId?: string }) => {
   if (!isInteractive.value) return
   if (msg.user === 'SYSTEM' || msg.kind === 'system' || msg.user === '관리자') return
-  console.log('[admin chat] moderation open', msg.user)
   moderationTarget.value = { user: msg.user, memberLoginId: msg.memberLoginId, connectionId: msg.connectionId }
   moderationType.value = ''
   moderationReason.value = ''

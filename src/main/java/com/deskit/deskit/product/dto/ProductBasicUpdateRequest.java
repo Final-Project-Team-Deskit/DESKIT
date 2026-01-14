@@ -23,5 +23,8 @@ public record ProductBasicUpdateRequest(
   String detailHtml,
 
   @JsonProperty("image_urls")
-  List<String> imageUrls
+  List<String> imageUrls,
+
+  @JsonProperty("image_keys")
+  List<String> imageKeys
 ) {}

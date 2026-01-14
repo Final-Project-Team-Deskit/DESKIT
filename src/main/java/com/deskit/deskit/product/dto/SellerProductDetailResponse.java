@@ -26,12 +26,15 @@ public record SellerProductDetailResponse(
   @JsonProperty("image_urls")
   List<String> imageUrls,
 
+  @JsonProperty("image_keys")
+  List<String> imageKeys,
+
   @JsonProperty("status")
   Product.Status status
 ) {
-  public static SellerProductDetailResponse from(Product product, List<String> imageUrls) {
+  public static SellerProductDetailResponse from(Product product, List<String> imageUrls, List<String> imageKeys) {
     if (product == null) {
-      return new SellerProductDetailResponse(null, null, null, null, null, null, null, null);
+      return new SellerProductDetailResponse(null, null, null, null, null, null, null, null, null);
     }
     return new SellerProductDetailResponse(
       product.getId(),
@@ -41,6 +44,7 @@ public record SellerProductDetailResponse(
       product.getStockQty(),
       product.getDetailHtml(),
       imageUrls,
+      imageKeys,
       product.getStatus()
     );
   }

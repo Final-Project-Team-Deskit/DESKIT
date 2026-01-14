@@ -140,6 +140,10 @@ public class ProductResponse {
     );
   }
 
+  public Long getProductId() {
+    return productId;
+  }
+
   /**
    * tags 객체의 JSON 필드 출력 순서를 고정 (보기 좋게 + 프론트 기대 순서)
    */
