@@ -40,10 +40,9 @@ public class ConversationService {
                 });
     }
 
-    @Transactional(readOnly = true)
+    @Transactional
     public ChatInfo getLatestConversation(Long memberId) {
-        return conversationRepository.findTopByMemberIdOrderByCreatedAtDesc(memberId)
-                .orElseThrow(() -> new IllegalStateException("Conversation not found for memberId=" + memberId));
+        return getOrCreateActiveConversation(memberId);
     }
 
     @Transactional(readOnly = true)
