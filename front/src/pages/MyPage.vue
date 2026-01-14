@@ -108,7 +108,7 @@ const loadRecommendations = async () => {
   if (!hasUser.value || !hasPreference.value) return
 
   try {
-    const response = await fetch(`${apiBase}/api/recommendations/deskterior`, {
+    const response = await fetch(`${apiBase}/recommendations/deskterior`, {
       credentials: 'include',
     })
     if (!response.ok) return
@@ -209,8 +209,8 @@ onMounted(() => {
                 <path d="M6 19c0-2.5 2.5-4 6-4s6 1.5 6 4" />
               </svg>
             </span>
-            <p class="quick-title">계정 설정</p>
-            <p class="quick-desc">계정을 관리해요</p>
+            <p class="quick-title">정보 관리</p>
+            <p class="quick-desc">내 정보를 관리해요</p>
           </RouterLink>
         </div>
       </section>
