@@ -24,6 +24,14 @@ export const http = axios.create({
  * - /api/orders 는 인증 필수 → 무조건 Authorization 헤더 포함됨
  */
 http.interceptors.request.use((config: InternalAxiosRequestConfig) => {
+
+  const baseURL = typeof config.baseURL === 'string' ? config.baseURL.replace(/\/+$/, '') : ''
+  const url = config.url ?? ''
+
+  if (baseURL.endsWith('/api') && url.startsWith('/api/')) {
+    config.url = url.replace(/^\/api/, '')
+  }
+
   const token = localStorage.getItem('access_token')
 
   const method = (config.method ?? 'get').toLowerCase()

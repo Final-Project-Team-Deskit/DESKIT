@@ -18,7 +18,7 @@ public class MyPageController {
 
     private final MyPageService myPageService;
 
-    @GetMapping("/my")
+    @GetMapping("/api/my")
     @ResponseBody
     public MyPageResponse myAPI(Authentication authentication) {
         if (authentication == null || !(authentication.getPrincipal() instanceof CustomOAuth2User user)) {

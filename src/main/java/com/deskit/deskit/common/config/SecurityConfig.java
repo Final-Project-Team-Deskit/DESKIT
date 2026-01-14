@@ -158,7 +158,7 @@ public class SecurityConfig {
                                 "ROLE_SELLER_OWNER",
                                 "ROLE_SELLER_MANAGER"
                         )
-                        .requestMatchers("/my").hasAnyAuthority(
+                        .requestMatchers("/api/my").hasAnyAuthority(
                                 "ROLE_MEMBER",
                                 "ROLE_SELLER",
                                 "ROLE_SELLER_OWNER",
