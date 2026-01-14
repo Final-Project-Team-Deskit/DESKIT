@@ -16,7 +16,7 @@ import java.util.List;
 
 @RestController
 @RequiredArgsConstructor
-@RequestMapping("/direct-chats")
+@RequestMapping({"/direct-chats", "/api/direct-chats"})
 public class DirectChatController {
 
     private final DirectChatService directChatService;
