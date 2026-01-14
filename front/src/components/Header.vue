@@ -35,6 +35,7 @@ const sellerTabs = [
     ],
   },
   {label: '상품관리', to: '/seller/products'},
+  {label: '주문관리', to: '/seller/orders'},
 ]
 
 const adminTabs = [
