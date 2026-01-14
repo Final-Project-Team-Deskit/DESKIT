@@ -1,20 +1,54 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import PageContainer from '../../../components/PageContainer.vue'
 import ConfirmModal from '../../../components/ConfirmModal.vue'
-import { getSellerVodDetail } from '../../../lib/mocks/sellerVods'
+import {
+  fetchRecentLiveChats,
+  fetchSellerBroadcastDetail,
+  fetchSellerBroadcastReport,
+  deleteSellerVod,
+  type BroadcastDetailResponse,
+  type BroadcastResult,
+  updateSellerVodVisibility,
+} from '../../../lib/live/api'
+import { getBroadcastStatusLabel } from '../../../lib/broadcastStatus'
 
 const route = useRoute()
 const router = useRouter()
 
-const vodId = typeof route.params.vodId === 'string' ? route.params.vodId : ''
-const detail = ref(getSellerVodDetail(vodId))
+const FALLBACK_IMAGE = 'data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs='
+
+const vodId = computed(() => (typeof route.params.vodId === 'string' ? route.params.vodId : ''))
+
+type SellerVodDetail = {
+  id: string
+  title: string
+  startedAt: string
+  endedAt: string
+  statusLabel: string
+  stopReason?: string
+  thumb: string
+  metrics: {
+    totalViews: number
+    maxViewers: number
+    maxViewerTime?: string
+    reports: number
+    sanctions: number
+    likes: number
+    totalRevenue: number
+  }
+  vod: { url?: string; visibility: string; adminLock?: boolean }
+  productResults: Array<{ id: string; name: string; price: number; soldQty: number; revenue: number }>
+}
+
+const detail = ref<SellerVodDetail | null>(null)
+const isLoading = ref(false)
 const isVodPlayable = computed(() => !!detail.value?.vod?.url)
-const isVodPublic = computed(() => detail.value.vod.visibility === '공개')
-const isPlaying = ref(false)
-const isFullscreen = ref(false)
+const isVodPublic = computed(() => detail.value?.vod.visibility === '공개')
+const isVodVisibilityLocked = computed(() => detail.value?.vod.adminLock === true)
 const showDeleteConfirm = ref(false)
+const statusLabel = computed(() => getBroadcastStatusLabel(detail.value?.statusLabel))
 
 const goBack = () => {
   router.back()
@@ -24,29 +58,64 @@ const goToList = () => {
   router.push('/seller/live?tab=vod').catch(() => {})
 }
 
-const toggleVisibility = () => {
-  const next = detail.value.vod.visibility === '공개' ? '비공개' : '공개'
-  detail.value = { ...detail.value, vod: { ...detail.value.vod, visibility: next } }
+const toggleVisibility = async () => {
+  if (!detail.value) return
+  const nextStatus = detail.value.vod.visibility === '공개' ? 'PRIVATE' : 'PUBLIC'
+  if (isVodVisibilityLocked.value && nextStatus === 'PUBLIC') {
+    window.alert('관리자에 의해 비공개 처리된 VOD는 공개로 전환할 수 없습니다.')
+    return
+  }
+  try {
+    await updateSellerVodVisibility(Number(detail.value.id), nextStatus)
+    const nextLabel = nextStatus === 'PUBLIC' ? '공개' : '비공개'
+    detail.value = { ...detail.value, vod: { ...detail.value.vod, visibility: nextLabel } }
+  } catch {
+    return
+  }
 }
 
-const handleDownload = () => {
-  window.alert('VOD 파일 다운로드를 시작합니다. (데모)')
+const handleDownload = async () => {
+  if (!detail.value?.vod?.url) return
+  window.alert('VOD 파일 다운로드를 시작합니다.')
+  const fileName = buildDownloadName(detail.value.title)
+  if (await saveVodFile(detail.value.vod.url, fileName)) {
+    return
+  }
+  const link = document.createElement('a')
+  link.href = detail.value.vod.url
+  link.download = fileName
+  link.rel = 'noopener'
+  link.target = '_blank'
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
 }
 
 const handleDelete = () => {
   showDeleteConfirm.value = true
 }
 
-const confirmDelete = () => {
-  window.alert('VOD가 삭제되었습니다. (데모)')
+const confirmDelete = async () => {
+  if (!detail.value) return
+  try {
+    await deleteSellerVod(Number(detail.value.id))
+    window.alert('VOD가 삭제되었습니다.')
+    goToList()
+  } catch {
+    return
+  }
+}
+
+const handleImageError = (event: Event) => {
+  const target = event.target as HTMLImageElement | null
+  if (!target || target.dataset.fallbackApplied) return
+  target.dataset.fallbackApplied = 'true'
+  target.src = FALLBACK_IMAGE
 }
 
 const showChat = ref(false)
 const chatText = ref('')
-const chatMessages = ref([
-  { id: 'c1', user: '시청자A', text: '잘 봤어요!', time: '오후 2:10' },
-  { id: 'c2', user: '관리자', text: '채팅은 보관용입니다.', time: '오후 2:12' },
-])
+const chatMessages = ref<{ id: string; user: string; text: string; time: string }[]>([])
 
 const sendChat = () => {
   if (!chatText.value.trim()) return
@@ -54,49 +123,128 @@ const sendChat = () => {
   chatText.value = ''
 }
 
-const videoRef = ref<HTMLVideoElement | null>(null)
-const playerContainerRef = ref<HTMLElement | null>(null)
-
-const startPlayback = () => {
-  if (!isVodPlayable.value) return
-  isPlaying.value = true
-  nextTick(() => {
-    videoRef.value?.play?.()
-  })
-}
-
-const toggleFullscreen = () => {
-  const target = playerContainerRef.value
-  if (!target) return
-  if (document.fullscreenElement) {
-    document.exitFullscreen().catch(() => {})
-    return
-  }
-  target.requestFullscreen?.()
-}
-
-const handleFullscreenChange = () => {
-  isFullscreen.value = !!document.fullscreenElement
-}
-
-onMounted(() => {
-  document.addEventListener('fullscreenchange', handleFullscreenChange)
-})
-
-onUnmounted(() => {
-  document.removeEventListener('fullscreenchange', handleFullscreenChange)
-})
-
 watch(isVodPlayable, (playable) => {
   if (!playable) {
     showChat.value = false
-    isPlaying.value = false
   }
 })
+
+const formatDateTime = (value?: string) => (value ? value.replace('T', ' ') : '')
+
+const formatVisibility = (vodStatus?: string) => (vodStatus === 'PUBLIC' ? '공개' : '비공개')
+
+const toNumber = (value: number | string | undefined) => {
+  if (typeof value === 'number') return value
+  if (typeof value === 'string') {
+    const parsed = Number(value)
+    return Number.isNaN(parsed) ? 0 : parsed
+  }
+  return 0
+}
+
+const formatChatTime = (timestamp?: number) => {
+  if (!timestamp) return ''
+  const date = new Date(timestamp)
+  const hours = date.getHours()
+  const displayHour = hours % 12 || 12
+  const minutes = String(date.getMinutes()).padStart(2, '0')
+  return `${hours >= 12 ? '오후' : '오전'} ${displayHour}:${minutes}`
+}
+
+const buildDownloadName = (title?: string) => {
+  const base = title?.trim() || 'vod'
+  const safe = base.replace(/[\\/:*?"<>|]/g, '_')
+  return `${safe}.mp4`
+}
+
+const saveVodFile = async (url: string, fileName: string) => {
+  const picker = (window as Window & { showSaveFilePicker?: (options?: { suggestedName?: string }) => Promise<FileSystemFileHandle> })
+    .showSaveFilePicker
+  if (!picker) return false
+  try {
+    const handle = await picker({ suggestedName: fileName })
+    const response = await fetch(url)
+    if (!response.ok) return false
+    const writable = await handle.createWritable()
+    if (response.body) {
+      await response.body.pipeTo(writable)
+    } else {
+      const blob = await response.blob()
+      await writable.write(blob)
+      await writable.close()
+    }
+    return true
+  } catch {
+    return false
+  }
+}
+
+const buildDetail = (broadcast: BroadcastDetailResponse, report: BroadcastResult): SellerVodDetail => ({
+  id: String(report.broadcastId),
+  title: report.title ?? broadcast.title ?? '',
+  startedAt: formatDateTime(report.startAt ?? broadcast.startedAt),
+  endedAt: formatDateTime(report.endAt),
+  statusLabel: report.status ?? broadcast.status ?? '',
+  stopReason: report.stoppedReason ?? broadcast.stoppedReason ?? undefined,
+  thumb: broadcast.thumbnailUrl ?? '',
+  metrics: {
+    totalViews: report.totalViews ?? 0,
+    maxViewers: report.maxViewers ?? 0,
+    maxViewerTime: formatDateTime(report.maxViewerTime),
+    reports: report.reportCount ?? 0,
+    sanctions: report.sanctionCount ?? 0,
+    likes: report.totalLikes ?? 0,
+    totalRevenue: toNumber(report.totalSales),
+  },
+  vod: {
+    url: report.vodUrl ?? undefined,
+    visibility: formatVisibility(report.vodStatus),
+    adminLock: report.vodAdminLock ?? false,
+  },
+  productResults: (report.productStats ?? []).map((item) => ({
+    id: String(item.productId),
+    name: item.productName,
+    price: item.price ?? 0,
+    soldQty: item.salesQuantity ?? 0,
+    revenue: toNumber(item.salesAmount),
+  })),
+})
+
+const loadDetail = async () => {
+  const idValue = Number(vodId.value)
+  if (!vodId.value || Number.isNaN(idValue)) {
+    detail.value = null
+    return
+  }
+  isLoading.value = true
+  try {
+    const [broadcast, report, chats] = await Promise.all([
+      fetchSellerBroadcastDetail(idValue),
+      fetchSellerBroadcastReport(idValue),
+      fetchRecentLiveChats(idValue, 3600).catch(() => []),
+    ])
+    detail.value = buildDetail(broadcast, report)
+    chatMessages.value = chats.map((item) => ({
+      id: `${item.sentAt}-${item.sender}`,
+      user: item.sender || item.memberEmail || '시청자',
+      text: item.content,
+      time: formatChatTime(item.sentAt),
+    }))
+  } catch {
+    detail.value = null
+    chatMessages.value = []
+  } finally {
+    isLoading.value = false
+  }
+}
+
+watch(vodId, () => {
+  loadDetail()
+}, { immediate: true })
 </script>
 
 <template>
-  <PageContainer>
+  <PageContainer v-if="detail">
     <header class="detail-header">
       <button type="button" class="back-link" @click="goBack">← 뒤로 가기</button>
       <button type="button" class="btn ghost" @click="goToList">목록으로</button>
@@ -107,22 +255,27 @@ watch(isVodPlayable, (playable) => {
     <section class="detail-card ds-surface">
       <div class="info-grid">
         <div class="thumb-box">
-          <img :src="detail.thumb" :alt="detail.title" />
+          <img :src="detail.thumb" :alt="detail.title" @error="handleImageError" />
         </div>
         <div class="info-meta">
           <h3>{{ detail.title }}</h3>
           <p><span>방송 시작 시간</span>{{ detail.startedAt }}</p>
           <p><span>방송 종료 시간</span>{{ detail.endedAt }}</p>
-          <p><span>상태</span>{{ detail.statusLabel }}</p>
-          <p v-if="detail.statusLabel === 'STOPPED' && (detail as any).stopReason"><span>중지 사유</span>{{ (detail as any).stopReason }}</p>
+          <p><span>상태</span>{{ statusLabel }}</p>
+          <p v-if="detail.statusLabel === 'STOPPED' && detail.stopReason"><span>중지 사유</span>{{ detail.stopReason }}</p>
         </div>
       </div>
     </section>
 
     <section class="kpi-grid">
       <article class="kpi-card ds-surface">
-        <p class="kpi-label">최대 시청자 수</p>
+        <p class="kpi-label">누적 조회수</p>
+        <p class="kpi-value">{{ detail.metrics.totalViews.toLocaleString('ko-KR') }}회</p>
+      </article>
+      <article class="kpi-card ds-surface">
+        <p class="kpi-label">방송 중 최대 시청자 수</p>
         <p class="kpi-value">{{ detail.metrics.maxViewers.toLocaleString('ko-KR') }}</p>
+        <p v-if="detail.metrics.maxViewerTime" class="kpi-sub">{{ detail.metrics.maxViewerTime }} 기준</p>
       </article>
       <article class="kpi-card ds-surface">
         <p class="kpi-label">신고 건수</p>
@@ -155,7 +308,7 @@ watch(isVodPlayable, (playable) => {
             </svg>
             <span class="visibility-label">비공개</span>
             <label class="vod-switch">
-              <input type="checkbox" :checked="isVodPublic" @change="toggleVisibility" />
+              <input type="checkbox" :checked="isVodPublic" :disabled="isVodVisibilityLocked" @change="toggleVisibility" />
               <span class="switch-track"><span class="switch-thumb"></span></span>
             </label>
             <span class="visibility-label">공개</span>
@@ -164,6 +317,7 @@ watch(isVodPlayable, (playable) => {
               <circle cx="12" cy="12" r="3.5" />
             </svg>
           </div>
+          <p v-if="isVodVisibilityLocked" class="vod-lock-note">관리자에 의해 비공개 처리된 VOD는 공개로 전환할 수 없습니다.</p>
           <div class="vod-icon-actions">
             <button type="button" class="icon-pill" @click="handleDownload" title="다운로드">
               <svg aria-hidden="true" class="icon" viewBox="0 0 24 24" focusable="false">
@@ -185,50 +339,17 @@ watch(isVodPlayable, (playable) => {
         </div>
       </div>
       <div class="vod-player" :class="{ 'with-chat': showChat && isVodPlayable }">
-        <div ref="playerContainerRef" class="player-shell">
+        <div class="player-shell">
           <div class="player-frame">
             <video
               v-if="isVodPlayable"
-              v-show="isPlaying"
-              ref="videoRef"
               :src="detail.vod.url"
               controls
-              :poster="detail.thumb"
             ></video>
             <div v-else class="vod-placeholder">
               <span>재생할 VOD가 없습니다.</span>
             </div>
-            <div v-if="isVodPlayable && !isPlaying" class="player-poster">
-              <img :src="detail.thumb" :alt="detail.title" />
-              <button type="button" class="play-toggle" @click="startPlayback" title="재생">
-                <svg aria-hidden="true" class="icon" viewBox="0 0 24 24" focusable="false">
-                  <polygon points="8 5 19 12 8 19 8 5" fill="currentColor" />
-                </svg>
-              </button>
-            </div>
             <div v-if="isVodPlayable" class="player-overlay">
-              <div class="overlay-left">
-                <button
-                  type="button"
-                  class="icon-circle ghost"
-                  :class="{ active: isFullscreen }"
-                  @click="toggleFullscreen"
-                  :title="isFullscreen ? '전체화면 종료' : '전체화면'"
-                >
-                  <svg v-if="!isFullscreen" aria-hidden="true" class="icon" viewBox="0 0 24 24" focusable="false">
-                    <path d="M15 3h6v6" />
-                    <path d="M9 21H3v-6" />
-                    <path d="M21 3 14 10" />
-                    <path d="M3 21 10 14" />
-                  </svg>
-                  <svg v-else aria-hidden="true" class="icon" viewBox="0 0 24 24" focusable="false">
-                    <path d="M9 9H3V3" />
-                    <path d="m3 9 6-6" />
-                    <path d="M15 15h6v6" />
-                    <path d="m21 15-6 6" />
-                  </svg>
-                </button>
-              </div>
               <div class="overlay-right">
                 <div class="chat-pill">
                   <span class="chat-count">{{ chatMessages.length }}</span>
@@ -308,6 +429,18 @@ watch(isVodPlayable, (playable) => {
       confirm-text="삭제"
       @confirm="confirmDelete"
     />
+  </PageContainer>
+  <PageContainer v-else>
+    <header class="detail-header">
+      <button type="button" class="back-link" @click="goBack">← 뒤로 가기</button>
+      <button type="button" class="btn ghost" @click="goToList">목록으로</button>
+    </header>
+
+    <h2 class="page-title">방송 결과 리포트</h2>
+
+    <section class="detail-card ds-surface empty-state">
+      <p>{{ isLoading ? '방송 정보를 불러오는 중입니다.' : '방송 정보를 찾을 수 없습니다.' }}</p>
+    </section>
   </PageContainer>
 </template>
 
@@ -406,7 +539,7 @@ watch(isVodPlayable, (playable) => {
 
 .kpi-grid {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(6, minmax(0, 1fr));
   gap: 16px;
   margin-bottom: 16px;
 }
@@ -431,6 +564,13 @@ watch(isVodPlayable, (playable) => {
   color: var(--text-strong);
   font-weight: 900;
   font-size: 1.2rem;
+}
+
+.kpi-sub {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  font-weight: 600;
 }
 
 .card-head {
@@ -463,6 +603,13 @@ watch(isVodPlayable, (playable) => {
   border: 1px solid var(--border-color);
   border-radius: 999px;
   background: linear-gradient(135deg, rgba(15, 23, 42, 0.08), rgba(15, 23, 42, 0.02));
+}
+
+.vod-lock-note {
+  margin: 4px 0 0;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  font-weight: 600;
 }
 
 .vod-switch input {
@@ -500,6 +647,10 @@ watch(isVodPlayable, (playable) => {
 
 .vod-switch input:checked + .switch-track .switch-thumb {
   transform: translateX(22px);
+}
+
+.vod-switch input:disabled + .switch-track {
+  opacity: 0.5;
 }
 
 .visibility-label {
@@ -681,12 +832,11 @@ watch(isVodPlayable, (playable) => {
   inset: 0;
   pointer-events: none;
   display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
+  align-items: flex-start;
+  justify-content: flex-end;
   padding: 14px;
 }
 
-.overlay-left,
 .overlay-right {
   display: flex;
   align-items: center;
@@ -802,6 +952,17 @@ watch(isVodPlayable, (playable) => {
 .product-table thead th {
   background: var(--surface-weak);
   font-weight: 900;
+}
+
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 32px;
+  color: var(--text-muted);
 }
 
 @media (max-width: 960px) {

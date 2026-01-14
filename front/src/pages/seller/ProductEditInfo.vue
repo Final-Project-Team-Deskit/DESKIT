@@ -1,189 +1,395 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import PageContainer from '../../components/PageContainer.vue'
 import PageHeader from '../../components/PageHeader.vue'
-import { productsData } from '../../lib/products-data'
-import { getAuthUser } from '../../lib/auth'
-import { deleteProduct, getProductById, loadProductDraft, saveProductDraft, type SellerProductDraft } from '../../composables/useSellerProducts'
-import { deleteSellerMockProduct } from '../../lib/mocks/sellerProducts'
+import ProductBasicFields from '../../components/seller/ProductBasicFields.vue'
+import LiveImageCropModal from '../../components/LiveImageCropModal.vue'
 
 const router = useRouter()
 const route = useRoute()
+const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080'
+
+type ProductStatus = 'DRAFT' | 'READY' | 'ON_SALE' | 'LIMITED_SALE' | 'SOLD_OUT' | 'PAUSED' | 'HIDDEN'
 
 const name = ref('')
 const shortDesc = ref('')
-const costPrice = ref(0)
 const price = ref(0)
 const stock = ref(0)
 const images = ref<string[]>(['', '', '', '', ''])
 const error = ref('')
+const status = ref<ProductStatus | null>(null)
+const isDeleting = ref(false)
+const imagesDirty = ref(false)
+const uploadings = ref<boolean[]>([false, false, false, false, false])
+const MAX_IMAGE_BYTES = 5 * 1024 * 1024
+const cropperOpen = ref(false)
+const cropperSource = ref('')
+const cropperFileName = ref('')
+const cropperIndex = ref<number | null>(null)
+const cropperInputRef = ref<HTMLInputElement | null>(null)
 
-const deriveSellerId = () => {
-  const user = getAuthUser() as any
-  const candidates = [user?.seller_id, user?.sellerId, user?.id, user?.user_id, user?.userId]
-  for (const value of candidates) {
-    if (typeof value === 'number' && Number.isFinite(value)) return value
-    if (typeof value === 'string') {
-      const parsed = Number.parseInt(value, 10)
-      if (!Number.isNaN(parsed)) return parsed
+const statusLabelMap: Record<ProductStatus, string> = {
+  DRAFT: '작성중',
+  READY: '준비',
+  ON_SALE: '판매중',
+  LIMITED_SALE: '한정판매',
+  SOLD_OUT: '품절',
+  PAUSED: '일시중지',
+  HIDDEN: '숨김',
+}
+
+const buildAuthHeaders = (): Record<string, string> => {
+  const access = localStorage.getItem('access') || sessionStorage.getItem('access')
+  if (!access) return {}
+  return { Authorization: `Bearer ${access}` }
+}
+
+const setUploading = (index: number, value: boolean) => {
+  uploadings.value = uploadings.value.map((slot, idx) => (idx === index ? value : slot))
+}
+
+const resetCropperState = () => {
+  cropperSource.value = ''
+  cropperFileName.value = ''
+  cropperIndex.value = null
+  cropperInputRef.value = null
+}
+
+const openCropper = (file: File, index: number, input: HTMLInputElement) => {
+  const reader = new FileReader()
+  reader.onload = () => {
+    cropperSource.value = typeof reader.result === 'string' ? reader.result : ''
+    cropperFileName.value = file.name
+    cropperIndex.value = index
+    cropperInputRef.value = input
+    cropperOpen.value = true
+  }
+  reader.readAsDataURL(file)
+}
+
+const dataUrlToFile = (dataUrl: string, fileName: string) => {
+  const [header, base64] = dataUrl.split(',')
+  if (!header || !base64) return null
+  const mimeMatch = header.match(/data:(.*?);base64/)
+  const mimeType = mimeMatch?.[1] ?? 'image/jpeg'
+  const binary = atob(base64)
+  const bytes = new Uint8Array(binary.length)
+  for (let i = 0; i < binary.length; i += 1) {
+    bytes[i] = binary.charCodeAt(i)
+  }
+  return new File([bytes], fileName, { type: mimeType })
+}
+
+const uploadImageFile = async (index: number, file: File) => {
+  error.value = ''
+  setUploading(index, true)
+  try {
+    const formData = new FormData()
+    formData.append('file', file)
+    const response = await fetch(`${apiBase}/seller/products/images/upload`, {
+      method: 'POST',
+      headers: {
+        ...buildAuthHeaders(),
+      },
+      credentials: 'include',
+      body: formData,
+    })
+    if (response.status === 401 || response.status === 403) {
+      error.value = '권한이 없습니다. 다시 로그인해주세요.'
+      return
+    }
+    if (response.status === 413) {
+      error.value = '파일 크기가 제한을 초과했습니다.'
+      return
+    }
+    if (!response.ok) {
+      error.value = '이미지 업로드에 실패했습니다.'
+      return
+    }
+    const data = (await response.json()) as { url?: string }
+    if (!data.url) {
+      error.value = '이미지 업로드에 실패했습니다.'
+      return
+    }
+    const next = [...images.value]
+    next[index] = data.url
+    images.value = next
+    imagesDirty.value = true
+  } catch {
+    error.value = '이미지 업로드에 실패했습니다.'
+  } finally {
+    setUploading(index, false)
+    if (cropperInputRef.value) {
+      cropperInputRef.value.value = ''
     }
   }
-  return null
 }
 
-const mapFromProductsData = (id: string): SellerProductDraft | null => {
-  const productId = Number.parseInt(id, 10)
-  if (Number.isNaN(productId)) return null
-  const product = productsData.find((item) => item.product_id === productId)
-  if (!product) return null
-  return {
-    id,
-    sellerId: product.seller_id,
-    name: product.name,
-    shortDesc: product.short_desc,
-    costPrice: product.cost_price,
-    price: product.price,
-    stock: product.salesVolume ?? 0,
-    images: product.imageUrl ? [product.imageUrl] : [],
-    detailHtml: '',
+const handleCropConfirm = async (payload: { dataUrl: string; fileName: string }) => {
+  const index = cropperIndex.value
+  if (index === null) return
+  const file = dataUrlToFile(payload.dataUrl, payload.fileName)
+  if (!file) {
+    error.value = '이미지 업로드에 실패했습니다.'
+    cropperOpen.value = false
+    return
   }
-}
-
-const normalizeImages = (list: string[]) => {
-  const next = [...list].slice(0, 5)
-  while (next.length < 5) {
-    next.push('')
+  if (file.size > MAX_IMAGE_BYTES) {
+    error.value = '파일 크기가 제한을 초과했습니다.'
+    cropperOpen.value = false
+    return
   }
-  return next
+  await uploadImageFile(index, file)
+  cropperOpen.value = false
 }
 
-const loadInitial = () => {
+const loadInitial = async () => {
   const id = typeof route.params.id === 'string' ? route.params.id : ''
-  const draft = loadProductDraft()
-  if (draft && draft.id === id) {
-    name.value = draft.name
-    shortDesc.value = draft.shortDesc
-    costPrice.value = draft.costPrice
-    price.value = draft.price
-    stock.value = draft.stock
-    images.value = normalizeImages(Array.isArray(draft.images) ? draft.images : [])
+  if (!id) {
+    error.value = '상품 정보를 불러올 수 없습니다.'
     return
   }
-  const stored = getProductById(id)
-  if (stored) {
-    name.value = stored.name
-    shortDesc.value = stored.shortDesc
-    costPrice.value = stored.costPrice
-    price.value = stored.price
-    stock.value = stored.stock
-    images.value = normalizeImages(Array.isArray(stored.images) ? stored.images : [])
-    saveProductDraft({
-      id: stored.id,
-      sellerId: stored.sellerId,
-      name: stored.name,
-      shortDesc: stored.shortDesc,
-      costPrice: stored.costPrice,
-      price: stored.price,
-      stock: stored.stock,
-      images: normalizeImages(Array.isArray(stored.images) ? stored.images : []),
-      detailHtml: stored.detailHtml,
+  try {
+    const response = await fetch(`${apiBase}/seller/products/${id}`, {
+      method: 'GET',
+      headers: {
+        ...buildAuthHeaders(),
+      },
+      credentials: 'include',
     })
-    return
-  }
-  const mapped = mapFromProductsData(id)
-  if (mapped) {
-    name.value = mapped.name
-    shortDesc.value = mapped.shortDesc
-    costPrice.value = mapped.costPrice
-    price.value = mapped.price
-    stock.value = mapped.stock
-    images.value = normalizeImages(Array.isArray(mapped.images) ? mapped.images : [])
-    saveProductDraft({
-      ...mapped,
-      images: normalizeImages(Array.isArray(mapped.images) ? mapped.images : []),
-    })
+    if (!response.ok) {
+      error.value = '상품 정보를 불러올 수 없습니다.'
+      return
+    }
+    const data = (await response.json()) as {
+      product_name?: string
+      short_desc?: string
+      price?: number
+      stock_qty?: number
+      image_urls?: string[]
+      status?: ProductStatus
+    }
+    name.value = data.product_name ?? ''
+    shortDesc.value = data.short_desc ?? ''
+    price.value = typeof data.price === 'number' ? data.price : 0
+    stock.value = typeof data.stock_qty === 'number' ? data.stock_qty : 0
+    const imageUrls = Array.isArray(data.image_urls) ? data.image_urls.slice(0, 5) : []
+    images.value = Array.from({ length: 5 }, (_, index) => imageUrls[index] ?? '')
+    uploadings.value = [false, false, false, false, false]
+    imagesDirty.value = false
+    status.value = data.status ?? null
+  } catch {
+    error.value = '상품 정보를 불러올 수 없습니다.'
   }
 }
 
-const setImageAt = (index: number, event: Event) => {
+const setImageAt = async (index: number, event: Event) => {
   const input = event.target as HTMLInputElement
   const file = input.files?.[0]
   if (!file) return
-  if (!file.type.startsWith('image/')) {
+  if (!file.type || !file.type.startsWith('image/')) {
     error.value = '이미지 파일만 업로드할 수 있습니다.'
     input.value = ''
     return
   }
-  const reader = new FileReader()
-  reader.onload = () => {
-    if (typeof reader.result === 'string') {
-      const next = [...images.value]
-      next[index] = reader.result
-      images.value = next
-    }
+  if (file.size > MAX_IMAGE_BYTES) {
+    error.value = '파일 크기가 제한을 초과했습니다.'
+    input.value = ''
+    return
   }
-  reader.readAsDataURL(file)
+
+  error.value = ''
+  openCropper(file, index, input)
 }
 
 const clearImageAt = (index: number) => {
   const next = [...images.value]
   next[index] = ''
   images.value = next
-}
-
-const saveDraftOnly = () => {
-  const id = typeof route.params.id === 'string' ? route.params.id : ''
-  saveProductDraft({
-    id,
-    sellerId: deriveSellerId() ?? undefined,
-    name: name.value.trim(),
-    shortDesc: shortDesc.value.trim(),
-    costPrice: costPrice.value,
-    price: price.value,
-    stock: stock.value,
-    images: normalizeImages(images.value),
-    detailHtml: '',
-  })
-}
-
-const goNext = () => {
-  error.value = ''
-  if (!name.value.trim() || !shortDesc.value.trim()) {
-    error.value = '상품명과 한 줄 소개를 입력해주세요.'
-    return
-  }
-  saveDraftOnly()
-  const id = typeof route.params.id === 'string' ? route.params.id : ''
-  router.push(`/seller/products/${id}/edit/detail`).catch(() => {})
+  imagesDirty.value = true
 }
 
 const cancel = () => {
-  router.push('/seller/products').catch(() => {})
+  router.push({ name: 'seller-products' }).catch(() => {})
 }
 
-const handleDelete = () => {
+const handleDelete = async () => {
   const id = typeof route.params.id === 'string' ? route.params.id : ''
+  if (!id) {
+    error.value = '상품 정보를 확인할 수 없습니다.'
+    return
+  }
+  if (uploadings.value.some((slot) => slot)) {
+    error.value = '이미지 업로드가 완료될 때까지 기다려주세요.'
+    return
+  }
   if (!window.confirm('정말 삭제하시겠습니까?')) return
-  deleteSellerMockProduct(id)
-  deleteProduct(id)
-  console.log('[product] delete', id)
-  router.push('/seller/products').catch(() => {})
+
+  error.value = ''
+  isDeleting.value = true
+  try {
+    const response = await fetch(`${apiBase}/seller/products/${id}`, {
+      method: 'DELETE',
+      headers: {
+        ...buildAuthHeaders(),
+      },
+      credentials: 'include',
+    })
+    if (response.status === 401 || response.status === 403) {
+      error.value = '권한이 없습니다. 다시 로그인해주세요.'
+      return
+    }
+    if (response.status === 404) {
+      window.alert('이미 삭제되었거나 상품을 찾을 수 없습니다.')
+      router.push({ name: 'seller-products' }).catch(() => {})
+      return
+    }
+    if (!response.ok && response.status !== 204) {
+      error.value = '상품 삭제에 실패했습니다.'
+      return
+    }
+    window.alert('상품이 삭제되었습니다.')
+    router.push({ name: 'seller-products' }).catch(() => {})
+  } catch {
+    error.value = '상품 삭제에 실패했습니다.'
+  } finally {
+    isDeleting.value = false
+  }
+}
+
+const canEditAll = computed(() => {
+  return status.value === 'DRAFT' || status.value === 'READY' || status.value === 'PAUSED'
+})
+const canEditPartial = computed(() => {
+  return status.value === 'ON_SALE'
+})
+const disableName = computed(() => !canEditAll.value)
+const disableShortDesc = computed(() => !(canEditAll.value || canEditPartial.value))
+const disablePrice = computed(() => !(canEditAll.value || canEditPartial.value))
+const disableStock = computed(() => !canEditAll.value)
+
+const statusMessage = computed(() => {
+  if (status.value === 'ON_SALE') {
+    return '판매중인 상품은 상품명과 재고 수량을 수정할 수 없습니다.'
+  }
+  if (status.value && !canEditAll.value && !canEditPartial.value) {
+    return '현재 상태에서는 상품 정보를 수정할 수 없습니다.'
+  }
+  return ''
+})
+
+const handleSubmit = async () => {
+  error.value = ''
+
+  if (!name.value.trim()) {
+    error.value = '상품명을 입력해주세요.'
+    return
+  }
+  if (!Number.isFinite(price.value) || price.value < 0) {
+    error.value = '판매가를 올바르게 입력해주세요.'
+    return
+  }
+  if (!Number.isFinite(stock.value) || stock.value < 0) {
+    error.value = '재고를 올바르게 입력해주세요.'
+    return
+  }
+  if (!canEditAll.value && !canEditPartial.value) {
+    error.value = '수정할 수 없는 상품 상태입니다.'
+    return
+  }
+  if (uploadings.value.some((slot) => slot)) {
+    error.value = '이미지 업로드가 완료될 때까지 기다려주세요.'
+    return
+  }
+
+  const id = typeof route.params.id === 'string' ? route.params.id : ''
+  if (!id) {
+    error.value = '상품 정보를 확인할 수 없습니다.'
+    return
+  }
+
+  const payload: Record<string, unknown> = {}
+  if (canEditAll.value) {
+    payload.product_name = name.value.trim()
+    payload.short_desc = shortDesc.value.trim()
+    payload.price = price.value
+    payload.stock_qty = stock.value
+  } else if (canEditPartial.value) {
+    payload.short_desc = shortDesc.value.trim()
+    payload.price = price.value
+  }
+  if (imagesDirty.value) {
+    if (!images.value[0]) {
+      error.value = '썸네일 이미지를 등록해주세요.'
+      return
+    }
+    payload.image_urls = images.value.filter((url) => url)
+  }
+
+  try {
+    const response = await fetch(`${apiBase}/seller/products/${id}`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        ...buildAuthHeaders(),
+      },
+      credentials: 'include',
+      body: JSON.stringify(payload),
+    })
+    if (!response.ok) {
+      error.value = '상품 수정에 실패했습니다.'
+      return
+    }
+    router.push({ name: 'seller-products-edit-detail', params: { id } }).catch(() => {})
+  } catch {
+    error.value = '상품 수정에 실패했습니다.'
+  }
 }
 
 onMounted(() => {
   loadInitial()
+})
+
+watch(cropperOpen, (open, wasOpen) => {
+  if (!open && wasOpen) {
+    if (cropperInputRef.value) {
+      cropperInputRef.value.value = ''
+    }
+    resetCropperState()
+  }
 })
 </script>
 
 <template>
   <PageContainer>
     <PageHeader eyebrow="DESKIT" title="상품 수정 - 기본 정보" />
+    <LiveImageCropModal
+      v-model="cropperOpen"
+      :image-src="cropperSource"
+      :file-name="cropperFileName"
+      title="1:1 이미지 자르기"
+      :frame-width-ratio="1"
+      :frame-height-ratio="1"
+      :output-width="1024"
+      :output-height="1024"
+      @confirm="handleCropConfirm"
+    />
     <section class="create-card ds-surface">
-      <label class="field">
-        <span class="field__label">상품명</span>
-        <input v-model="name" type="text" placeholder="예: 모던 데스크 매트" />
-      </label>
+      <div v-if="status" class="status-info">
+        <span class="status-label">현재 상태: {{ statusLabelMap[status] }}</span>
+        <span v-if="statusMessage" class="status-help">{{ statusMessage }}</span>
+      </div>
+      <ProductBasicFields
+        v-model:name="name"
+        v-model:shortDesc="shortDesc"
+        v-model:price="price"
+        v-model:stock="stock"
+        :disableName="disableName"
+        :disableShortDesc="disableShortDesc"
+        :disablePrice="disablePrice"
+        :disableStock="disableStock"
+      />
       <div class="section-block">
         <div class="section-head">
           <h3>상품 이미지</h3>
@@ -194,8 +400,14 @@ onMounted(() => {
             <div class="image-slot__preview">
               <img v-if="img" :src="img" :alt="`상품 이미지 ${idx}`" />
               <label v-if="!img" class="btn ghost image-slot__upload">
-                업로드
-                <input type="file" accept="image/*" @change="setImageAt(idx, $event)" hidden />
+                {{ uploadings[idx] ? '업로드 중' : '업로드' }}
+                <input
+                  type="file"
+                  accept="image/*"
+                  :disabled="uploadings[idx]"
+                  @change="setImageAt(idx, $event)"
+                  hidden
+                />
               </label>
             </div>
             <div class="image-slot__actions">
@@ -206,29 +418,18 @@ onMounted(() => {
           </div>
         </div>
       </div>
-      <label class="field">
-        <span class="field__label">한 줄 소개</span>
-        <input v-model="shortDesc" type="text" placeholder="예: 감성적인 데스크테리어" />
-      </label>
-      <div class="field-grid">
-        <label class="field">
-          <span class="field__label">원가</span>
-          <input v-model.number="costPrice" type="number" min="0" />
-        </label>
-        <label class="field">
-          <span class="field__label">판매가</span>
-          <input v-model.number="price" type="number" min="0" />
-        </label>
-        <label class="field">
-          <span class="field__label">재고 수량</span>
-          <input v-model.number="stock" type="number" min="0" />
-        </label>
-      </div>
       <p v-if="error" class="error">{{ error }}</p>
       <div class="actions">
         <button type="button" class="btn" @click="cancel">취소</button>
-        <button type="button" class="btn danger" @click="handleDelete">삭제</button>
-        <button type="button" class="btn primary" @click="goNext">상세 작성</button>
+        <button
+          type="button"
+          class="btn danger"
+          :disabled="isDeleting || uploadings.some((slot) => slot)"
+          @click="handleDelete"
+        >
+          삭제
+        </button>
+        <button type="button" class="btn primary" @click="handleSubmit">상세 수정</button>
       </div>
     </section>
   </PageContainer>
@@ -240,6 +441,27 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   gap: 14px;
+}
+
+.status-info {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px;
+  border-radius: 12px;
+  background: var(--surface-weak);
+  border: 1px solid var(--border-color);
+}
+
+.status-label {
+  font-weight: 800;
+  color: var(--text-strong);
+}
+
+.status-help {
+  color: var(--text-muted);
+  font-weight: 700;
+  font-size: 0.85rem;
 }
 
 .field {

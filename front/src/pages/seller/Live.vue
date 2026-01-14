@@ -1,22 +1,41 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch, type ComponentPublicInstance } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import PageHeader from '../../components/PageHeader.vue'
 import DeviceSetupModal from '../../components/DeviceSetupModal.vue'
-import { getScheduledBroadcasts } from '../../composables/useSellerBroadcasts'
-import { getSellerReservationDetail, sellerReservationSummaries } from '../../lib/mocks/sellerReservations'
-import { getSellerVodDetail, sellerVodSummaries } from '../../lib/mocks/sellerVods'
 import { useInfiniteScroll } from '../../composables/useInfiniteScroll'
 import {
   computeLifecycleStatus,
+  getBroadcastStatusLabel,
   getScheduledEndMs,
   hasReachedStartTime,
   normalizeBroadcastStatus,
   type BroadcastStatus,
 } from '../../lib/broadcastStatus'
+import { parseLiveDate } from '../../lib/live/utils'
+import { useNow } from '../../lib/live/useNow'
+import {
+  fetchBroadcastStats,
+  fetchCategories,
+  fetchMediaConfig,
+  fetchSellerBroadcastDetail,
+  fetchSellerBroadcastReport,
+  fetchSellerBroadcasts,
+  type BroadcastCategory,
+} from '../../lib/live/api'
+import { getAuthUser } from '../../lib/auth'
+import { resolveViewerId } from '../../lib/live/viewer'
+import {
+  clearDraft,
+  clearDraftRestoreDecision,
+  loadDraft,
+  clearWorkingDraft,
+  setDraftRestoreDecision,
+} from '../../composables/useLiveCreateDraft'
 
 const router = useRouter()
 const route = useRoute()
+const { now } = useNow(1000)
 
 type LiveTab = 'all' | 'scheduled' | 'live' | 'vod'
 type CarouselKind = 'live' | 'scheduled' | 'vod'
@@ -33,6 +52,7 @@ type LiveItem = {
   ctaLabel: string
   likes?: number
   viewers?: number
+  reports?: number
   visibility?: string | boolean
   createdAt?: string
   category?: string
@@ -47,7 +67,6 @@ const activeTab = ref<LiveTab>('all')
 
 const LIVE_SECTION_STATUSES: BroadcastStatus[] = ['READY', 'ON_AIR', 'ENDED', 'STOPPED']
 const SCHEDULED_SECTION_STATUSES: BroadcastStatus[] = ['RESERVED', 'CANCELED']
-const VOD_SECTION_STATUSES: BroadcastStatus[] = ['VOD', 'STOPPED']
 const statusPriority: Record<BroadcastStatus, number> = {
   ON_AIR: 0,
   READY: 1,
@@ -78,70 +97,44 @@ const showDeviceModal = ref(false)
 const selectedScheduled = ref<LiveItem | null>(null)
 
 const liveItems = ref<LiveItem[]>([])
-const liveProducts = ref(
-  [
-    {
-      id: 'p-1',
-      title: '모던 스탠딩 데스크',
-      optionLabel: '1200mm · 오프화이트',
-      status: '판매중',
-      priceOriginal: 289000,
-      priceSale: 229000,
-      soldCount: 48,
-      stockTotal: 120,
-      pinned: true,
-      thumb: '',
-    },
-    {
-      id: 'p-2',
-      title: '로우 프로파일 키보드',
-      optionLabel: '무선 · 베이지',
-      status: '판매중',
-      priceOriginal: 139000,
-      priceSale: 99000,
-      soldCount: 72,
-      stockTotal: 180,
-      pinned: false,
-      thumb: '',
-    },
-    {
-      id: 'p-3',
-      title: '미니멀 데스크 매트',
-      optionLabel: '900mm · 샌드',
-      status: '품절',
-      priceOriginal: 59000,
-      priceSale: 45000,
-      soldCount: 110,
-      stockTotal: 110,
-      pinned: false,
-      thumb: '',
-    },
-    {
-      id: 'p-4',
-      title: '알루미늄 모니터암',
-      optionLabel: '싱글 · 블랙',
-      status: '판매중',
-      priceOriginal: 169000,
-      priceSale: 129000,
-      soldCount: 39,
-      stockTotal: 95,
-      pinned: true,
-      thumb: '',
-    },
-  ],
-)
+const liveProducts = ref<
+  Array<{
+    id: string
+    title: string
+    optionLabel: string
+    status: string
+    priceOriginal: number
+    priceSale: number
+    soldCount: number
+    stockTotal: number
+    pinned: boolean
+    thumb: string
+  }>
+>([])
+const sortedLiveProducts = computed(() => {
+  const items = [...liveProducts.value]
+  return items.sort((a, b) => {
+    const aSoldOut = a.status === '품절'
+    const bSoldOut = b.status === '품절'
+    if (aSoldOut !== bSoldOut) return aSoldOut ? 1 : -1
+    if (a.pinned !== b.pinned) return a.pinned ? -1 : 1
+    return 0
+  })
+})
 
-const liveStats = ref({
-  status: 'ON_AIR',
-  viewers: '1,248명',
-  likes: '3,420',
-  revenue: '₩4,920,000',
+const liveStats = ref<{ status: string; viewers: string; likes: string; revenue: string; hasData: boolean } | null>(null)
+const displayLiveStats = computed(() => liveStats.value ?? {
+  status: '-',
+  viewers: '-',
+  likes: '-',
+  revenue: '-',
+  hasData: false,
 })
 
 const scheduledItems = ref<LiveItem[]>([])
 const vodItems = ref<LiveItem[]>([])
+const categories = ref<BroadcastCategory[]>([])
 
-const liveTicker = ref<number | null>(null)
 const loopGap = 14
 const carouselRefs = ref<Record<LoopKind, HTMLElement | null>>({
   scheduled: null,
@@ -152,8 +145,8 @@ const slideWidths = ref<Record<LoopKind, number>>({
   vod: 0,
 })
 const loopIndex = ref<Record<LoopKind, number>>({
-  scheduled: 1,
-  vod: 1,
+  scheduled: 0,
+  vod: 0,
 })
 const loopTransition = ref<Record<LoopKind, boolean>>({
   scheduled: true,
@@ -163,14 +156,23 @@ const autoTimers = ref<Record<LoopKind, number | null>>({
   scheduled: null,
   vod: null,
 })
+const loopEnabled = ref<Record<LoopKind, boolean>>({
+  scheduled: false,
+  vod: false,
+})
+const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080'
+const sseSource = ref<EventSource | null>(null)
+const sseConnected = ref(false)
+const sseRetryCount = ref(0)
+const sseRetryTimer = ref<number | null>(null)
+const refreshTimer = ref<number | null>(null)
+const statsTimer = ref<number | null>(null)
 
 const toDateMs = (item: LiveItem) => {
   const raw = item.createdAt || item.datetime || ''
   const parsed = Date.parse(raw.replace(/\./g, '-').replace(' ', 'T'))
   return Number.isNaN(parsed) ? 0 : parsed
 }
-
-const pickFromList = (list: readonly string[], index: number): string => list[index % list.length] ?? list[0] ?? ''
 
 const getLikes = (item: LiveItem) => (typeof item.likes === 'number' ? item.likes : 0)
 const getViewers = (item: LiveItem) => (typeof item.viewers === 'number' ? item.viewers : 0)
@@ -180,7 +182,8 @@ const getVisibility = (item: LiveItem): 'public' | 'private' => {
     if (item.visibility === 'public' || item.visibility === '공개') return 'public'
     if (item.visibility === 'private' || item.visibility === '비공개') return 'private'
   }
-  if ((item as any)?.isPublic === true) return 'public'
+  const rawPublic = (item as any)?.isPublic ?? (item as any)?.public
+  if (typeof rawPublic === 'boolean') return rawPublic ? 'public' : 'private'
   return 'public'
 }
 
@@ -195,18 +198,6 @@ const formatDDay = (item: LiveItem) => {
   if (diffDays > 0) return `D-${diffDays}`
   return `D+${Math.abs(diffDays)}`
 }
-
-const gradientPalette = ['111827', '0f172a', '1f2937', '334155'] as const
-
-const gradientThumb = (from: string, to: string) =>
-  `data:image/svg+xml;utf8,` +
-  `<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 320 200'>` +
-  `<defs><linearGradient id='g' x1='0' x2='1' y1='0' y2='1'>` +
-  `<stop offset='0' stop-color='%23${from}'/>` +
-  `<stop offset='1' stop-color='%23${to}'/>` +
-  `</linearGradient></defs>` +
-  `<rect width='320' height='200' fill='url(%23g)'/>` +
-  `</svg>`
 
 const withLifecycleStatus = (item: LiveItem): LiveItem => {
   const startAtMs = item.startAtMs ?? toDateMs(item)
@@ -225,9 +216,9 @@ const withLifecycleStatus = (item: LiveItem): LiveItem => {
 }
 
 const isPastScheduledEnd = (item: LiveItem): boolean => {
-  const endAtMs = getScheduledEndMs(item.startAtMs, item.endAtMs)
-  if (!endAtMs) return false
-  return Date.now() > endAtMs
+  const scheduledEndMs = getScheduledEndMs(item.startAtMs)
+  if (!scheduledEndMs) return false
+  return Date.now() > scheduledEndMs
 }
 
 const formatDateLabel = (ms?: number, prefix: string = '업로드'): string => {
@@ -236,6 +227,42 @@ const formatDateLabel = (ms?: number, prefix: string = '업로드'): string => {
   const date = `${d.getFullYear()}.${String(d.getMonth() + 1).padStart(2, '0')}.${String(d.getDate()).padStart(2, '0')}`
   const time = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
   return `${prefix}: ${date} ${time}`
+}
+
+const resolveCategoryId = (categoryName: string) => {
+  if (categoryName === 'all') return undefined
+  return categories.value.find((category) => category.name === categoryName)?.id
+}
+
+const mapScheduledSortType = () => {
+  if (scheduledSort.value === 'nearest') return 'START_ASC'
+  if (scheduledSort.value === 'latest') return 'LATEST'
+  if (scheduledSort.value === 'oldest') return 'OLDEST'
+  return undefined
+}
+
+const mapScheduledStatusFilter = () => {
+  if (scheduledStatus.value === 'reserved') return 'RESERVED'
+  if (scheduledStatus.value === 'canceled') return 'CANCELED'
+  return undefined
+}
+
+const mapVodSortType = () => {
+  if (vodSort.value === 'latest') return 'LATEST'
+  if (vodSort.value === 'oldest') return 'OLDEST'
+  if (vodSort.value === 'likes_desc') return 'LIKE_DESC'
+  if (vodSort.value === 'likes_asc') return 'LIKE_ASC'
+  if (vodSort.value === 'viewers_desc') return 'VIEWER_DESC'
+  if (vodSort.value === 'viewers_asc') return 'VIEWER_ASC'
+  if (vodSort.value === 'revenue_desc') return 'SALES'
+  if (vodSort.value === 'revenue_asc') return 'SALES_ASC'
+  return undefined
+}
+
+const mapVodVisibility = () => {
+  if (vodVisibility.value === 'public') return true
+  if (vodVisibility.value === 'private') return false
+  return undefined
 }
 
 const getLifecycleStatus = (item: LiveItem): BroadcastStatus => normalizeBroadcastStatus(item.lifecycleStatus ?? item.status)
@@ -251,106 +278,97 @@ const getLiveCtaLabel = (item: LiveItem): string => {
   return item.ctaLabel ?? '방송 입장'
 }
 
-const liveCategories = ['홈오피스', '주변기기', '조명', '정리/수납']
+const formatElapsed = (startAtMs?: number) => {
+  if (!startAtMs) return ''
+  const diffMs = Math.max(0, now.value.getTime() - startAtMs)
+  const totalSeconds = Math.floor(diffMs / 1000)
+  const hours = Math.floor(totalSeconds / 3600)
+  const minutes = Math.floor((totalSeconds % 3600) / 60)
+  const seconds = totalSeconds % 60
+  const pad = (value: number) => String(value).padStart(2, '0')
+  return hours > 0 ? `${pad(hours)}:${pad(minutes)}:${pad(seconds)}` : `${pad(minutes)}:${pad(seconds)}`
+}
 
-const buildLiveItems = () => {
-  const minutesFromNow = (offset: number) => Date.now() + offset * 60 * 1000
-  const formatRange = (startMs: number, durationMinutes: number) => {
-    const start = new Date(startMs)
-    const end = new Date(startMs + durationMinutes * 60 * 1000)
-    const fmt = (d: Date) => `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
-    return `오늘 ${fmt(start)} - ${fmt(end)}`
+const formatStartTime = (startAtMs?: number) => {
+  if (!startAtMs) return ''
+  const date = new Date(startAtMs)
+  const hours = String(date.getHours()).padStart(2, '0')
+  const minutes = String(date.getMinutes()).padStart(2, '0')
+  return `${hours}:${minutes}`
+}
+
+const parseBroadcastId = (value?: string) => {
+  const numeric = Number.parseInt(String(value ?? '').replace(/[^0-9]/g, ''), 10)
+  return Number.isFinite(numeric) ? numeric : null
+}
+
+const formatDateTime = (value?: string) => {
+  if (!value) return ''
+  const date = parseLiveDate(value)
+  if (Number.isNaN(date.getTime())) return value
+  const yyyy = date.getFullYear()
+  const mm = String(date.getMonth() + 1).padStart(2, '0')
+  const dd = String(date.getDate()).padStart(2, '0')
+  const hh = String(date.getHours()).padStart(2, '0')
+  const min = String(date.getMinutes()).padStart(2, '0')
+  return `${yyyy}.${mm}.${dd} ${hh}:${min}`
+}
+
+const parseAmount = (value: unknown) => {
+  if (typeof value === 'number') return value
+  if (typeof value === 'string') {
+    const parsed = Number.parseFloat(value.replace(/,/g, ''))
+    return Number.isNaN(parsed) ? 0 : parsed
   }
+  return 0
+}
 
-  const seeds: Array<LiveItem & { startOffset: number; duration: number }> = [
-    {
-      id: 'live-1',
-      title: '진행 중인 방송 제목',
-      subtitle: '셋업 추천 라이브',
-      thumb: gradientThumb('0f172a', '1f2937'),
-      startOffset: -15,
-      duration: 45,
-      status: 'ON_AIR',
-      statusBadge: 'ON_AIR',
-      viewerBadge: '500명 시청 중',
-      ctaLabel: '방송 입장',
-      viewers: 500,
-      likes: 320,
-      category: liveCategories[0],
-      datetime: '',
-    },
-    {
-      id: 'live-2',
-      title: '게이밍 데스크 셋업',
-      subtitle: '조명 & 모니터암',
-      thumb: gradientThumb('111827', '0f172a'),
-      startOffset: -5,
-      duration: 35,
-      status: 'ON_AIR',
-      statusBadge: 'ON_AIR',
-      viewerBadge: '214명 시청 중',
-      ctaLabel: '방송 입장',
-      viewers: 214,
-      likes: 190,
-      category: liveCategories[1],
-      datetime: '',
-    },
-    {
-      id: 'live-3',
-      title: '미니멀 오피스 데스크',
-      subtitle: '수납/정리 팁',
-      thumb: gradientThumb('1f2937', '111827'),
-      startOffset: 8,
-      duration: 30,
-      status: 'READY',
-      statusBadge: 'READY',
-      viewerBadge: '예정 방송',
-      ctaLabel: '방송 입장',
-      viewers: 89,
-      likes: 120,
-      category: liveCategories[2],
-      datetime: '',
-    },
-    {
-      id: 'live-4',
-      title: '홈카페 코너 셋업',
-      subtitle: '바 스툴 & 선반',
-      thumb: gradientThumb('0b1324', '0f172a'),
-      startOffset: -35,
-      duration: 30,
-      status: 'ON_AIR',
-      statusBadge: 'ON_AIR',
-      viewerBadge: '132명 시청 중',
-      ctaLabel: '방송 입장',
-      viewers: 132,
-      likes: 140,
-      category: liveCategories[3],
-      datetime: '',
-    },
-  ]
+const resolveRouteId = (item: LiveItem) => {
+  const parsed = parseBroadcastId(item.id)
+  return parsed ? String(parsed) : item.id
+}
 
-  liveItems.value = seeds.map((seed) => {
-    const startAtMs = minutesFromNow(seed.startOffset)
-    const endAtMs = startAtMs + seed.duration * 60 * 1000
-    return {
-      ...seed,
-      datetime: formatRange(startAtMs, seed.duration),
-      startAtMs,
-      endAtMs,
-    }
-  })
+const mapBroadcastItem = (item: any, kind: 'live' | 'scheduled' | 'vod'): LiveItem => {
+  const startAtValue = item.startAt ?? item.scheduledAt
+  const startAtMs = startAtValue ? parseLiveDate(startAtValue).getTime() : undefined
+  const endAtMs = item.endAt ? parseLiveDate(item.endAt).getTime() : getScheduledEndMs(startAtMs)
+  const status = normalizeBroadcastStatus(item.status)
+  const rawPublic = item.isPublic ?? item.public
+  const visibility = typeof rawPublic === 'boolean' ? (rawPublic ? 'public' : 'private') : 'public'
+  const dateLabel = formatDateTime(startAtValue)
+  const datetime = kind === 'vod' ? (dateLabel ? `업로드: ${dateLabel}` : '') : dateLabel
+  const viewers = typeof item.liveViewerCount === 'number'
+    ? item.liveViewerCount
+    : (typeof item.viewerCount === 'number' ? item.viewerCount : 0)
+  const viewerBadge = typeof viewers === 'number' ? `${viewers}명 시청 중` : undefined
 
-  liveProducts.value = liveProducts.value.map((item, index) => ({
-    ...item,
-    thumb: gradientThumb(pickFromList(gradientPalette, index), '0f172a'),
-  }))
+  return {
+    id: String(item.broadcastId),
+    title: item.title ?? '',
+    subtitle: item.categoryName ?? '',
+    thumb: item.thumbnailUrl ?? '',
+    datetime,
+    ctaLabel: kind === 'vod' ? '상세보기' : '방송 입장',
+    category: item.categoryName ?? '기타',
+    status,
+    lifecycleStatus: status,
+    startAtMs: Number.isNaN(startAtMs) ? undefined : startAtMs,
+    endAtMs: Number.isNaN(endAtMs ?? NaN) ? undefined : endAtMs,
+    viewers,
+    likes: item.totalLikes ?? 0,
+    reports: item.reportCount ?? 0,
+    revenue: parseAmount(item.totalSales),
+    visibility,
+    statusBadge: kind === 'vod' ? (visibility === 'private' ? '비공개' : 'VOD') : undefined,
+    viewerBadge,
+  }
 }
 
 const liveItemsWithStatus = computed(() => liveItems.value.map(withLifecycleStatus))
 const scheduledWithStatus = computed(() => scheduledItems.value.map(withLifecycleStatus))
 
 const liveStageItems = computed(() => {
-  const merged = [...liveItemsWithStatus.value, ...scheduledWithStatus.value]
+  const merged = [...scheduledWithStatus.value, ...liveItemsWithStatus.value]
   const byId = new Map<string, LiveItem>()
   merged.forEach((item) => {
     const lifecycleStatus = normalizeBroadcastStatus(item.lifecycleStatus ?? item.status)
@@ -375,78 +393,201 @@ const liveItemsSorted = computed(() => {
 })
 
 const currentLive = computed(() => liveItemsSorted.value[0] ?? null)
+const showLiveStats = computed(() => Boolean(currentLive.value && liveStats.value?.hasData))
+const showLiveProducts = computed(() => Boolean(currentLive.value && liveProducts.value.length))
+const formatStatusLabel = (status?: BroadcastStatus | string | null) => getBroadcastStatusLabel(status)
 
-const vodCategories = ['홈오피스', '주변기기', '정리/수납', '조명']
-
-const loadScheduled = () => {
-  const fromStorage = getScheduledBroadcasts().map((item, index) => {
-    const detail = getSellerReservationDetail(item.id)
-    const startAtMs = Date.parse(item.datetime.replace(/\./g, '-').replace(' ', 'T'))
-    const status = normalizeBroadcastStatus(detail?.status)
-    return {
-      ...item,
-      category: detail?.category ?? pickFromList(liveCategories, index),
-      status,
-      lifecycleStatus: status,
-      startAtMs: Number.isNaN(startAtMs) ? undefined : startAtMs,
-      endAtMs: getScheduledEndMs(Number.isNaN(startAtMs) ? undefined : startAtMs),
-    }
-  })
-
-  const seeded = sellerReservationSummaries.map((item, index) => {
-    const detail = getSellerReservationDetail(item.id)
-    const startAtMs = Date.parse(item.datetime.replace(/\./g, '-').replace(' ', 'T'))
-    const status = normalizeBroadcastStatus(detail?.status)
-    return {
-      ...item,
-      category: detail?.category ?? pickFromList(liveCategories, index),
-      status,
-      lifecycleStatus: status,
-      startAtMs: Number.isNaN(startAtMs) ? undefined : startAtMs,
-      endAtMs: getScheduledEndMs(Number.isNaN(startAtMs) ? undefined : startAtMs),
-    }
-  })
-
-  scheduledItems.value = [...fromStorage, ...seeded]
-    .sort((a, b) => {
-      const aDate = a.startAtMs ?? toDateMs(a)
-      const bDate = b.startAtMs ?? toDateMs(b)
-      return aDate - bDate
-    })
+const loadSellerData = async () => {
+  try {
+    const scheduledCategoryId = resolveCategoryId(scheduledCategory.value)
+    const vodCategoryId = resolveCategoryId(vodCategory.value)
+    const [liveList, scheduledList, vodList] = await Promise.all([
+      fetchSellerBroadcasts({ tab: 'LIVE', size: 200 }),
+      fetchSellerBroadcasts({
+        tab: 'RESERVED',
+        size: 200,
+        sortType: mapScheduledSortType(),
+        statusFilter: mapScheduledStatusFilter(),
+        categoryId: scheduledCategoryId,
+      }),
+      fetchSellerBroadcasts({
+        tab: 'VOD',
+        size: 200,
+        sortType: mapVodSortType(),
+        categoryId: vodCategoryId,
+        isPublic: mapVodVisibility(),
+        startDate: vodStartDate.value || undefined,
+        endDate: vodEndDate.value || undefined,
+      }),
+    ])
+    liveItems.value = liveList.map((item) => mapBroadcastItem(item, 'live'))
+    scheduledItems.value = scheduledList.map((item) => mapBroadcastItem(item, 'scheduled'))
+    vodItems.value = vodList.map((item) => mapBroadcastItem(item, 'vod'))
+  } catch {
+    liveItems.value = []
+    scheduledItems.value = []
+    vodItems.value = []
+  }
 }
 
-const loadVods = () => {
-  vodItems.value = sellerVodSummaries.map((item, index) => {
-    const detail = getSellerVodDetail(item.id)
-    const visibility = detail?.vod?.visibility === '비공개' ? 'private' : 'public'
-    const startMs = Date.parse(item.startedAt.replace(/\./g, '-').replace(' ', 'T'))
-    const endMs = Date.parse(item.endedAt.replace(/\./g, '-').replace(' ', 'T'))
-    return {
+const parseSseData = (event: MessageEvent) => {
+  if (!event.data) return null
+  try {
+    return JSON.parse(event.data)
+  } catch {
+    return event.data
+  }
+}
+
+const scheduleRefresh = () => {
+  if (refreshTimer.value) window.clearTimeout(refreshTimer.value)
+  refreshTimer.value = window.setTimeout(() => {
+    void loadSellerData()
+  }, 500)
+}
+
+const isStatsTarget = (item: LiveItem) => {
+  const status = normalizeBroadcastStatus(item.status)
+  if (status === 'ON_AIR' || status === 'READY' || status === 'ENDED' || status === 'STOPPED') return true
+  const startAtMs = item.startAtMs
+  const endAtMs = item.endAtMs ?? getScheduledEndMs(startAtMs)
+  if (!startAtMs || !endAtMs) return false
+  const now = Date.now()
+  return now >= startAtMs && now <= endAtMs
+}
+
+const updateLiveViewerCounts = async () => {
+  const targets = [...liveItems.value, ...scheduledItems.value]
+    .filter((item) => isStatsTarget(item))
+    .filter((item, index, list) => list.findIndex((candidate) => candidate.id === item.id) === index)
+  if (!targets.length) return
+  const updates = await Promise.allSettled(
+    targets.map(async (item) => ({
       id: item.id,
-      title: item.title,
-      subtitle: '',
-      thumb: item.thumb,
-      datetime: `업로드: ${item.startedAt}`,
-      ctaLabel: '상세보기',
-      visibility,
-      createdAt: item.startedAt,
-      likes: detail?.metrics?.likes ?? 0,
-      viewers: detail?.metrics?.maxViewers ?? 0,
-      revenue: detail?.metrics?.totalRevenue ?? 0,
-      category: pickFromList(vodCategories, index),
-      startAtMs: Number.isNaN(startMs) ? undefined : startMs,
-      statusBadge: detail?.vod?.visibility === '비공개' ? '비공개' : 'VOD',
-      viewerBadge: detail?.metrics?.maxViewers ? `${detail.metrics.maxViewers}명 시청` : undefined,
-      status: 'VOD',
-      endAtMs: Number.isNaN(endMs) ? undefined : endMs,
+      stats: await fetchBroadcastStats(Number(item.id)),
+    })),
+  )
+  const statsMap = new Map<string, { viewerCount: number; likeCount: number; reportCount: number }>()
+  updates.forEach((result) => {
+    if (result.status === 'fulfilled') {
+      statsMap.set(result.value.id, {
+        viewerCount: result.value.stats.viewerCount ?? 0,
+        likeCount: result.value.stats.likeCount ?? 0,
+        reportCount: result.value.stats.reportCount ?? 0,
+      })
     }
-  }).sort((a, b) => (b.startAtMs ?? toDateMs(b)) - (a.startAtMs ?? toDateMs(a)))
+  })
+  if (!statsMap.size) return
+  const applyStats = (items: LiveItem[]) =>
+    items.map((item) => {
+      const stats = statsMap.get(item.id)
+      if (!stats) return item
+      const viewers = stats.viewerCount ?? item.viewers ?? 0
+      return {
+        ...item,
+        viewers,
+        viewerBadge: `${viewers}명 시청 중`,
+        likes: stats.likeCount ?? item.likes ?? 0,
+        reports: stats.reportCount ?? item.reports ?? 0,
+      }
+    })
+  liveItems.value = applyStats(liveItems.value)
+  scheduledItems.value = applyStats(scheduledItems.value)
+}
+
+const startStatsPolling = () => {
+  if (statsTimer.value) window.clearInterval(statsTimer.value)
+  statsTimer.value = window.setInterval(() => {
+    if (document.visibilityState !== 'visible') {
+      return
+    }
+    void updateLiveViewerCounts()
+    const current = currentLive.value
+    if (current) {
+      void loadCurrentLiveDetails(current)
+    }
+  }, 5000)
+}
+
+const handleSseEvent = (event: MessageEvent) => {
+  parseSseData(event)
+  switch (event.type) {
+    case 'BROADCAST_READY':
+    case 'BROADCAST_UPDATED':
+    case 'BROADCAST_STARTED':
+    case 'PRODUCT_PINNED':
+    case 'PRODUCT_UNPINNED':
+    case 'PRODUCT_SOLD_OUT':
+    case 'SANCTION_UPDATED':
+    case 'BROADCAST_CANCELED':
+    case 'BROADCAST_ENDED':
+    case 'BROADCAST_SCHEDULED_END':
+    case 'BROADCAST_STOPPED':
+      scheduleRefresh()
+      break
+    default:
+      break
+  }
+}
+
+const scheduleReconnect = () => {
+  if (sseRetryTimer.value) window.clearTimeout(sseRetryTimer.value)
+  const delay = Math.min(30000, 1000 * 2 ** sseRetryCount.value)
+  const jitter = Math.floor(Math.random() * 500)
+  sseRetryTimer.value = window.setTimeout(() => {
+    connectSse()
+  }, delay + jitter)
+  sseRetryCount.value += 1
+}
+
+const connectSse = () => {
+  sseSource.value?.close()
+  const user = getAuthUser()
+  const viewerId = resolveViewerId(user)
+  const query = viewerId ? `?viewerId=${encodeURIComponent(viewerId)}` : ''
+  const source = new EventSource(`${apiBase}/broadcasts/subscribe/all${query}`)
+  const events = [
+    'BROADCAST_READY',
+    'BROADCAST_UPDATED',
+    'BROADCAST_STARTED',
+    'PRODUCT_PINNED',
+    'PRODUCT_UNPINNED',
+    'PRODUCT_SOLD_OUT',
+    'SANCTION_UPDATED',
+    'BROADCAST_CANCELED',
+    'BROADCAST_ENDED',
+    'BROADCAST_SCHEDULED_END',
+    'BROADCAST_STOPPED',
+  ]
+  events.forEach((name) => source.addEventListener(name, handleSseEvent))
+  source.onopen = () => {
+    sseConnected.value = true
+    sseRetryCount.value = 0
+    scheduleRefresh()
+  }
+  source.onerror = () => {
+    sseConnected.value = false
+    source.close()
+    if (document.visibilityState === 'visible') {
+      scheduleReconnect()
+    }
+  }
+  sseSource.value = source
+}
+
+const loadCategories = async () => {
+  try {
+    categories.value = await fetchCategories()
+  } catch {
+    categories.value = []
+  }
 }
 
 const vodItemsWithStatus = computed(() => vodItems.value.map(withLifecycleStatus))
 
-const stoppedVodItems = computed(() =>
-  scheduledWithStatus.value
+const stoppedVodItems = computed<LiveItem[]>(() => {
+  const sources = [...liveItemsWithStatus.value, ...scheduledWithStatus.value]
+  return sources
     .filter(
       (item) =>
         normalizeBroadcastStatus(item.lifecycleStatus ?? item.status) === 'STOPPED' &&
@@ -455,14 +596,14 @@ const stoppedVodItems = computed(() =>
     .map((item) => ({
       ...item,
       status: 'STOPPED',
-      lifecycleStatus: 'STOPPED',
+      lifecycleStatus: 'STOPPED' as BroadcastStatus,
       statusBadge: 'STOPPED',
       visibility: item.visibility ?? 'public',
       datetime: item.datetime || formatDateLabel(item.startAtMs, '종료'),
-    })),
-)
+    }))
+})
 
-const combinedVodItems = computed(() => [...vodItemsWithStatus.value, ...stoppedVodItems.value])
+const combinedVodItems = computed<LiveItem[]>(() => [...vodItemsWithStatus.value, ...stoppedVodItems.value])
 
 const filteredVodItems = computed(() => {
   const startMs = vodStartDate.value ? Date.parse(`${vodStartDate.value}T00:00:00`) : null
@@ -474,8 +615,8 @@ const filteredVodItems = computed(() => {
     if (endMs && dateMs > endMs) return false
     const visibility = getVisibility(item)
     if (vodVisibility.value !== 'all' && vodVisibility.value !== visibility) return false
-    if (vodCategory.value !== 'all' && item.category !== vodCategory.value) return false
-    return true
+    return !(vodCategory.value !== 'all' && item.category !== vodCategory.value);
+
   })
 
   const sortVodList = (items: LiveItem[]) =>
@@ -517,13 +658,12 @@ const filteredScheduledItems = computed(() => {
       return aDate - bDate
     })
 
-  if (scheduledStatus.value === 'reserved') return sortScheduled(reserved)
   if (scheduledStatus.value === 'canceled') return sortScheduled(canceled)
-
+  if (scheduledStatus.value === 'reserved') return sortScheduled(reserved)
   return [...sortScheduled(reserved), ...sortScheduled(canceled)]
 })
 
-const scheduledCategories = computed(() => Array.from(new Set(filteredScheduledItems.value.map((item) => item.category ?? '기타'))))
+const categoryOptions = computed(() => categories.value)
 
 const scheduledSummary = computed(() =>
   scheduledWithStatus.value
@@ -544,25 +684,23 @@ const vodSummary = computed(() =>
 const visibleScheduledItems = computed(() => filteredScheduledItems.value.slice(0, SCHEDULED_PAGE_SIZE * scheduledPage.value))
 const visibleVodItems = computed(() => filteredVodItems.value.slice(0, VOD_PAGE_SIZE * vodPage.value))
 
-const buildLoopItems = (items: LiveItem[]): LiveItem[] => {
+const buildLoopItems = (items: LiveItem[], enableLoop: boolean): LiveItem[] => {
   if (!items.length) return []
-  if (items.length === 1) {
-    const single = items[0]!
-    return [single, single, single]
-  }
-  const first = items[0]!
-  const last = items[items.length - 1]!
-  return [last, ...items, first]
+  if (!enableLoop || items.length === 1) return items
+  return items
 }
 
-const scheduledLoopItems = computed<LiveItem[]>(() => buildLoopItems(scheduledSummary.value))
-const vodLoopItems = computed<LiveItem[]>(() => buildLoopItems(vodSummary.value))
+const scheduledLoopItems = computed<LiveItem[]>(() => buildLoopItems(scheduledSummary.value, loopEnabled.value.scheduled))
+const vodLoopItems = computed<LiveItem[]>(() => buildLoopItems(vodSummary.value, loopEnabled.value.vod))
 
 const visibleLive = computed(() => activeTab.value === 'all' || activeTab.value === 'live')
 const visibleScheduled = computed(() => activeTab.value === 'all' || activeTab.value === 'scheduled')
 const visibleVod = computed(() => activeTab.value === 'all' || activeTab.value === 'vod')
 
-const { sentinelRef: scheduledSentinelRef } = useInfiniteScroll({
+const scheduledSentinelRef = ref<HTMLElement | null>(null)
+const vodSentinelRef = ref<HTMLElement | null>(null)
+
+const { sentinelRef: scheduledObserverRef } = useInfiniteScroll({
   canLoadMore: () => filteredScheduledItems.value.length > visibleScheduledItems.value.length,
   loadMore: () => {
     scheduledPage.value += 1
@@ -570,16 +708,32 @@ const { sentinelRef: scheduledSentinelRef } = useInfiniteScroll({
   enabled: () => activeTab.value === 'scheduled',
 })
 
-const { sentinelRef: vodSentinelRef } = useInfiniteScroll({
+const { sentinelRef: vodObserverRef } = useInfiniteScroll({
   canLoadMore: () => filteredVodItems.value.length > visibleVodItems.value.length,
   loadMore: () => {
     vodPage.value += 1
   },
   enabled: () => activeTab.value === 'vod',
 })
+void scheduledSentinelRef
+void vodSentinelRef
+
+watch(scheduledSentinelRef, (value) => {
+  scheduledObserverRef.value = value
+}, { immediate: true })
+
+watch(vodSentinelRef, (value) => {
+  vodObserverRef.value = value
+}, { immediate: true })
 
 const loopItemsFor = (kind: LoopKind) => (kind === 'scheduled' ? scheduledLoopItems.value : vodLoopItems.value)
 const baseItemsFor = (kind: LoopKind) => (kind === 'scheduled' ? scheduledSummary.value : vodSummary.value)
+
+const getBaseLoopIndex = (kind: LoopKind) => {
+  const items = loopItemsFor(kind)
+  if (!items.length) return 0
+  return 0
+}
 
 const setCarouselRef = (kind: LoopKind) => (el: Element | ComponentPublicInstance | null) => {
   const target =
@@ -595,6 +749,19 @@ const updateSlideWidth = (kind: LoopKind) => {
   slideWidths.value[kind] = (card?.offsetWidth ?? 280)
 }
 
+const isCarouselOverflowing = (kind: LoopKind) => {
+  const root = carouselRefs.value[kind]
+  if (!root) return false
+  const viewport = root.parentElement
+  if (!viewport || viewport.clientWidth === 0) return false
+  const itemCount = baseItemsFor(kind).length
+  if (itemCount <= 1) return false
+  const cardWidth = slideWidths.value[kind] || root.querySelector<HTMLElement>('.live-card')?.offsetWidth || 0
+  if (!cardWidth) return false
+  const totalWidth = (cardWidth * itemCount) + (loopGap * (itemCount - 1))
+  return totalWidth > viewport.clientWidth
+}
+
 const getTrackStyle = (kind: LoopKind) => {
   const width = (slideWidths.value[kind] || 280) + loopGap
   const translate = loopIndex.value[kind] * width
@@ -605,44 +772,64 @@ const getTrackStyle = (kind: LoopKind) => {
 }
 
 const handleLoopTransitionEnd = (kind: LoopKind) => {
-  const items = loopItemsFor(kind)
-  if (!items.length) return
-  const lastIndex = items.length - 1
-  if (loopIndex.value[kind] === lastIndex) {
-    loopTransition.value[kind] = false
-    loopIndex.value[kind] = 1
-    requestAnimationFrame(() => {
-      loopTransition.value[kind] = true
-    })
-  } else if (loopIndex.value[kind] === 0) {
-    loopTransition.value[kind] = false
-    loopIndex.value[kind] = lastIndex - 1
-    requestAnimationFrame(() => {
-      loopTransition.value[kind] = true
-    })
-  }
+  if (!loopEnabled.value[kind]) return
+  if (!isCarouselOverflowing(kind)) return
 }
 
 const stepCarousel = (kind: LoopKind, delta: -1 | 1) => {
   const items = loopItemsFor(kind)
   if (items.length <= 1) return
-  const lastIndex = items.length - 1
-  loopTransition.value[kind] = true
-  const nextIndex = loopIndex.value[kind] + delta
-  if (nextIndex > lastIndex) {
-    loopIndex.value[kind] = lastIndex
-  } else if (nextIndex < 0) {
-    loopIndex.value[kind] = 0
-  } else {
+  if (!loopEnabled.value[kind]) {
+    const nextIndex = Math.min(Math.max(loopIndex.value[kind] + delta, 0), items.length - 1)
+    loopTransition.value[kind] = true
     loopIndex.value[kind] = nextIndex
+    return
   }
+  if (!isCarouselOverflowing(kind)) {
+    loopIndex.value[kind] = getBaseLoopIndex(kind)
+    return
+  }
+  const nextIndex = loopIndex.value[kind] + delta
+  const lastIndex = items.length - 1
+  if (nextIndex > lastIndex) {
+    loopTransition.value[kind] = false
+    loopIndex.value[kind] = 0
+    requestAnimationFrame(() => {
+      loopTransition.value[kind] = true
+    })
+    restartAutoLoop(kind)
+    return
+  }
+  if (nextIndex < 0) {
+    loopTransition.value[kind] = false
+    loopIndex.value[kind] = lastIndex
+    requestAnimationFrame(() => {
+      loopTransition.value[kind] = true
+    })
+    restartAutoLoop(kind)
+    return
+  }
+  loopTransition.value[kind] = true
+  loopIndex.value[kind] = nextIndex
   restartAutoLoop(kind)
 }
 
 const startAutoLoop = (kind: LoopKind) => {
   stopAutoLoop(kind)
-  if (baseItemsFor(kind).length <= 1) return
+  if (!loopEnabled.value[kind]) {
+    loopIndex.value[kind] = getBaseLoopIndex(kind)
+    return
+  }
+  if (!isCarouselOverflowing(kind)) {
+    loopIndex.value[kind] = getBaseLoopIndex(kind)
+    return
+  }
   autoTimers.value[kind] = window.setInterval(() => {
+    if (!isCarouselOverflowing(kind)) {
+      stopAutoLoop(kind)
+      loopIndex.value[kind] = getBaseLoopIndex(kind)
+      return
+    }
     stepCarousel(kind, 1)
   }, 3200)
 }
@@ -659,11 +846,16 @@ const restartAutoLoop = (kind: LoopKind) => {
 }
 
 const resetLoop = (kind: LoopKind) => {
-  loopIndex.value[kind] = loopItemsFor(kind).length > 1 ? 1 : 0
+  loopIndex.value[kind] = getBaseLoopIndex(kind)
   loopTransition.value[kind] = true
   nextTick(() => {
     updateSlideWidth(kind)
-    startAutoLoop(kind)
+    if (loopEnabled.value[kind] && isCarouselOverflowing(kind)) {
+      startAutoLoop(kind)
+    } else {
+      stopAutoLoop(kind)
+      loopIndex.value[kind] = getBaseLoopIndex(kind)
+    }
   })
 }
 
@@ -672,16 +864,46 @@ const resetAllLoops = () => {
   resetLoop('vod')
 }
 
+const updateLoopEnabled = () => {
+  const enable = activeTab.value === 'all'
+  loopEnabled.value = {
+    scheduled: enable,
+    vod: enable,
+  }
+}
+
 const handleResize = () => {
   updateSlideWidth('scheduled')
   updateSlideWidth('vod')
+  restartAutoLoop('scheduled')
+  restartAutoLoop('vod')
 }
 
-const setTab = (tab: LiveTab) => {
+const updateTabQuery = (tab: LiveTab, replace = true) => {
+  const query = { ...route.query, tab }
+  const action = replace ? router.replace : router.push
+  action({ query }).catch(() => {})
+}
+
+const setTab = (tab: LiveTab, replace = false) => {
   activeTab.value = tab
+  updateTabQuery(tab, replace)
 }
 
 const handleCreate = () => {
+  const savedDraft = loadDraft()
+  clearWorkingDraft()
+  if (savedDraft) {
+    const shouldRestore = window.confirm('이전에 작성 중인 내용을 불러올까요?')
+    if (shouldRestore) {
+      setDraftRestoreDecision('accepted')
+    } else {
+      setDraftRestoreDecision('declined')
+      clearDraft()
+    }
+  } else {
+    clearDraftRestoreDecision()
+  }
   router.push('/seller/live/create').catch(() => {})
 }
 
@@ -689,7 +911,9 @@ const syncTabFromRoute = () => {
   const tab = route.query.tab
   if (tab === 'scheduled' || tab === 'live' || tab === 'vod' || tab === 'all') {
     activeTab.value = tab
+    return
   }
+  setTab('all', true)
 }
 
 watch(
@@ -697,6 +921,15 @@ watch(
   () => {
     syncTabFromRoute()
   },
+)
+
+watch(
+  () => activeTab.value,
+  () => {
+    updateLoopEnabled()
+    resetAllLoops()
+  },
+  { immediate: true },
 )
 
 watch(
@@ -715,6 +948,7 @@ watch(
   () => [scheduledStatus.value, scheduledCategory.value, scheduledSort.value],
   () => {
     scheduledPage.value = 1
+    void loadSellerData()
   },
 )
 
@@ -722,71 +956,120 @@ watch(
   () => [vodStartDate.value, vodEndDate.value, vodVisibility.value, vodCategory.value, vodSort.value],
   () => {
     vodPage.value = 1
+    void loadSellerData()
   },
 )
 
-const handleCta = (kind: CarouselKind, item: LiveItem) => {
+watch(
+  () => currentLive.value,
+  (value) => {
+    void loadCurrentLiveDetails(value)
+  },
+  { immediate: true },
+)
+
+const handleCta = async (kind: CarouselKind, item: LiveItem) => {
   if (kind === 'live') {
     const lifecycleStatus = getLifecycleStatus(item)
     if (lifecycleStatus === 'READY' && hasReachedStartTime(item.startAtMs)) {
+      const id = parseBroadcastId(item.id)
+      if (id) {
+        try {
+          const config = await fetchMediaConfig(id)
+          if (config) {
+            router.push({ path: `/seller/live/stream/${resolveRouteId(item)}`, query: { tab: activeTab.value } }).catch(() => {})
+            return
+          }
+        } catch {
+          // ignore
+        }
+      }
       selectedScheduled.value = item
       showDeviceModal.value = true
       return
     }
-    router.push(`/seller/live/stream/${item.id}`).catch(() => {})
+    router.push({ path: `/seller/live/stream/${resolveRouteId(item)}`, query: { tab: activeTab.value } }).catch(() => {})
     return
   }
   if (kind === 'scheduled') {
-    router.push(`/seller/broadcasts/reservations/${item.id}`).catch(() => {})
+    router.push({ path: `/seller/broadcasts/reservations/${resolveRouteId(item)}`, query: { tab: activeTab.value } }).catch(() => {})
     return
   }
-  router.push(`/seller/broadcasts/vods/${item.id}`).catch(() => {})
+  router.push({ path: `/seller/broadcasts/vods/${resolveRouteId(item)}`, query: { tab: activeTab.value } }).catch(() => {})
 }
 
 const handleDeviceStart = () => {
   const target = selectedScheduled.value
   if (!target) return
-  router.push(`/seller/live/stream/${target.id}`).catch(() => {})
+  router.push({ path: `/seller/live/stream/${resolveRouteId(target)}`, query: { tab: activeTab.value } }).catch(() => {})
 }
 
 const openReservationDetail = (item: LiveItem) => {
-  router.push(`/seller/broadcasts/reservations/${item.id}`).catch(() => {})
+  router.push({ path: `/seller/broadcasts/reservations/${resolveRouteId(item)}`, query: { tab: activeTab.value } }).catch(() => {})
 }
 
 const openVodDetail = (item: LiveItem) => {
-  router.push(`/seller/broadcasts/vods/${item.id}`).catch(() => {})
+  router.push({ path: `/seller/broadcasts/vods/${resolveRouteId(item)}`, query: { tab: activeTab.value } }).catch(() => {})
 }
 
-const startLiveTicker = () => {
-  liveTicker.value = window.setInterval(() => {
-    liveStats.value = {
-      status: liveStats.value.status,
-      viewers: `${(parseInt(liveStats.value.viewers.replace(/[^0-9]/g, ''), 10) || 1200) + Math.floor(Math.random() * 30)}명`,
-      likes: `${(parseInt(liveStats.value.likes.replace(/[^0-9]/g, ''), 10) || 3000) + Math.floor(Math.random() * 10)}`,
-      revenue: `₩${(parseInt(liveStats.value.revenue.replace(/[^0-9]/g, ''), 10) || 4920000 + Math.floor(Math.random() * 50000)).toLocaleString()}`,
-    }
-
-    liveProducts.value = liveProducts.value.map((product) => {
-      if (product.status === '품절') return product
-      const delta = Math.random() < 0.2 ? 1 : 0
-      const soldCount = product.soldCount + delta
-      const stockTotal = Math.max(product.stockTotal - delta, 0)
+async function loadCurrentLiveDetails(item: LiveItem | null) {
+  if (!item) {
+    liveStats.value = null
+    liveProducts.value = []
+    return
+  }
+  const id = parseBroadcastId(item.id)
+  if (!id) {
+    liveStats.value = null
+    liveProducts.value = []
+    return
+  }
+  try {
+    const [stats, report, detail] = await Promise.all([
+      fetchBroadcastStats(id),
+      fetchSellerBroadcastReport(id).catch(() => null),
+      fetchSellerBroadcastDetail(id),
+    ])
+    const revenue = report ? parseAmount(report.totalSales) : 0
+    const hasData = stats.viewerCount > 0 || stats.likeCount > 0 || revenue > 0
+    liveStats.value = hasData
+      ? {
+        status: getLifecycleStatus(item),
+        viewers: `${stats.viewerCount.toLocaleString()}명`,
+        likes: stats.likeCount.toLocaleString(),
+        revenue: `₩${Math.round(revenue).toLocaleString()}`,
+        hasData,
+      }
+      : null
+    liveProducts.value = (detail.products ?? []).map((product) => {
+      const totalQty = product.bpQuantity ?? product.stockQty ?? 0
+      const stockQty = product.stockQty ?? totalQty
+      const soldCount = Math.max(0, totalQty - stockQty)
       return {
-        ...product,
+        id: String(product.productId),
+        title: product.name,
+        optionLabel: product.name,
+        status: product.status === 'SOLDOUT' ? '품절' : '판매중',
+        priceOriginal: product.originalPrice,
+        priceSale: product.bpPrice,
         soldCount,
-        stockTotal,
-        status: stockTotal === 0 ? '품절' : product.status,
+        stockTotal: stockQty,
+        pinned: product.pinned,
+        thumb: product.imageUrl ?? '',
       }
     })
-  }, 3200)
+  } catch {
+    liveStats.value = null
+    liveProducts.value = []
+  }
 }
 
 onMounted(() => {
-  buildLiveItems()
-  loadScheduled()
-  loadVods()
+  void loadCategories()
+  loadSellerData()
   syncTabFromRoute()
-  startLiveTicker()
+  connectSse()
+  startStatsPolling()
   nextTick(() => {
     resetAllLoops()
     handleResize()
@@ -795,12 +1078,16 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
-  if (liveTicker.value) {
-    window.clearInterval(liveTicker.value)
-  }
   stopAutoLoop('scheduled')
   stopAutoLoop('vod')
   window.removeEventListener('resize', handleResize)
+  if (sseRetryTimer.value) window.clearTimeout(sseRetryTimer.value)
+  sseRetryTimer.value = null
+  if (refreshTimer.value) window.clearTimeout(refreshTimer.value)
+  refreshTimer.value = null
+  if (statsTimer.value) window.clearInterval(statsTimer.value)
+  statsTimer.value = null
+  sseSource.value?.close()
 })
 </script>
 
@@ -871,7 +1158,7 @@ onBeforeUnmount(() => {
             <div class="live-feature__thumb">
               <img :src="currentLive.thumb" :alt="currentLive.title" loading="lazy" />
               <span class="badge badge--live live-feature__badge">
-                {{ currentLive.statusBadge ?? getLifecycleStatus(currentLive) }}
+                {{ currentLive.statusBadge ?? formatStatusLabel(getLifecycleStatus(currentLive)) }}
               </span>
             </div>
             <div class="live-feature__info">
@@ -882,8 +1169,8 @@ onBeforeUnmount(() => {
                 <p class="live-feature__seller">{{ currentLive.subtitle }}</p>
                 <div class="live-feature__meta">
                   <span v-if="currentLive.viewerBadge" class="meta-pill">{{ currentLive.viewerBadge }}</span>
-                  <span class="meta-pill">경과 시간 · 00:32:18</span>
-                  <span class="meta-pill">시작 · 13:24</span>
+                  <span v-if="currentLive.startAtMs" class="meta-pill">경과 시간 · {{ formatElapsed(currentLive.startAtMs) }}</span>
+                  <span v-if="currentLive.startAtMs" class="meta-pill">시작 · {{ formatStartTime(currentLive.startAtMs) }}</span>
                 </div>
               </div>
               <button type="button" class="live-feature__cta" @click="handleCta('live', currentLive!)">
@@ -894,7 +1181,7 @@ onBeforeUnmount(() => {
         </article>
         <p v-else class="section-empty live-pane">현재 진행 중인 방송이 없습니다.</p>
 
-        <section class="live-stats live-stats--stacked live-pane">
+        <section v-if="showLiveStats" class="live-stats live-stats--stacked live-pane">
           <div class="live-stats__head">
             <h4>실시간 통계</h4>
             <span class="live-stats__badge">
@@ -905,28 +1192,28 @@ onBeforeUnmount(() => {
           <div class="live-stats-grid">
             <article class="live-stat-card ds-surface">
               <p class="stat-label">방송 상태</p>
-              <p class="stat-value">{{ liveStats.status }}</p>
+              <p class="stat-value">{{ displayLiveStats.status }}</p>
               <p class="stat-sub">정상 송출 중</p>
             </article>
             <article class="live-stat-card ds-surface">
-              <p class="stat-label">시청자 수</p>
-              <p class="stat-value">{{ liveStats.viewers }}</p>
-              <p class="stat-sub">누적 기준</p>
+              <p class="stat-label">동시 접속자 수</p>
+              <p class="stat-value">{{ displayLiveStats.viewers }}</p>
+              <p class="stat-sub">실시간 기준</p>
             </article>
             <article class="live-stat-card ds-surface">
               <p class="stat-label">좋아요 수</p>
-              <p class="stat-value">{{ liveStats.likes }}</p>
+              <p class="stat-value">{{ displayLiveStats.likes }}</p>
               <p class="stat-sub">최근 5분</p>
             </article>
             <article class="live-stat-card ds-surface">
               <p class="stat-label">현재 매출</p>
-              <p class="stat-value">{{ liveStats.revenue }}</p>
+              <p class="stat-value">{{ displayLiveStats.revenue }}</p>
               <p class="stat-sub">실시간 집계</p>
             </article>
           </div>
         </section>
 
-        <article class="live-products ds-surface live-pane">
+        <article v-if="showLiveProducts" class="live-products ds-surface live-pane">
           <div class="live-products__head">
             <div>
               <h4>판매 상품</h4>
@@ -935,7 +1222,7 @@ onBeforeUnmount(() => {
             <span class="live-products__count">{{ liveProducts.length }}개</span>
           </div>
           <div class="live-products__list">
-            <div v-for="item in liveProducts" :key="item.id" class="product-row">
+            <div v-for="item in sortedLiveProducts" :key="item.id" class="product-row">
               <div class="product-thumb">
                 <img :src="item.thumb" :alt="item.title" loading="lazy" />
                 <span v-if="item.pinned" class="product-pin">PIN</span>
@@ -965,7 +1252,7 @@ onBeforeUnmount(() => {
             <div class="live-feature__thumb">
               <img :src="currentLive.thumb" :alt="currentLive.title" loading="lazy" />
               <span class="badge badge--live live-feature__badge">
-                {{ currentLive.statusBadge ?? getLifecycleStatus(currentLive) }}
+                {{ currentLive.statusBadge ?? formatStatusLabel(getLifecycleStatus(currentLive)) }}
               </span>
             </div>
             <div class="live-feature__info">
@@ -976,8 +1263,8 @@ onBeforeUnmount(() => {
                 <p class="live-feature__seller">{{ currentLive.subtitle }}</p>
                 <div class="live-feature__meta">
                   <span v-if="currentLive.viewerBadge" class="meta-pill">{{ currentLive.viewerBadge }}</span>
-                  <span class="meta-pill">경과 시간 · 00:32:18</span>
-                  <span class="meta-pill">시작 · 13:24</span>
+                  <span v-if="currentLive.startAtMs" class="meta-pill">경과 시간 · {{ formatElapsed(currentLive.startAtMs) }}</span>
+                  <span v-if="currentLive.startAtMs" class="meta-pill">시작 · {{ formatStartTime(currentLive.startAtMs) }}</span>
                 </div>
               </div>
               <button type="button" class="live-feature__cta" @click="handleCta('live', currentLive!)">
@@ -1014,8 +1301,8 @@ onBeforeUnmount(() => {
           <span class="filter-label">카테고리</span>
           <select v-model="scheduledCategory">
             <option value="all">전체</option>
-            <option v-for="category in scheduledCategories" :key="category" :value="category">
-              {{ category }}
+            <option v-for="category in categoryOptions" :key="category.id" :value="category.name">
+              {{ category.name }}
             </option>
           </select>
         </label>
@@ -1049,7 +1336,7 @@ onBeforeUnmount(() => {
                 <span
                   class="badge badge--scheduled"
                   :class="{ 'badge--cancelled': getLifecycleStatus(item) === 'CANCELED' }"
-                >{{ getLifecycleStatus(item) }}</span>
+                >{{ formatStatusLabel(getLifecycleStatus(item)) }}</span>
               </div>
             </div>
             <div class="live-body">
@@ -1105,7 +1392,7 @@ onBeforeUnmount(() => {
                     <span
                       class="badge badge--scheduled"
                       :class="{ 'badge--cancelled': getLifecycleStatus(item) === 'CANCELED' }"
-                    >{{ getLifecycleStatus(item) }}</span>
+                    >{{ formatStatusLabel(getLifecycleStatus(item)) }}</span>
                   </div>
                 </div>
                 <div class="live-body">
@@ -1167,7 +1454,7 @@ onBeforeUnmount(() => {
           <span class="filter-label">카테고리</span>
           <select v-model="vodCategory">
             <option value="all">전체</option>
-            <option v-for="category in vodCategories" :key="category" :value="category">{{ category }}</option>
+            <option v-for="category in categoryOptions" :key="category.id" :value="category.name">{{ category.name }}</option>
           </select>
         </label>
         <label class="filter-field">
@@ -1201,7 +1488,9 @@ onBeforeUnmount(() => {
             <div class="live-thumb">
               <img class="live-thumb__img" :src="item.thumb" :alt="item.title" loading="lazy" />
               <div class="live-badges">
-                <span class="badge badge--vod">{{ item.statusBadge ?? getLifecycleStatus(item) ?? 'VOD' }}</span>
+              <span class="badge badge--vod">
+                {{ item.statusBadge ?? formatStatusLabel(getLifecycleStatus(item) ?? 'VOD') }}
+              </span>
               </div>
             </div>
             <div class="live-body">
@@ -1248,7 +1537,9 @@ onBeforeUnmount(() => {
                 <div class="live-thumb">
                   <img class="live-thumb__img" :src="item.thumb" :alt="item.title" loading="lazy" />
                   <div class="live-badges">
-                    <span class="badge badge--vod">{{ item.statusBadge ?? getLifecycleStatus(item) ?? 'VOD' }}</span>
+                    <span class="badge badge--vod">
+                      {{ item.statusBadge ?? formatStatusLabel(getLifecycleStatus(item) ?? 'VOD') }}
+                    </span>
                   </div>
                 </div>
                 <div class="live-body">
@@ -1822,7 +2113,7 @@ onBeforeUnmount(() => {
 }
 
 .live-carousel::-webkit-scrollbar {
-  height: 0px;
+  height: 0;
 }
 
 .live-carousel::-webkit-scrollbar-thumb {
@@ -2090,3 +2381,4 @@ onBeforeUnmount(() => {
   }
 }
 </style>
+

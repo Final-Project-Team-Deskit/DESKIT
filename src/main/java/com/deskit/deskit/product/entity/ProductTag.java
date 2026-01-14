@@ -81,4 +81,8 @@ public class ProductTag {
     this.product = product;
     this.tag = tag;
   }
+
+  public void setId(ProductTagId id) {
+    this.id = id;
+  }
 }

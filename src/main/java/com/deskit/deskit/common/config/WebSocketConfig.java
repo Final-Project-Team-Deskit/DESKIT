@@ -35,7 +35,7 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
     @Override
     public void registerStompEndpoints(StompEndpointRegistry registry) {
         registry.addEndpoint("/ws-live", "/ws")
-                .setAllowedOriginPatterns("http://localhost:5173", "http://localhost:3000", "*")
+                .setAllowedOriginPatterns("http://ssg.deskit.o-r.kr", "http://localhost:3000", "*")
                 .addInterceptors(new WebSocketAuthHandshakeInterceptor(jwtUtil))
                 .setHandshakeHandler(new WebSocketAuthHandshakeHandler())
                 .withSockJS();
@@ -54,39 +54,57 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
                             accessor.setUser((java.security.Principal) principal);
                         }
                     }
-                    if (accessor.getUser() != null) {
-                        String name = accessor.getUser().getName();
-                        log.debug("stomp.connect principal={}", name);
-                        return message;
+
+                    String role = null;
+                    if (accessor.getSessionAttributes() != null) {
+                        Object storedRole = accessor.getSessionAttributes().get("role");
+                        if (storedRole instanceof String) {
+                            role = (String) storedRole;
+                        }
                     }
-                    String token = resolveToken(accessor);
-                    if (token == null || token.isBlank()) {
-                        log.debug("stomp.connect no token");
-                        return message;
-                    }
-                    try {
-                        if (jwtUtil.isExpired(token)) {
-                            log.debug("stomp.connect token expired");
+
+                    if (role == null) {
+                        String token = resolveToken(accessor);
+                        if (token == null || token.isBlank()) {
+                            if (accessor.getUser() != null) {
+                                log.debug("stomp.connect principal={} role=unknown", accessor.getUser().getName());
+                            } else {
+                                log.debug("stomp.connect no token");
+                            }
                             return message;
                         }
-                    } catch (ExpiredJwtException ex) {
-                        log.debug("stomp.connect token expired");
-                        return message;
-                    } catch (Exception ex) {
-                        log.debug("stomp.connect token parse failed: {}", ex.getMessage());
-                        return message;
+                        try {
+                            if (jwtUtil.isExpired(token)) {
+                                log.debug("stomp.connect token expired");
+                                return message;
+                            }
+                        } catch (ExpiredJwtException ex) {
+                            log.debug("stomp.connect token expired");
+                            return message;
+                        } catch (Exception ex) {
+                            log.debug("stomp.connect token parse failed: {}", ex.getMessage());
+                            return message;
+                        }
+
+                        String category = jwtUtil.getCategory(token);
+                        if (!"access".equals(category)) {
+                            log.debug("stomp.connect token category invalid");
+                            return message;
+                        }
+
+                        String username = jwtUtil.getUsername(token);
+                        role = jwtUtil.getRole(token);
+                        if (accessor.getUser() == null) {
+                            accessor.setUser(new WebSocketPrincipal(username));
+                        }
+                        if (accessor.getSessionAttributes() != null) {
+                            accessor.getSessionAttributes().put("role", role);
+                        }
                     }
 
-                    String category = jwtUtil.getCategory(token);
-                    if (!"access".equals(category)) {
-                        log.debug("stomp.connect token category invalid");
-                        return message;
+                    if (accessor.getUser() != null) {
+                        log.debug("stomp.connect principal={} role={}", accessor.getUser().getName(), role);
                     }
-
-                    String username = jwtUtil.getUsername(token);
-                    String role = jwtUtil.getRole(token);
-                    accessor.setUser(new WebSocketPrincipal(username));
-                    log.debug("stomp.connect principal={} role={}", username, role);
                 }
                 return message;
             }

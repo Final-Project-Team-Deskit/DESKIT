@@ -1,12 +1,25 @@
 package com.deskit.deskit.product.service;
 
+import com.deskit.deskit.product.dto.ProductCreateRequest;
+import com.deskit.deskit.product.dto.ProductCreateResponse;
+import com.deskit.deskit.product.dto.ProductBasicUpdateRequest;
+import com.deskit.deskit.product.dto.ProductDetailUpdateRequest;
 import com.deskit.deskit.product.dto.ProductResponse;
 import com.deskit.deskit.product.dto.ProductResponse.ProductTags;
+import com.deskit.deskit.product.dto.SellerProductListResponse;
+import com.deskit.deskit.product.dto.SellerProductDetailResponse;
+import com.deskit.deskit.product.dto.SellerProductStatusUpdateRequest;
+import com.deskit.deskit.product.dto.SellerProductStatusUpdateResponse;
 import com.deskit.deskit.product.entity.Product;
+import com.deskit.deskit.product.entity.ProductImage;
+import com.deskit.deskit.product.entity.ProductImage.ImageType;
+import com.deskit.deskit.product.repository.ProductImageRepository;
 import com.deskit.deskit.product.repository.ProductRepository;
 import com.deskit.deskit.product.repository.ProductTagRepository;
 import com.deskit.deskit.product.repository.ProductTagRepository.ProductTagRow;
+import com.deskit.deskit.livehost.repository.BroadcastProductRepository;
 import com.deskit.deskit.tag.entity.TagCategory.TagCode;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.EnumMap;
@@ -16,24 +29,33 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.stream.Collectors;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.web.server.ResponseStatusException;
 
 @Service // 스프링 서비스 계층 빈 등록 (비즈니스 로직/조합 담당)
 public class ProductService {
 
   private final ProductRepository productRepository; // Product 조회용 JPA Repository
   private final ProductTagRepository productTagRepository; // Product-Tag 매핑 조회용 JPA Repository
+  private final ProductImageRepository productImageRepository;
+  private final BroadcastProductRepository broadcastProductRepository;
 
   // 생성자 주입: 테스트/대체 구현에 유리하고, final 필드와 잘 맞음
   public ProductService(ProductRepository productRepository,
-                        ProductTagRepository productTagRepository) {
+                        ProductTagRepository productTagRepository,
+                        ProductImageRepository productImageRepository,
+                        BroadcastProductRepository broadcastProductRepository) {
     this.productRepository = productRepository;
     this.productTagRepository = productTagRepository;
+    this.productImageRepository = productImageRepository;
+    this.broadcastProductRepository = broadcastProductRepository;
   }
 
   // 상품 목록 조회: deleted_at IS NULL인 상품만 가져오고, 태그는 productIds로 한 번에 batch 조회 (N+1 방지)
   public List<ProductResponse> getProducts() {
-    List<Product> products = productRepository.findAllByDeletedAtIsNullOrderByIdAsc();
+    List<Product> products =
+      productRepository.findAllByStatusAndDeletedAtIsNullOrderByIdAsc(Product.Status.ON_SALE);
     if (products.isEmpty()) {
       return Collections.emptyList();
     }
@@ -42,6 +64,13 @@ public class ProductService {
     List<Long> productIds = products.stream()
             .map(Product::getId)
             .collect(Collectors.toList());
+
+    Map<Long, Integer> livePrices = broadcastProductRepository.findLiveBpPrices(productIds).stream()
+            .collect(Collectors.toMap(
+                    BroadcastProductRepository.LivePriceRow::getProductId,
+                    BroadcastProductRepository.LivePriceRow::getBpPrice,
+                    (left, right) -> left
+            ));
 
     // (product_id, tagCode, tagName) 형태의 projection row들
     List<ProductTagRow> rows = productTagRepository.findActiveTagsByProductIds(productIds);
@@ -55,14 +84,16 @@ public class ProductService {
               TagsBundle bundle = tagsByProductId.get(product.getId());
               ProductTags tags = bundle == null ? ProductTags.empty() : bundle.getTags();
               List<String> tagsFlat = bundle == null ? Collections.emptyList() : bundle.getTagsFlat();
-              return ProductResponse.from(product, tags, tagsFlat);
+              Integer priceOverride = livePrices.get(product.getId());
+              return ProductResponse.fromWithPrice(product, tags, tagsFlat, priceOverride);
             })
             .collect(Collectors.toList());
   }
 
   // 상품 단건 조회: deleted_at IS NULL인 상품만 반환. 없으면 Optional.empty()
   public Optional<ProductResponse> getProduct(Long id) {
-    Optional<Product> product = productRepository.findByIdAndDeletedAtIsNull(id);
+    Optional<Product> product =
+      productRepository.findByIdAndStatusAndDeletedAtIsNull(id, Product.Status.ON_SALE);
     if (product.isEmpty()) {
       return Optional.empty();
     }
@@ -75,7 +106,333 @@ public class ProductService {
     ProductTags tags = bundle == null ? ProductTags.empty() : bundle.getTags();
     List<String> tagsFlat = bundle == null ? Collections.emptyList() : bundle.getTagsFlat();
 
-    return Optional.of(ProductResponse.from(product.get(), tags, tagsFlat));
+    Integer priceOverride = broadcastProductRepository.findLiveBpPriceByProductId(id).stream()
+            .findFirst()
+            .orElse(null);
+    return Optional.of(ProductResponse.fromWithPrice(product.get(), tags, tagsFlat, priceOverride));
+  }
+
+  public List<SellerProductListResponse> getSellerProducts(Long sellerId) {
+    if (sellerId == null) {
+      throw new ResponseStatusException(HttpStatus.FORBIDDEN, "seller_id required");
+    }
+
+    List<Product.Status> statuses = List.of(
+      Product.Status.DRAFT,
+      Product.Status.READY,
+      Product.Status.ON_SALE,
+      Product.Status.SOLD_OUT,
+      Product.Status.PAUSED,
+      Product.Status.HIDDEN
+    );
+
+    List<Product> products =
+      productRepository.findAllBySellerIdAndStatusInAndDeletedAtIsNullOrderByIdAsc(sellerId, statuses);
+    if (products.isEmpty()) {
+      return Collections.emptyList();
+    }
+
+    return products.stream()
+      .sorted((left, right) -> {
+        if (left.getCreatedAt() == null && right.getCreatedAt() == null) {
+          return 0;
+        }
+        if (left.getCreatedAt() == null) {
+          return 1;
+        }
+        if (right.getCreatedAt() == null) {
+          return -1;
+        }
+        return right.getCreatedAt().compareTo(left.getCreatedAt());
+      })
+      .map(SellerProductListResponse::from)
+      .collect(Collectors.toList());
+  }
+
+  public ProductCreateResponse createProduct(Long sellerId, ProductCreateRequest request) {
+    if (sellerId == null) {
+      throw new ResponseStatusException(HttpStatus.FORBIDDEN, "seller_id required");
+    }
+    if (request == null) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "request required");
+    }
+
+    String productName = request.productName();
+    if (productName == null || productName.isBlank()) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "product_name required");
+    }
+    String shortDesc = request.shortDesc();
+    if (shortDesc == null || shortDesc.isBlank()) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "short_desc required");
+    }
+    String detailHtml = request.detailHtml();
+    if (detailHtml == null) {
+      detailHtml = "";
+    }
+
+    Integer price = request.price();
+    if (price == null || price < 0) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "price must be >= 0");
+    }
+    Integer stockQty = request.stockQty();
+    if (stockQty == null || stockQty < 0) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "stock_qty must be >= 0");
+    }
+
+    Integer costPrice = request.costPrice();
+    if (costPrice == null) {
+      costPrice = 0;
+    }
+    if (costPrice < 0) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "cost_price must be >= 0");
+    }
+
+    Product product = new Product(
+      sellerId,
+      productName,
+      shortDesc,
+      detailHtml,
+      price,
+      costPrice,
+      stockQty,
+      0
+    );
+    Product saved = productRepository.save(product);
+    return ProductCreateResponse.from(saved);
+  }
+
+  public SellerProductStatusUpdateResponse updateProductStatus(
+    Long sellerId,
+    Long productId,
+    SellerProductStatusUpdateRequest request
+  ) {
+    if (sellerId == null) {
+      throw new ResponseStatusException(HttpStatus.FORBIDDEN, "seller_id required");
+    }
+    if (productId == null) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "product_id required");
+    }
+    if (request == null || request.status() == null) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "status required");
+    }
+
+    Product product = productRepository.findByIdAndDeletedAtIsNull(productId)
+      .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "product not found"));
+
+    if (!Objects.equals(product.getSellerId(), sellerId)) {
+      throw new ResponseStatusException(HttpStatus.FORBIDDEN, "forbidden");
+    }
+
+    try {
+      product.changeStatus(request.status());
+    } catch (IllegalStateException ex) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, ex.getMessage());
+    }
+
+    Product saved = productRepository.save(product);
+    return SellerProductStatusUpdateResponse.from(saved);
+  }
+
+  public void updateProductDetailHtml(Long sellerId, Long productId, ProductDetailUpdateRequest request) {
+    if (sellerId == null) {
+      throw new ResponseStatusException(HttpStatus.FORBIDDEN, "seller_id required");
+    }
+    if (productId == null) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "product_id required");
+    }
+    if (request == null || request.detailHtml() == null) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "detail_html required");
+    }
+
+    Product product = productRepository.findByIdAndDeletedAtIsNull(productId)
+      .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "product not found"));
+
+    if (!Objects.equals(product.getSellerId(), sellerId)) {
+      throw new ResponseStatusException(HttpStatus.FORBIDDEN, "forbidden");
+    }
+
+    try {
+      product.changeDetailHtml(request.detailHtml());
+    } catch (IllegalArgumentException ex) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, ex.getMessage());
+    }
+
+    productRepository.save(product);
+  }
+
+  public void updateProductBasicInfo(Long sellerId, Long productId, ProductBasicUpdateRequest request) {
+    if (sellerId == null) {
+      throw new ResponseStatusException(HttpStatus.FORBIDDEN, "seller_id required");
+    }
+    if (productId == null) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "product_id required");
+    }
+    if (request == null) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "request required");
+    }
+
+    Product product = productRepository.findByIdAndDeletedAtIsNull(productId)
+      .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "product not found"));
+
+    if (!Objects.equals(product.getSellerId(), sellerId)) {
+      throw new ResponseStatusException(HttpStatus.FORBIDDEN, "forbidden");
+    }
+
+    boolean hasBasicFields =
+      request.productName() != null
+        || request.shortDesc() != null
+        || request.price() != null
+        || request.stockQty() != null;
+    boolean hasDetail = request.detailHtml() != null;
+    boolean hasImages = request.imageUrls() != null;
+
+    if (!hasBasicFields && !hasDetail && !hasImages) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "request required");
+    }
+
+    Product.Status status = product.getStatus();
+    if (status != Product.Status.DRAFT
+      && status != Product.Status.READY
+      && status != Product.Status.PAUSED
+      && status != Product.Status.ON_SALE) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "status not allowed");
+    }
+
+    if (status == Product.Status.ON_SALE) {
+      if (request.productName() != null) {
+        throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "product_name not allowed");
+      }
+      if (request.stockQty() != null) {
+        throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "stock_qty not allowed");
+      }
+    }
+
+    try {
+      if (request.productName() != null) {
+        product.updateProductName(request.productName());
+      }
+      if (request.shortDesc() != null) {
+        product.updateShortDesc(request.shortDesc());
+      }
+      if (request.price() != null) {
+        product.updatePrice(request.price());
+      }
+      if (request.stockQty() != null) {
+        product.updateStockQty(request.stockQty());
+      }
+      if (hasDetail) {
+        product.changeDetailHtml(request.detailHtml());
+      }
+    } catch (IllegalArgumentException ex) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, ex.getMessage());
+    }
+
+    if (hasImages) {
+      List<String> imageUrls = request.imageUrls();
+      if (imageUrls.size() > 5) {
+        throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "max 5 images per product");
+      }
+      if (imageUrls.stream().anyMatch(url -> url == null || url.isBlank())) {
+        throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "invalid image_urls");
+      }
+
+      List<ProductImage> existingImages =
+        productImageRepository.findAllByProductIdAndDeletedAtIsNullOrderBySlotIndexAsc(productId);
+      if (!existingImages.isEmpty()) {
+        LocalDateTime now = LocalDateTime.now();
+        for (ProductImage image : existingImages) {
+          image.setDeletedAt(now);
+        }
+        productImageRepository.saveAll(existingImages);
+      }
+
+      if (!imageUrls.isEmpty()) {
+        List<ProductImage> nextImages = new ArrayList<>();
+        for (int index = 0; index < imageUrls.size(); index += 1) {
+          String imageUrl = imageUrls.get(index);
+          ImageType imageType = index == 0 ? ImageType.THUMBNAIL : ImageType.GALLERY;
+          nextImages.add(ProductImage.create(productId, imageUrl, imageType, index));
+        }
+        productImageRepository.saveAll(nextImages);
+      }
+    }
+
+    productRepository.save(product);
+  }
+
+  public SellerProductDetailResponse getSellerProductDetail(Long sellerId, Long productId) {
+    if (sellerId == null) {
+      throw new ResponseStatusException(HttpStatus.FORBIDDEN, "seller_id required");
+    }
+    if (productId == null) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "product_id required");
+    }
+
+    Product product = productRepository.findByIdAndDeletedAtIsNull(productId)
+      .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "product not found"));
+
+    if (!Objects.equals(product.getSellerId(), sellerId)) {
+      throw new ResponseStatusException(HttpStatus.FORBIDDEN, "forbidden");
+    }
+
+    List<String> imageUrls = productImageRepository
+      .findAllByProductIdAndDeletedAtIsNullOrderBySlotIndexAsc(productId)
+      .stream()
+      .map(ProductImage::getProductImageUrl)
+      .collect(Collectors.toList());
+
+    return SellerProductDetailResponse.from(product, imageUrls);
+  }
+  public void completeProductRegistration(Long sellerId, Long productId) {
+    if (sellerId == null) {
+      throw new ResponseStatusException(HttpStatus.FORBIDDEN, "seller_id required");
+    }
+    if (productId == null) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "product_id required");
+    }
+
+    Product product = productRepository.findByIdAndDeletedAtIsNull(productId)
+      .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "product not found"));
+
+    if (!Objects.equals(product.getSellerId(), sellerId)) {
+      throw new ResponseStatusException(HttpStatus.FORBIDDEN, "forbidden");
+    }
+    if (product.getStatus() != Product.Status.DRAFT) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "status must be DRAFT");
+    }
+    if (product.getDetailHtml() == null || product.getDetailHtml().isBlank()) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "detail_html required");
+    }
+
+    try {
+      product.changeStatus(Product.Status.READY);
+    } catch (IllegalStateException ex) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, ex.getMessage());
+    }
+
+    productRepository.save(product);
+  }
+
+  public void softDeleteProduct(Long sellerId, Long productId) {
+    if (sellerId == null) {
+      throw new ResponseStatusException(HttpStatus.FORBIDDEN, "seller_id required");
+    }
+    if (productId == null) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "product_id required");
+    }
+
+    Product product = productRepository.findById(productId)
+      .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "product not found"));
+
+    if (!Objects.equals(product.getSellerId(), sellerId)) {
+      throw new ResponseStatusException(HttpStatus.FORBIDDEN, "forbidden");
+    }
+    if (product.getDeletedAt() != null) {
+      return;
+    }
+
+    product.setDeletedAt(LocalDateTime.now());
+    productRepository.save(product);
   }
 
   public List<ProductResponse> getProductsByIds(List<Long> ids) {

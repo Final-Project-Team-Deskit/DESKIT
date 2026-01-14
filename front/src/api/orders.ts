@@ -10,6 +10,10 @@ import type {
 } from './types/orders'
 
 const withCredentials = { withCredentials: true }
+type OrderCancelResponse = {
+  order_id: number
+  status: string
+}
 
 export const createOrder = async (
   request: CreateOrderRequest,
@@ -35,6 +39,15 @@ export const updateOrderStatus = async (
   const response = await http.patch<OrderStatusUpdateResponse>(
     endpoints.orderStatus(orderId),
     request,
+    withCredentials,
+  )
+  return response.data
+}
+
+export const cancelOrder = async (orderId: number, reason: string): Promise<OrderCancelResponse> => {
+  const response = await http.patch<OrderCancelResponse>(
+    endpoints.orderCancel(orderId),
+    { reason },
     withCredentials,
   )
   return response.data

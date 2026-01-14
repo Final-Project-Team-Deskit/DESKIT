@@ -54,13 +54,15 @@ public class LiveChatService {
 
     @Async("chatSaveExecutor")
     public void saveMessageAsync(LiveChatMessageDTO dto) {
+        String rawContent = dto.getRawContent() != null ? dto.getRawContent() : dto.getContent();
         LiveChat entity = LiveChat.builder()
                 .broadcastId(dto.getBroadcastId())
                 .memberEmail(dto.getMemberEmail())
                 .msgType(dto.getType())
                 .content(dto.getContent())
+                .rawContent(rawContent)
                 .sendNick(dto.getSender())
-                .isWorld(false)
+                .isWorld(dto.isWorld())
                 .isHidden(false)
                 .vodPlayTime(dto.getVodPlayTime())
                 .build();
@@ -88,6 +90,8 @@ public class LiveChatService {
                 .type(dto.getType())
                 .sender(dto.getSender())
                 .content(dto.getContent())
+                .senderRole(dto.getSenderRole())
+                .connectionId(dto.getConnectionId())
                 .vodPlayTime(dto.getVodPlayTime())
                 .sentAt(dto.getSentAt())
                 .build();
@@ -128,6 +132,8 @@ public class LiveChatService {
                     .type(entry.getType())
                     .sender(entry.getSender())
                     .content(entry.getContent())
+                    .senderRole(entry.getSenderRole())
+                    .connectionId(entry.getConnectionId())
                     .vodPlayTime(entry.getVodPlayTime())
                     .sentAt(entry.getSentAt())
                     .build());

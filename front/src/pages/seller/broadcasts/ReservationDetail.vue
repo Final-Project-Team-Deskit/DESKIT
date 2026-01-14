@@ -1,16 +1,32 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import PageContainer from '../../../components/PageContainer.vue'
 import QCardModal from '../../../components/QCardModal.vue'
-import { getSellerReservationDetail, type SellerReservationDetail } from '../../../lib/mocks/sellerReservations'
-import { normalizeBroadcastStatus } from '../../../lib/broadcastStatus'
+import { cancelSellerBroadcast, fetchSellerBroadcastDetail, type BroadcastDetailResponse } from '../../../lib/live/api'
+import { getBroadcastStatusLabel, normalizeBroadcastStatus } from '../../../lib/broadcastStatus'
 
 const route = useRoute()
 const router = useRouter()
 
 const reservationId = computed(() => (typeof route.params.reservationId === 'string' ? route.params.reservationId : ''))
-const detail = ref<SellerReservationDetail>(getSellerReservationDetail(reservationId.value))
+
+type SellerReservationDetail = {
+  id: string
+  title: string
+  status: string
+  datetime: string
+  category: string
+  notice: string
+  thumb: string
+  standbyThumb?: string
+  products: Array<{ id: string; name: string; price: string; salePrice: string; stock: number; qty: number }>
+  cueQuestions?: string[]
+  cancelReason?: string
+}
+
+const detail = ref<SellerReservationDetail | null>(null)
+const isLoading = ref(false)
 const qCardIndex = ref(0)
 
 const goBack = () => {
@@ -22,7 +38,7 @@ const goToList = () => {
 }
 
 const openCueCard = () => {
-  if (!detail.value.cueQuestions?.length) return
+  if (!detail.value?.cueQuestions?.length) return
   showCueCard.value = true
 }
 
@@ -35,14 +51,23 @@ const handleEdit = () => {
 const handleCancel = () => {
   const ok = window.confirm('예약을 취소하시겠습니까?')
   if (!ok) return
-  detail.value.status = 'CANCELED'
-  window.alert('예약이 취소되었습니다.')
+  if (!detail.value) return
+  cancelSellerBroadcast(Number(detail.value.id))
+    .then(() => {
+      if (detail.value) {
+        detail.value.status = 'CANCELED'
+      }
+      window.alert('예약이 취소되었습니다.')
+      router.replace({ path: '/seller/live', query: { tab: 'scheduled' } }).catch(() => {})
+    })
+    .catch(() => {})
 }
 
 onBeforeUnmount(() => {
 })
 
 const scheduledWindow = computed(() => {
+  if (!detail.value?.datetime) return ''
   const raw = detail.value.datetime
   const start = new Date(raw.replace(/\./g, '-').replace(' ', 'T'))
   const end = new Date(start.getTime() + 30 * 60 * 1000)
@@ -51,16 +76,63 @@ const scheduledWindow = computed(() => {
   return `${raw} ~ ${fmt(end)}`
 })
 
-const cancelReason = computed(() => (detail.value as any).cancelReason ?? '사유가 등록되지 않았습니다.')
-const isCancelled = computed(() => normalizeBroadcastStatus(detail.value.status) === 'CANCELED')
-const standbyImage = computed(() => (detail.value as any).standbyThumb || detail.value.thumb)
+const cancelReason = computed(() => detail.value?.cancelReason ?? '사유가 등록되지 않았습니다.')
+const isCancelled = computed(() => normalizeBroadcastStatus(detail.value?.status) === 'CANCELED')
+const standbyImage = computed(() => detail.value?.standbyThumb || detail.value?.thumb || '')
 const displayedCancelReason = computed(() =>
   isCancelled.value ? cancelReason.value : '',
 )
+const statusLabel = computed(() => getBroadcastStatusLabel(detail.value?.status))
+
+const formatScheduledAt = (value?: string) => (value ? value.replace(/-/g, '.').replace('T', ' ').slice(0, 16) : '')
+
+const formatCurrency = (amount: number) => `₩${amount.toLocaleString('ko-KR')}`
+
+const mapDetail = (payload: BroadcastDetailResponse): SellerReservationDetail => ({
+  id: String(payload.broadcastId),
+  title: payload.title ?? '',
+  status: payload.status ?? '',
+  datetime: formatScheduledAt(payload.scheduledAt),
+  category: payload.categoryName ?? '',
+  notice: payload.notice ?? '',
+  thumb: payload.thumbnailUrl ?? '',
+  standbyThumb: payload.waitScreenUrl ?? payload.thumbnailUrl ?? '',
+  products: (payload.products ?? []).map((item) => ({
+    id: String(item.productId),
+    name: item.name,
+    price: formatCurrency(item.originalPrice ?? 0),
+    salePrice: formatCurrency(item.bpPrice ?? item.originalPrice ?? 0),
+    stock: item.productStockQty ?? item.stockQty ?? item.bpQuantity ?? 0,
+    qty: item.bpQuantity ?? 0,
+  })),
+  cueQuestions: (payload.qcards ?? []).map((card) => card.question),
+  cancelReason: payload.stoppedReason ?? undefined,
+})
+
+const loadDetail = async () => {
+  const idValue = Number(reservationId.value)
+  if (!reservationId.value || Number.isNaN(idValue)) {
+    detail.value = null
+    return
+  }
+  isLoading.value = true
+  try {
+    const payload = await fetchSellerBroadcastDetail(idValue)
+    detail.value = mapDetail(payload)
+  } catch {
+    detail.value = null
+  } finally {
+    isLoading.value = false
+  }
+}
+
+watch(reservationId, () => {
+  loadDetail()
+}, { immediate: true })
 </script>
 
 <template>
-  <PageContainer>
+  <PageContainer v-if="detail">
     <h2 class="page-title">예약 상세</h2>
     <header class="detail-header">
       <button type="button" class="back-link" @click="goBack">← 뒤로 가기</button>
@@ -75,7 +147,7 @@ const displayedCancelReason = computed(() =>
     <section class="detail-card ds-surface">
       <div class="detail-title">
         <h2>{{ detail.title }}</h2>
-        <span class="status-pill">{{ detail.status }}</span>
+        <span class="status-pill">{{ statusLabel }}</span>
       </div>
       <div class="detail-meta">
         <p><span>방송 예정 시간</span>{{ scheduledWindow }}</p>
@@ -153,6 +225,13 @@ const displayedCancelReason = computed(() =>
       :initial-index="qCardIndex"
       @update:initialIndex="qCardIndex = $event"
     />
+  </PageContainer>
+  <PageContainer v-else>
+    <h2 class="page-title">예약 상세</h2>
+    <section class="detail-card ds-surface empty-state">
+      <p>{{ isLoading ? '예약 정보를 불러오는 중입니다.' : '예약 정보를 찾을 수 없습니다.' }}</p>
+      <button type="button" class="btn" @click="goToList">목록으로</button>
+    </section>
   </PageContainer>
 </template>
 
@@ -414,6 +493,17 @@ const displayedCancelReason = computed(() =>
   display: flex;
   gap: 10px;
   align-items: center;
+}
+
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 32px;
+  color: var(--text-muted);
 }
 
 @media (max-width: 720px) {

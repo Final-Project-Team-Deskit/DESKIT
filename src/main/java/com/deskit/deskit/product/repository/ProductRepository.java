@@ -26,6 +26,13 @@ public interface ProductRepository extends JpaRepository<Product, Long> {
    */
   List<Product> findAllByDeletedAtIsNullOrderByIdAsc();
 
+  List<Product> findAllByStatusAndDeletedAtIsNullOrderByIdAsc(Product.Status status);
+
+  List<Product> findAllBySellerIdAndStatusInAndDeletedAtIsNullOrderByIdAsc(
+    Long sellerId,
+    List<Product.Status> statuses
+  );
+
   /**
    * 특정 id의 상품을 조회하되, deleted_at 이 NULL인 경우만 조회
    * 결과가 없을 수 있으니 Optional로 감쌈
@@ -34,11 +41,16 @@ public interface ProductRepository extends JpaRepository<Product, Long> {
    */
   Optional<Product> findByIdAndDeletedAtIsNull(Long id);
 
-  List<Product> findAllByIdInAndDeletedAtIsNull(List<Long> ids);
+  Optional<Product> findByIdAndStatusAndDeletedAtIsNull(Long id, Product.Status status);
 
   @Lock(LockModeType.PESSIMISTIC_WRITE)
   @Query("select p from Product p where p.id = :id and p.deletedAt is null")
   Optional<Product> findByIdForUpdate(@Param("id") Long id);
+
+  @Lock(LockModeType.PESSIMISTIC_WRITE)
+  @Query("select p from Product p where p.id = :id and p.status = :status and p.deletedAt is null")
+  Optional<Product> findByIdForUpdateAndStatus(@Param("id") Long id,
+                                               @Param("status") Product.Status status);
 
   @Query(value = """
       SELECT

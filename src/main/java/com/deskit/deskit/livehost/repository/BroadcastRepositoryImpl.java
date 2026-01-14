@@ -98,7 +98,7 @@ public class BroadcastRepositoryImpl implements BroadcastRepositoryCustom {
 
     @Override
     public List<BroadcastListResponse> findTop5ByStatus(Long sellerId, List<BroadcastStatus> statuses, BroadcastSortOrder sortOrder, boolean isAdmin) {
-        Field<Long> reportCount = inline(0L);
+        Field<Long> reportCount = inline(0L).as("report_count");
         SortField<?> orderField = getOrderSpecifier(sortOrder, reportCount);
 
         return dsl.select(
@@ -139,7 +139,7 @@ public class BroadcastRepositoryImpl implements BroadcastRepositoryCustom {
     @Override
     public List<Long> findBroadcastIdsForReadyTransition(LocalDateTime now) {
         LocalDateTime start = now;
-        LocalDateTime end = now.plusMinutes(10);
+        LocalDateTime end = now.plusMinutes(3);
         return dsl.select(broadcastId)
                 .from(broadcastTable)
                 .where(
@@ -205,12 +205,18 @@ public class BroadcastRepositoryImpl implements BroadcastRepositoryCustom {
         if (isAdmin) {
             return trueCondition();
         }
-        return broadcastStatus.in(
-                        BroadcastStatus.ON_AIR.name(),
-                        BroadcastStatus.READY.name(),
-                        BroadcastStatus.RESERVED.name()
-                )
-                .or(vodStatus.eq(VodStatus.PUBLIC.name()));
+        Condition liveStatuses = broadcastStatus.in(
+                BroadcastStatus.ON_AIR.name(),
+                BroadcastStatus.READY.name(),
+                BroadcastStatus.ENDED.name(),
+                BroadcastStatus.STOPPED.name(),
+                BroadcastStatus.RESERVED.name()
+        );
+        Condition vodPublic = broadcastStatus.eq(BroadcastStatus.VOD.name())
+                .and(vodStatus.eq(VodStatus.PUBLIC.name()));
+        Condition stoppedWithinWindow = broadcastStatus.ne(BroadcastStatus.STOPPED.name())
+                .or(scheduledAt.isNotNull().and(scheduledAt.ge(LocalDateTime.now().minusMinutes(30))));
+        return liveStatuses.or(vodPublic).and(stoppedWithinWindow);
     }
 
     private Condition publicFilter(Boolean isPublic) {
@@ -236,13 +242,18 @@ public class BroadcastRepositoryImpl implements BroadcastRepositoryCustom {
             return trueCondition();
         }
         if ("LIVE".equalsIgnoreCase(tab)) {
-            return broadcastStatus.in(BroadcastStatus.ON_AIR.name(), BroadcastStatus.READY.name());
+            return broadcastStatus.in(
+                    BroadcastStatus.ON_AIR.name(),
+                    BroadcastStatus.READY.name(),
+                    BroadcastStatus.ENDED.name(),
+                    BroadcastStatus.STOPPED.name()
+            );
         }
         if ("RESERVED".equalsIgnoreCase(tab)) {
             return broadcastStatus.in(BroadcastStatus.RESERVED.name(), BroadcastStatus.CANCELED.name());
         }
         if ("VOD".equalsIgnoreCase(tab)) {
-            return broadcastStatus.in(BroadcastStatus.VOD.name(), BroadcastStatus.ENDED.name(), BroadcastStatus.STOPPED.name());
+            return broadcastStatus.in(BroadcastStatus.VOD.name());
         }
         return trueCondition();
     }
@@ -257,12 +268,35 @@ public class BroadcastRepositoryImpl implements BroadcastRepositoryCustom {
         if ("SALES".equalsIgnoreCase(sort)) {
             return totalSales.desc();
         }
+        if ("SALES_ASC".equalsIgnoreCase(sort)) {
+            return totalSales.asc();
+        }
+
+        if ("VIEWER_DESC".equalsIgnoreCase(sort)) {
+            return totalViews.desc();
+        }
+        if ("VIEWER_ASC".equalsIgnoreCase(sort)) {
+            return totalViews.asc();
+        }
 
         if ("POPULAR".equalsIgnoreCase(sort) || "VIEWER".equalsIgnoreCase(sort)) {
             if ("VOD".equalsIgnoreCase(tab)) {
                 return totalViews.desc();
             }
             return startedAt.desc().nullsLast();
+        }
+
+        if ("LATEST".equalsIgnoreCase(sort)) {
+            if ("RESERVED".equalsIgnoreCase(tab)) {
+                return scheduledAt.desc().nullsLast();
+            }
+            return startedAt.desc().nullsLast();
+        }
+        if ("OLDEST".equalsIgnoreCase(sort)) {
+            if ("RESERVED".equalsIgnoreCase(tab)) {
+                return scheduledAt.asc().nullsLast();
+            }
+            return startedAt.asc().nullsLast();
         }
 
         if ("LIKE_DESC".equalsIgnoreCase(sort)) {

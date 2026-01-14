@@ -77,10 +77,57 @@ public class ProductResponse {
    * - 엔티티 필드명(productName 등)과 응답 필드명(name 등)을 여기서 매핑
    */
   public static ProductResponse from(Product product, ProductTags tags, List<String> tagsFlat) {
+    Product.Status status = product.getStatus();
+    if (product.isLimitedSale()) {
+      status = Product.Status.LIMITED_SALE;
+    }
+    return fromWithOverrides(product, tags, tagsFlat, null, product.getCostPrice(), status);
+  }
+
+  public static ProductResponse fromWithCostPrice(Product product, ProductTags tags, List<String> tagsFlat,
+                                                  Integer costPriceOverride) {
+    Product.Status status = product.getStatus();
+    if (product.isLimitedSale()) {
+      status = Product.Status.LIMITED_SALE;
+    }
+    return fromWithOverrides(product, tags, tagsFlat, null, costPriceOverride, status);
+  }
+
+  public static ProductResponse fromWithPrice(Product product, ProductTags tags, List<String> tagsFlat,
+                                              Integer priceOverride) {
+    Product.Status status = product.getStatus();
+    if (product.isLimitedSale()) {
+      status = Product.Status.LIMITED_SALE;
+    }
+    return fromWithOverrides(product, tags, tagsFlat, priceOverride, null, status);
+  }
+
+  private static ProductResponse fromWithOverrides(Product product, ProductTags tags, List<String> tagsFlat,
+                                                   Integer priceOverride, Integer costPriceOverride,
+                                                   Product.Status status) {
+    Integer resolvedCostPrice = costPriceOverride != null ? costPriceOverride : product.getCostPrice();
+    Integer resolvedPrice = priceOverride != null ? priceOverride : product.getPrice();
     return new ProductResponse(
             product.getId(),
             product.getSellerId(),
             product.getProductName(), // 엔티티 productName -> 응답 name
+            product.getShortDesc(),
+            product.getDetailHtml(),
+            resolvedPrice,
+            resolvedCostPrice,
+            status,
+            product.getStockQty(),
+            product.getSafetyStock(),
+            tags,
+            tagsFlat
+    );
+  }
+
+  public static ProductResponse fromForSeller(Product product, ProductTags tags, List<String> tagsFlat) {
+    return new ProductResponse(
+            product.getId(),
+            product.getSellerId(),
+            product.getProductName(),
             product.getShortDesc(),
             product.getDetailHtml(),
             product.getPrice(),

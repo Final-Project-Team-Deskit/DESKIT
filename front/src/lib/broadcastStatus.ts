@@ -1,6 +1,6 @@
 export type BroadcastStatus = 'READY' | 'ON_AIR' | 'ENDED' | 'STOPPED' | 'RESERVED' | 'CANCELED' | 'VOD'
 
-export const READY_WINDOW_MS = 10 * 60 * 1000
+export const READY_WINDOW_MS = 3 * 60 * 1000
 export const BROADCAST_DURATION_MS = 30 * 60 * 1000
 
 export const normalizeBroadcastStatus = (status?: string | null): BroadcastStatus => {
@@ -68,4 +68,25 @@ export const computeLifecycleStatus = (input: {
 export const hasReachedStartTime = (startAtMs?: number, now: number = Date.now()): boolean => {
   if (!startAtMs) return false
   return now >= startAtMs
+}
+
+export const getBroadcastStatusLabel = (status?: BroadcastStatus | string | null): string => {
+  const normalized = normalizeBroadcastStatus(status)
+  switch (normalized) {
+    case 'READY':
+      return '준비 중'
+    case 'ON_AIR':
+      return 'ON AIR'
+    case 'ENDED':
+      return '종료됨'
+    case 'STOPPED':
+      return '중지됨'
+    case 'CANCELED':
+      return '취소됨'
+    case 'VOD':
+      return 'VOD'
+    case 'RESERVED':
+    default:
+      return '예약됨'
+  }
 }

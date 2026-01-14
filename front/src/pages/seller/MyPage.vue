@@ -1,4 +1,4 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import PageContainer from '../../components/PageContainer.vue'
@@ -23,15 +23,45 @@ type SellerMyPagePayload = {
   managers?: Manager[]
 }
 
+type UserInfo = {
+  name: string
+  email: string
+  signupType: string
+  memberCategory: string
+  sellerRole: string
+  profileUrl: string
+}
+
+const user = ref<UserInfo | null>(null)
+const profileImageFailed = ref(false)
+
+const loadUser = () => {
+  const parsed = getAuthUser()
+  if (!parsed) {
+    user.value = null
+    profileImageFailed.value = false
+    return
+  }
+  user.value = {
+    name: parsed.name || '',
+    email: parsed.email || '',
+    signupType: parsed.signupType || '',
+    memberCategory: parsed.memberCategory || '',
+    sellerRole: parsed.sellerRole || '',
+    profileUrl: parsed.profileUrl || '',
+  }
+  profileImageFailed.value = false
+}
 const display = computed(() => {
-  const user = getAuthUser()
-  const fallbackSignupType = user ? '소셜 회원' : ''
+  const current = user.value
+  const fallbackSignupType = current ? '소셜 회원' : ''
   return {
-    name: user?.name || '판매자',
-    email: user?.email || '',
-    signupType: user?.signupType || fallbackSignupType,
-    memberCategory: user?.memberCategory || '판매자',
-    sellerRole: user?.sellerRole || '대표',
+    name: current?.name || '판매자',
+    email: current?.email || '',
+    signupType: current?.signupType || fallbackSignupType,
+    memberCategory: current?.memberCategory || '판매자',
+    sellerRole: current?.sellerRole || '대표자',
+    profileUrl: current?.profileUrl || '',
   }
 })
 
@@ -86,7 +116,7 @@ const buildAuthHeaders = (): Record<string, string> => {
 
 const loadSellerMyPage = async () => {
   try {
-    const response = await fetch(`${apiBase}/api/seller/mypage`, {
+    const response = await fetch(`${apiBase}/seller/mypage`, {
       credentials: 'include',
       headers: buildAuthHeaders(),
     })
@@ -121,7 +151,7 @@ const formatCompanyGrade = (value: string) => {
 const formatManagerRole = (role: string) => {
   const normalized = (role || '').trim().toUpperCase()
   if (normalized === 'ROLE_SELLER_MANAGER') return '매니저'
-  if (normalized === 'ROLE_SELLER_OWNER') return '대표'
+  if (normalized === 'ROLE_SELLER_OWNER') return '대표자'
   return role
 }
 
@@ -195,7 +225,7 @@ const confirmSend = async () => {
   inviteSending.value = true
   inviteError.value = ''
   try {
-    const response = await fetch(`${apiBase}/api/invitations`, {
+    const response = await fetch(`${apiBase}/invitations`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -250,13 +280,20 @@ const handleKeydown = (event: KeyboardEvent) => {
   }
 }
 
+const profileImageUrl = computed(() => (display.value.profileUrl || '').trim())
+const showProfileImage = computed(() => !!profileImageUrl.value && !profileImageFailed.value)
+
 onMounted(() => {
   window.addEventListener('keydown', handleKeydown)
+  window.addEventListener('deskit-user-updated', loadUser)
   loadSellerMyPage()
+  loadUser()
+  profileImageFailed.value = false
 })
 
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', handleKeydown)
+  window.removeEventListener('deskit-user-updated', loadUser)
 })
 </script>
 
@@ -265,7 +302,15 @@ onBeforeUnmount(() => {
     <PageHeader eyebrow="DESKIT" title="판매자 마이페이지" />
     <section class="seller-card ds-surface">
       <div class="seller-card__top">
-        <div class="seller-avatar" aria-hidden="true">S</div>
+        <div class="seller-avatar">
+          <img
+            v-if="showProfileImage"
+            :src="profileImageUrl"
+            :alt="`${display.name} 프로필`"
+            @error="profileImageFailed = true"
+          />
+          <span v-else aria-hidden="true">{{ display.name.slice(0, 2).toUpperCase() }}</span>
+        </div>
         <div class="seller-meta">
           <p class="seller-name">{{ display.name }}</p>
           <p class="seller-email">{{ display.email }}</p>
@@ -700,6 +745,13 @@ onBeforeUnmount(() => {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  overflow: hidden;
+}
+
+.seller-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 .seller-name {
@@ -871,3 +923,4 @@ onBeforeUnmount(() => {
   cursor: not-allowed;
 }
 </style>
+

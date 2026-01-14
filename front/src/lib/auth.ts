@@ -3,6 +3,7 @@ export type AuthUser = {
   email: string
   signupType: string
   memberCategory: string
+  profileUrl?: string
   sellerRole?: string
   mbti?: string
   job?: string
@@ -59,7 +60,7 @@ const deriveMemberCategoryFromRole = (role: string): string => {
 
 const deriveSellerRoleFromRole = (role: string): string => {
   const normalized = normalizeRole(role)
-  if (normalized === 'ROLE_SELLER_OWNER') return '대표'
+  if (normalized === 'ROLE_SELLER_OWNER') return '대표자'
   if (normalized === 'ROLE_SELLER_MANAGER') return '매니저'
   return ''
 }
@@ -143,7 +144,7 @@ export const requestWithdraw = async (): Promise<{ ok: boolean; message?: string
   }
 
   try {
-    const response = await fetch(`${apiBase}/api/quit`, {
+    const response = await fetch(`${apiBase}/quit`, {
       method: 'POST',
       credentials: 'include',
       headers,
@@ -195,6 +196,7 @@ export const hydrateSessionUser = async (): Promise<boolean> => {
       email: typeof payload.email === 'string' ? payload.email : '',
       signupType: typeof payload.signupType === 'string' ? payload.signupType : '',
       memberCategory,
+      profileUrl: typeof payload.profileUrl === 'string' ? payload.profileUrl : '',
       sellerRole: sellerRole || undefined,
       mbti: typeof payload.mbti === 'string' ? payload.mbti : '',
       job: typeof payload.job === 'string' ? payload.job : '',

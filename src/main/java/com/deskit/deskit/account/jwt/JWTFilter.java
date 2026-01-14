@@ -120,12 +120,12 @@ public class JWTFilter extends OncePerRequestFilter {
         return null;
     }
 
+    // Filter 스킵
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
         String uri = request.getRequestURI();
         return uri.startsWith("/oauth2/")
                 || uri.startsWith("/login/oauth2/")
-                || uri.startsWith("/login")
-                || uri.startsWith("/chat");
+                || uri.startsWith("/login");
     }
 }

@@ -1,12 +1,4 @@
-export type ProductStatus =
-  | 'DRAFT'
-  | 'PENDING_APPROVAL'
-  | 'READY'
-  | 'ON_SALE'
-  | 'LIMITED_SALE'
-  | 'SOLD_OUT'
-  | 'HIDDEN'
-  | 'DELETED'
+import type { ProductStatus } from '../utils/productStatusPolicy'
 
 export type TagCategoryKey = 'space' | 'tone' | 'situation' | 'mood'
 export type ProductTags = Record<TagCategoryKey, string[]>

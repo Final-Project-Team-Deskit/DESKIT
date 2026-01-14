@@ -58,7 +58,28 @@ public class BroadcastResult {
     private LocalDateTime updatedAt;
 
     // 관리자용
-    @Column(name = "total_result", nullable = false)
+    @Column(name = "total_reports", nullable = false)
     private int totalReports;
-}
 
+    public void updateFinalStats(int views, int likes, int reports, int avgWatchTime, int maxViews,
+                                 LocalDateTime pickViewsAt, int totalChats, BigDecimal totalSales) {
+        this.totalViews = views;
+        this.totalLikes = likes;
+        this.totalReports = reports;
+        this.avgWatchTime = avgWatchTime;
+        this.maxViews = maxViews;
+        this.pickViewsAt = pickViewsAt;
+        this.totalChats = totalChats;
+        this.totalSales = totalSales;
+    }
+
+    public void updateTotalSales(BigDecimal totalSales) {
+        this.totalSales = totalSales;
+    }
+
+    public void applyVodStatsDelta(int viewDelta, int likeDelta, int reportDelta) {
+        this.totalViews = Math.max(0, this.totalViews + viewDelta);
+        this.totalLikes = Math.max(0, this.totalLikes + likeDelta);
+        this.totalReports = Math.max(0, this.totalReports + reportDelta);
+    }
+}

@@ -132,7 +132,7 @@ const loadEvaluations = async () => {
   loading.value = true
   error.value = ''
   try {
-    const response = await fetch(`${apiBase}/api/admin/evaluations`, {
+    const response = await fetch(`${apiBase}/admin/evaluations`, {
       credentials: 'include',
     })
     if (!response.ok) {
@@ -154,7 +154,7 @@ const loadEvaluationDetail = async (aiEvalId: number) => {
   form.message = ''
   form.hasError = false
   try {
-    const response = await fetch(`${apiBase}/api/admin/evaluations/${aiEvalId}`, {
+    const response = await fetch(`${apiBase}/admin/evaluations/${aiEvalId}`, {
       credentials: 'include',
     })
     if (!response.ok) {
@@ -202,7 +202,7 @@ const finalizeEvaluation = async () => {
   form.message = ''
   form.hasError = false
   try {
-    const response = await fetch(`${apiBase}/api/admin/evaluations/${selected.value.aiEvalId}/finalize`, {
+    const response = await fetch(`${apiBase}/admin/evaluations/${selected.value.aiEvalId}/finalize`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       credentials: 'include',

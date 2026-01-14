@@ -64,4 +64,14 @@ public class Vod {
     public void setAdminLock(boolean lock) {
         this.vodAdminLock = lock;
     }
+
+    public void markDeleted() {
+        this.status = VodStatus.DELETED;
+        this.vodUrl = null;
+        this.vodSize = 0L;
+    }
+
+    public void applyReportDelta(int delta) {
+        this.vodReportCount = Math.max(0, this.vodReportCount + delta);
+    }
 }

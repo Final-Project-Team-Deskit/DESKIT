@@ -10,8 +10,9 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor
 public class SanctionRequest {
 
-    @NotNull(message = "대상 회원 ID는 필수입니다.")
     private Long memberId;
+
+    private String memberLoginId;
 
     @NotNull
     private ActorType actorType;

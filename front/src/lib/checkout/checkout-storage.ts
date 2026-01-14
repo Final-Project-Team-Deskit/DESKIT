@@ -18,6 +18,7 @@ export type ShippingInfo = {
   zipcode: string
   address1: string
   address2: string
+  isDefault?: boolean
 }
 
 export type PaymentMethod = 'CARD' | 'EASY_PAY' | 'TRANSFER'
@@ -69,12 +70,13 @@ const normalizeShipping = (raw: any): ShippingInfo => ({
   zipcode: typeof raw?.zipcode === 'string' ? raw.zipcode : '',
   address1: typeof raw?.address1 === 'string' ? raw.address1 : '',
   address2: typeof raw?.address2 === 'string' ? raw.address2 : '',
+  isDefault: typeof raw?.isDefault === 'boolean' ? raw.isDefault : undefined,
 })
 
 const normalizeDraft = (raw: any): CheckoutDraft | null => {
   if (!raw || typeof raw !== 'object') return null
   const items = Array.isArray(raw.items)
-    ? raw.items.map(normalizeItem).filter((v): v is CheckoutItem => Boolean(v))
+    ? raw.items.map(normalizeItem).filter((v: CheckoutItem | null): v is CheckoutItem => Boolean(v))
     : []
   if (items.length === 0) return null
   const source = raw.source === 'BUY_NOW' ? 'BUY_NOW' : 'CART'
@@ -127,6 +129,9 @@ export const updateShipping = (patch: Partial<ShippingInfo>): CheckoutDraft | nu
   if ('address2' in patch) {
     nextPatch.address2 = (patch.address2 ?? '').trim()
   }
+  if ('isDefault' in patch) {
+    nextPatch.isDefault = Boolean(patch.isDefault)
+  }
 
   current.shipping = {
     ...current.shipping,
@@ -140,6 +145,36 @@ export const updatePaymentMethod = (method: PaymentMethod | null): CheckoutDraft
   const current = loadCheckout()
   if (!current) return null
   current.paymentMethod = method
+  saveCheckout(current)
+  return current
+}
+
+export const updateCheckoutItemsPricing = (
+  patches: Array<{
+    productId: string
+    price: number
+    originalPrice: number
+    discountRate: number
+    stock: number
+  }>,
+): CheckoutDraft | null => {
+  if (!Array.isArray(patches) || patches.length === 0) return loadCheckout()
+  const current = loadCheckout()
+  if (!current) return null
+  const patchMap = new Map(patches.map((patch) => [String(patch.productId), patch]))
+  current.items = current.items.map((item) => {
+    const patch = patchMap.get(item.productId)
+    if (!patch) return item
+    const stock = Math.max(1, Number(patch.stock ?? item.stock) || item.stock)
+    return {
+      ...item,
+      price: patch.price,
+      originalPrice: patch.originalPrice,
+      discountRate: patch.discountRate,
+      stock,
+      quantity: clamp(item.quantity, 1, stock),
+    }
+  })
   saveCheckout(current)
   return current
 }

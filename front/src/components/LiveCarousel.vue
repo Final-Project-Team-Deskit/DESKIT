@@ -1,33 +1,45 @@
 <script setup lang="ts">
-import { nextTick, ref } from 'vue'
+import { computed, nextTick, ref, toRefs, watch } from 'vue'
 import { Swiper, SwiperSlide } from 'swiper/vue'
 import type { Swiper as SwiperClass } from 'swiper'
+import type { NavigationOptions } from 'swiper/types'
 import { Autoplay, Pagination, Navigation } from 'swiper/modules'
 
 import LiveCard from './LiveCard.vue'
-import type { LiveItem } from '../lib/home-data'
+import type { LiveItem } from '../lib/live/types'
 
-defineProps<{
+const props = defineProps<{
   items: LiveItem[]
 }>()
 
+const { items } = toRefs(props)
 const modules = [Autoplay, Pagination, Navigation]
 const prevEl = ref<HTMLButtonElement | null>(null)
 const nextEl = ref<HTMLButtonElement | null>(null)
+const swiperRef = ref<SwiperClass | null>(null)
+const shouldLoop = computed(() => items.value.length > 2)
+
+const refreshSwiper = async () => {
+  await nextTick()
+  if (!swiperRef.value || !items.value.length) return
+  swiperRef.value.update()
+  if (shouldLoop.value) {
+    swiperRef.value.slideToLoop(0, 0)
+  } else {
+    swiperRef.value.slideTo(0, 0)
+  }
+}
 
 const handleSwiper = (swiper: SwiperClass) => {
+  swiperRef.value = swiper
   nextTick(() => {
     if (!prevEl.value || !nextEl.value) {
       return
     }
 
     const rawNavigation = swiper.params.navigation
-    const navigation =
-      typeof rawNavigation === 'boolean' || !rawNavigation ? {} : rawNavigation
-    const navigationParams = navigation as {
-      prevEl?: Element | null
-      nextEl?: Element | null
-    }
+    const navigationParams: NavigationOptions =
+      typeof rawNavigation === 'object' && rawNavigation ? { ...rawNavigation } : {}
 
     navigationParams.prevEl = prevEl.value
     navigationParams.nextEl = nextEl.value
@@ -37,7 +49,12 @@ const handleSwiper = (swiper: SwiperClass) => {
     swiper.navigation?.init()
     swiper.navigation?.update()
   })
+  void refreshSwiper()
 }
+
+watch(() => items.value.length, () => {
+  void refreshSwiper()
+}, { immediate: true })
 </script>
 
 <template>
@@ -58,22 +75,22 @@ const handleSwiper = (swiper: SwiperClass) => {
     </button>
 
     <Swiper
-        v-if="items.length"
-        class="live-swiper"
-        :modules="modules"
-        :centered-slides="true"
-        :slides-per-view="'auto'"
-        :space-between="28"
-        :loop="items.length > 1"
-        :speed="880"
-        :navigation="true"
-        :autoplay="{
-          delay: 3000,
-          disableOnInteraction: false,
-          pauseOnMouseEnter: true,
-        }"
-        :pagination="{ clickable: true }"
-        @swiper="handleSwiper"
+      v-if="items.length"
+      class="live-swiper"
+      :modules="modules"
+      :centered-slides="true"
+      :slides-per-view="'auto'"
+      :space-between="28"
+      :loop="shouldLoop"
+      :speed="880"
+      :navigation="true"
+      :autoplay="{
+        delay: 3000,
+        disableOnInteraction: false,
+        pauseOnMouseEnter: true,
+      }"
+      :pagination="{ clickable: true }"
+      @swiper="handleSwiper"
     >
       <SwiperSlide v-for="item in items" :key="item.id" class="live-slide">
         <LiveCard :item="item" />
@@ -123,7 +140,7 @@ const handleSwiper = (swiper: SwiperClass) => {
 :deep(.swiper-slide-prev),
 :deep(.swiper-slide-next) {
   opacity: 0.55;
-  filter: blur(0.6px);
+  filter: blur(1px);
   transform: scale(0.975);
 }
 :deep(.swiper-slide-active) {

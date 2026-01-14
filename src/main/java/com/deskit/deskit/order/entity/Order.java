@@ -47,6 +47,13 @@ public class Order extends BaseEntity {
   private Long memberId;
 
   /**
+   * Shipping address detail snapshot.
+   * - addr_detail (nullable)
+   */
+  @Column(name = "addr_detail", length = 255)
+  private String addrDetail;
+
+  /**
    * 주문번호(외부 노출용 식별자)
    * - order_number (VARCHAR(50))
    * - 보통 "ORD-YYYYMMDD-XXXX" 같은 규칙으로 생성
@@ -85,7 +92,7 @@ public class Order extends BaseEntity {
 
   /**
    * 주문 상태
-   * - SQL ENUM('CREATED','PAID','CANCELLED','COMPLETED')
+   * - SQL ENUM('CREATED','PAID','CANCEL_REQUESTED','CANCELLED','COMPLETED','REFUND_REQUESTED','REFUND_REJECTED','REFUNDED')
    * - EnumType.STRING으로 저장하여 값이 명확하고, enum 순서 변경에 안전
    */
   @Enumerated(EnumType.STRING)
@@ -114,6 +121,13 @@ public class Order extends BaseEntity {
   private LocalDateTime cancelledAt;
 
   /**
+   * 환불 완료 시각
+   * - refunded_at (nullable)
+   */
+  @Column(name = "refunded_at")
+  private LocalDateTime refundedAt;
+
+  /**
    * 주문 생성 팩토리 메서드
    *
    * - 엔티티 생성 시 필요한 핵심 값들을 한 곳에서 세팅하기 위해 제공
@@ -121,6 +135,7 @@ public class Order extends BaseEntity {
    */
   public static Order create(
           Long memberId,
+          String addrDetail,
           String orderNumber,
           Integer totalProductAmount,
           Integer shippingFee,
@@ -130,6 +145,7 @@ public class Order extends BaseEntity {
   ) {
     Order order = new Order();
     order.memberId = memberId;
+    order.addrDetail = addrDetail;
     order.orderNumber = orderNumber;
     order.totalProductAmount = totalProductAmount;
     order.shippingFee = shippingFee;
@@ -139,7 +155,62 @@ public class Order extends BaseEntity {
     return order;
   }
 
-  public void changeStatus(OrderStatus status) {
-    this.status = status;
+  public void markPaid() {
+    if (this.status == OrderStatus.PAID) {
+      return;
+    }
+    if (this.status != OrderStatus.CREATED) {
+      throw new IllegalStateException("invalid status for paid");
+    }
+    this.status = OrderStatus.PAID;
+    if (this.paidAt == null) {
+      this.paidAt = LocalDateTime.now();
+    }
   }
+
+  public void requestCancel(String reason) {
+    if (this.status == OrderStatus.CREATED) {
+      if (this.cancelReason == null && reason != null) {
+        this.cancelReason = reason;
+      }
+      this.status = OrderStatus.CANCEL_REQUESTED;
+      return;
+    }
+    if (this.status == OrderStatus.PAID) {
+      if (this.cancelReason == null && reason != null) {
+        this.cancelReason = reason;
+      }
+      this.status = OrderStatus.REFUND_REQUESTED;
+      return;
+    }
+    throw new IllegalStateException("invalid status for cancel request");
+  }
+
+  public void approveCancel() {
+    if (this.status != OrderStatus.CANCEL_REQUESTED) {
+      throw new IllegalStateException("invalid status for cancel approval");
+    }
+    this.status = OrderStatus.CANCELLED;
+    if (this.cancelledAt == null) {
+      this.cancelledAt = LocalDateTime.now();
+    }
+  }
+
+  public void approveRefund() {
+    if (this.status != OrderStatus.REFUND_REQUESTED) {
+      throw new IllegalStateException("invalid status for refund approval");
+    }
+    this.status = OrderStatus.REFUNDED;
+    if (this.refundedAt == null) {
+      this.refundedAt = LocalDateTime.now();
+    }
+  }
+
+  public void rejectRefund() {
+    if (this.status != OrderStatus.REFUND_REQUESTED) {
+      throw new IllegalStateException("invalid status for refund rejection");
+    }
+    this.status = OrderStatus.REFUND_REJECTED;
+  }
+
 }

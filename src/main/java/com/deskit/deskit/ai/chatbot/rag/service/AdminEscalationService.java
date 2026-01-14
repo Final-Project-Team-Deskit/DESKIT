@@ -28,7 +28,7 @@ public class AdminEscalationService {
     @Transactional
     public ChatResponse escalate(String question, long conversationId, String userId) {
 
-        String escalateMessage = "현재 상담 내용이 관리자에게 이관되었어요.\n곧 관리자를 통해 답변드릴게요.";
+        String escalateMessage = "채팅이 관리자로 이관되었어요. 관리자가 곧 답변 드릴 예정이에요.";
 
         ChatInfo chatInfo = conversationRepository.findById(conversationId)
                 .orElseThrow(() -> new IllegalArgumentException(

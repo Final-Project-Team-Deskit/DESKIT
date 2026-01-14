@@ -66,6 +66,7 @@ public class WebSocketAuthHandshakeInterceptor implements HandshakeInterceptor {
         String username = jwtUtil.getUsername(token);
         String role = jwtUtil.getRole(token);
         attributes.put("principal", new WebSocketPrincipal(username));
+        attributes.put("role", role);
         log.debug("ws.handshake principal set username={} role={}", username, role);
 
         return true;

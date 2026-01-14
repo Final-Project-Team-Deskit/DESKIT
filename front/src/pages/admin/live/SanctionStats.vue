@@ -1,81 +1,101 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import PageHeader from '../../../components/PageHeader.vue'
 import StatsBarChart from '../../../components/stats/StatsBarChart.vue'
 import StatsRankList from '../../../components/stats/StatsRankList.vue'
+import { fetchSanctionStatistics } from '../../../lib/live/api'
 
 type Metric = 'daily' | 'monthly' | 'yearly'
+type ChartDatum = { label: string; value: number }
+type RankItem = { rank: number; title: string; value: number }
 
 const stopMetric = ref<Metric>('daily')
 const viewerMetric = ref<Metric>('daily')
+const rankMetric = ref<Metric>('daily')
 
-const formatDay = (date: Date) => {
-  const month = `${date.getMonth() + 1}`.padStart(2, '0')
-  const day = `${date.getDate()}`.padStart(2, '0')
-  return `${month}.${day}`
+const periodMap: Record<Metric, string> = {
+  daily: 'DAILY',
+  monthly: 'MONTHLY',
+  yearly: 'YEARLY',
 }
 
-const buildDailySeries = (values: number[]) => {
-  const today = new Date()
-  const start = new Date(today)
-  start.setDate(today.getDate() - (values.length - 1))
-  return values.map((value, index) => {
-    const current = new Date(start)
-    current.setDate(start.getDate() + index)
-    return { label: formatDay(current), value }
-  })
+const stopChart = ref<ChartDatum[]>([])
+const viewerChart = ref<ChartDatum[]>([])
+const topSellerStops = ref<RankItem[]>([])
+const topViewerSanctions = ref<RankItem[]>([])
+
+const mapChart = (items: Array<{ label: string; count: number }> = []) =>
+  items.map((item) => ({ label: item.label, value: Number(item.count ?? 0) }))
+
+const mapSellerRanks = (items: Array<{ sellerName: string; sanctionCount: number }> = []) =>
+  items.map((item, index) => ({
+    rank: index + 1,
+    title: item.sellerName,
+    value: Number(item.sanctionCount ?? 0),
+  }))
+
+const mapViewerRanks = (items: Array<{ viewerId: string; name?: string; sanctionCount: number }> = []) =>
+  items.map((item, index) => ({
+    rank: index + 1,
+    title: item.name || item.viewerId,
+    value: Number(item.sanctionCount ?? 0),
+  }))
+
+const sumValues = (items: ChartDatum[]) => items.reduce((acc, item) => acc + item.value, 0)
+
+const summaryCards = computed(() => {
+  const totalStops = sumValues(stopChart.value)
+  const totalViewers = sumValues(viewerChart.value)
+  const lastStop = stopChart.value.length ? stopChart.value[stopChart.value.length - 1] : undefined
+  const lastViewer = viewerChart.value.length ? viewerChart.value[viewerChart.value.length - 1] : undefined
+  const recentLabel = lastStop?.label || lastViewer?.label || '-'
+  return [
+    { label: '총 송출 중지', value: `${totalStops.toLocaleString('ko-KR')}건` },
+    { label: '시청자 제재', value: `${totalViewers.toLocaleString('ko-KR')}건` },
+    { label: '최근 제재일', value: recentLabel },
+  ]
+})
+
+const loadStopStats = async () => {
+  try {
+    const payload = await fetchSanctionStatistics(periodMap[stopMetric.value])
+    stopChart.value = mapChart(payload.forceStopChart ?? [])
+  } catch {
+    stopChart.value = []
+  }
 }
 
-const buildMonthlySeries = (values: number[]) => {
-  const today = new Date()
-  const start = new Date(today)
-  start.setMonth(today.getMonth() - (values.length - 1), 1)
-  return values.map((value, index) => {
-    const current = new Date(start)
-    current.setMonth(start.getMonth() + index, 1)
-    return { label: `${current.getMonth() + 1}월`, value }
-  })
+const loadViewerStats = async () => {
+  try {
+    const payload = await fetchSanctionStatistics(periodMap[viewerMetric.value])
+    viewerChart.value = mapChart(payload.viewerBanChart ?? [])
+  } catch {
+    viewerChart.value = []
+  }
 }
 
-const buildYearlySeries = (values: number[]) => {
-  const today = new Date()
-  const startYear = today.getFullYear() - (values.length - 1)
-  return values.map((value, index) => ({ label: `${startYear + index}`, value }))
+const loadRankStats = async () => {
+  try {
+    const payload = await fetchSanctionStatistics(periodMap[rankMetric.value])
+    topSellerStops.value = mapSellerRanks(payload.worstSellers ?? [])
+    topViewerSanctions.value = mapViewerRanks(payload.worstViewers ?? [])
+  } catch {
+    topSellerStops.value = []
+    topViewerSanctions.value = []
+  }
 }
 
-const stopCountData: Record<Metric, Array<{ label: string; value: number }>> = {
-  daily: buildDailySeries([6, 5, 7, 4, 6, 5, 8]),
-  monthly: buildMonthlySeries([12, 14, 16, 18, 19, 21, 23, 20, 18, 17, 19, 22]),
-  yearly: buildYearlySeries([58, 64, 71, 79, 83]),
-}
+watch(stopMetric, () => {
+  loadStopStats()
+}, { immediate: true })
 
-const viewerSanctionData: Record<Metric, Array<{ label: string; value: number }>> = {
-  daily: buildDailySeries([18, 15, 12, 14, 17, 13, 19]),
-  monthly: buildMonthlySeries([208, 214, 226, 242, 255, 268, 274, 261, 248, 239, 245, 258]),
-  yearly: buildYearlySeries([980, 1040, 1115, 1205, 1280]),
-}
+watch(viewerMetric, () => {
+  loadViewerStats()
+}, { immediate: true })
 
-const topSellerStops = [
-  { rank: 1, title: '판매자 A', value: 12 },
-  { rank: 2, title: '판매자 B', value: 9 },
-  { rank: 3, title: '판매자 C', value: 7 },
-  { rank: 4, title: '판매자 D', value: 6 },
-  { rank: 5, title: '판매자 E', value: 5 },
-]
-
-const topViewerSanctions = [
-  { rank: 1, title: '시청자1', value: 18 },
-  { rank: 2, title: '시청자2', value: 16 },
-  { rank: 3, title: '시청자3', value: 14 },
-  { rank: 4, title: '시청자4', value: 12 },
-  { rank: 5, title: '시청자5', value: 10 },
-]
-
-const summaryCards = [
-  { label: '총 송출 중지', value: '95건' },
-  { label: '시청자 제재', value: '1,280건' },
-  { label: '최근 제재일', value: '2025-12-12' },
-]
+watch(rankMetric, () => {
+  loadRankStats()
+}, { immediate: true })
 </script>
 
 <template>
@@ -108,7 +128,7 @@ const summaryCards = [
             </button>
           </div>
         </header>
-        <StatsBarChart :data="stopCountData[stopMetric]" />
+        <StatsBarChart :data="stopChart" />
       </article>
 
       <article class="ds-surface panel">
@@ -129,11 +149,40 @@ const summaryCards = [
             </button>
           </div>
         </header>
-        <StatsBarChart :data="viewerSanctionData[viewerMetric]" />
+        <StatsBarChart :data="viewerChart" />
       </article>
     </section>
 
     <section class="ranks-grid">
+      <div class="ranks-grid__head">
+        <h3 class="ranks-grid__title">순위 리스트</h3>
+        <div class="toggle-group" role="tablist" aria-label="순위 기간">
+          <button
+            type="button"
+            class="toggle-btn"
+            :class="{ 'toggle-btn--active': rankMetric === 'daily' }"
+            @click="rankMetric = 'daily'"
+          >
+            일별
+          </button>
+          <button
+            type="button"
+            class="toggle-btn"
+            :class="{ 'toggle-btn--active': rankMetric === 'monthly' }"
+            @click="rankMetric = 'monthly'"
+          >
+            월별
+          </button>
+          <button
+            type="button"
+            class="toggle-btn"
+            :class="{ 'toggle-btn--active': rankMetric === 'yearly' }"
+            @click="rankMetric = 'yearly'"
+          >
+            연도별
+          </button>
+        </div>
+      </div>
       <article class="ds-surface panel">
         <h3 class="panel__title">송출 중지 횟수 많은 판매자 TOP 5</h3>
         <StatsRankList :items="topSellerStops" />
@@ -180,9 +229,25 @@ const summaryCards = [
 
 .ranks-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(380px, 1fr));
   gap: 14px;
   margin-top: 14px;
+}
+
+.ranks-grid__head {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.ranks-grid__title {
+  margin: 0;
+  font-size: 1.1rem;
+  font-weight: 900;
+  color: var(--text-strong);
 }
 
 .panel {
@@ -226,5 +291,17 @@ const summaryCards = [
   border-color: var(--primary-color);
   color: var(--primary-color);
   background: rgba(var(--primary-rgb), 0.08);
+}
+
+@media (max-width: 640px) {
+  .ranks-grid__head {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .toggle-group {
+    width: 100%;
+    flex-wrap: wrap;
+  }
 }
 </style>
