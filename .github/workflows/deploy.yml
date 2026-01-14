@@ -1,0 +1,42 @@
+name: Deploy
+
+on:
+  push:
+    branches: [ "develop" ]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy app server (Docker)
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.APP_HOST }}
+          username: ${{ secrets.APP_USER }}
+          key: ${{ secrets.APP_SSH_KEY }}
+          proxy_host: ${{ secrets.BASTION_HOST }}
+          proxy_username: ${{ secrets.BASTION_USER }}
+          proxy_key: ${{ secrets.BASTION_SSH_KEY }}
+          script: |
+            set -euo pipefail
+            cd /var/www/deskit
+            git fetch --all
+            git reset --hard origin/main
+            docker compose down
+            docker build --no-cache -t deskit:latest .
+            docker compose up -d
+
+      - name: Reload nginx (web server)
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.WEB_HOST }}
+          username: ${{ secrets.WEB_USER }}
+          key: ${{ secrets.WEB_SSH_KEY }}
+          proxy_host: ${{ secrets.BASTION_HOST }}
+          proxy_username: ${{ secrets.BASTION_USER }}
+          proxy_key: ${{ secrets.BASTION_SSH_KEY }}
+          script: |
+            set -euo pipefail
+            sudo nginx -t
+            sudo nginx -s reload
