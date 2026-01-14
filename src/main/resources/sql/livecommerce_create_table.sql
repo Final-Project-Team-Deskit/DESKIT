@@ -173,9 +173,9 @@ CREATE TABLE tag
 
 CREATE TABLE forbidden_word
 (
-    word_id     INT UNSIGNED NOT NULL AUTO_INCREMENT,
-    word        VARCHAR(50)  NOT NULL COMMENT '금지어',
-    created_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    word_id    INT UNSIGNED NOT NULL AUTO_INCREMENT,
+    word       VARCHAR(50)  NOT NULL COMMENT '금지어',
+    created_at DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (word_id)
 ) ENGINE = InnoDB
   DEFAULT CHARSET = utf8mb4 COMMENT ='금지어';
@@ -451,7 +451,7 @@ CREATE TABLE live_chat
 (
     message_id    BIGINT UNSIGNED                                  NOT NULL AUTO_INCREMENT,
     broadcast_id  BIGINT UNSIGNED                                  NOT NULL,
-    member_email VARCHAR(255)                                      NOT NULL,
+    member_email  VARCHAR(255)                                     NOT NULL,
     msg_type      ENUM ('TALK','ENTER','EXIT','PURCHASE','NOTICE') NOT NULL COMMENT '채팅 메시지 유형',
     content       VARCHAR(500)                                     NOT NULL,
     raw_content   VARCHAR(500)                                     NOT NULL,
@@ -741,7 +741,8 @@ ALTER TABLE order_item
 -- [Broadcast Relations]
 ALTER TABLE broadcast
     ADD CONSTRAINT FK_broadcast_seller FOREIGN KEY (seller_id) REFERENCES seller (seller_id);
--- ALTER TABLE broadcast ADD CONSTRAINT FK_broadcast_tag_cat FOREIGN KEY (tag_category_id) REFERENCES tag_category (tag_category_id); 
+ALTER TABLE broadcast
+    ADD CONSTRAINT FK_broadcast_tag_cat FOREIGN KEY (tag_category_id) REFERENCES tag_category (tag_category_id);
 
 ALTER TABLE broadcast_product
     ADD CONSTRAINT FK_bp_broadcast FOREIGN KEY (broadcast_id) REFERENCES broadcast (broadcast_id);
@@ -758,12 +759,9 @@ ALTER TABLE broadcast_result
 -- [Live Interaction Relations]
 ALTER TABLE view_history
     ADD CONSTRAINT FK_vh_broadcast FOREIGN KEY (broadcast_id) REFERENCES broadcast (broadcast_id);
-# ALTER TABLE view_history ADD CONSTRAINT FK_vh_member FOREIGN KEY (member_id) REFERENCES member (member_id);
 
 ALTER TABLE live_chat
     ADD CONSTRAINT FK_lc_broadcast FOREIGN KEY (broadcast_id) REFERENCES broadcast (broadcast_id);
-ALTER TABLE live_chat
-    ADD CONSTRAINT FK_lc_member FOREIGN KEY (member_id) REFERENCES member (member_id);
 
 ALTER TABLE sanction
     ADD CONSTRAINT FK_sanction_broadcast FOREIGN KEY (broadcast_id) REFERENCES broadcast (broadcast_id);

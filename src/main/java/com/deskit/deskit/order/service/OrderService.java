@@ -2,8 +2,6 @@ package com.deskit.deskit.order.service;
 
 import com.deskit.deskit.account.repository.MemberRepository;
 import com.deskit.deskit.account.address.service.AddressService;
-import com.deskit.deskit.livehost.repository.BroadcastProductRepository;
-import com.deskit.deskit.livehost.service.BroadcastService;
 import com.deskit.deskit.order.dto.OrderCancelRequest;
 import com.deskit.deskit.order.dto.OrderCancelResponse;
 import com.deskit.deskit.order.dto.CreateOrderItemRequest;
@@ -35,7 +33,10 @@ import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.server.ResponseStatusException;
 
 @Service
@@ -51,6 +52,7 @@ public class OrderService {
   private final TossPaymentService tossPaymentService;
   private final BroadcastService broadcastService;
   private final AddressService addressService;
+  private final PlatformTransactionManager transactionManager;
 
   public CreateOrderResponse createOrder(Long memberId, CreateOrderRequest request) {
     if (memberId == null) {
@@ -232,14 +234,31 @@ public class OrderService {
       throw new ResponseStatusException(HttpStatus.BAD_REQUEST, ex.getMessage());
     }
 
+    if (order.getStatus() == OrderStatus.CANCEL_REQUESTED) {
+      order.approveCancel();
+    }
+
     if (order.getStatus() == OrderStatus.REFUND_REQUESTED) {
-      tossPaymentService.cancelPayment(order, request.reason());
+      persistRefundRequested(order);
+      try {
+        tossPaymentService.cancelPayment(order, request.reason());
+      } catch (ResponseStatusException ex) {
+        throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "toss cancel failed", ex);
+      } catch (RuntimeException ex) {
+        throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "toss cancel failed", ex);
+      }
       order.approveRefund();
       updateBroadcastSalesAfterRefund(order);
     }
 
     orderRepository.save(order);
     return new OrderCancelResponse(order.getId(), order.getStatus());
+  }
+
+  private void persistRefundRequested(Order order) {
+    TransactionTemplate template = new TransactionTemplate(transactionManager);
+    template.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+    template.executeWithoutResult(status -> orderRepository.save(order));
   }
 
   private void updateBroadcastSalesAfterRefund(Order order) {

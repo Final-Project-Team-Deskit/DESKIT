@@ -4,8 +4,6 @@ import type {
   CreateOrderRequest,
   CreateOrderResponse,
   OrderDetailResponse,
-  OrderStatusUpdateRequest,
-  OrderStatusUpdateResponse,
   OrderSummaryResponse,
 } from './types/orders'
 
@@ -29,18 +27,6 @@ export const getMyOrders = async (): Promise<OrderSummaryResponse[]> => {
 
 export const getMyOrderDetail = async (orderId: number): Promise<OrderDetailResponse> => {
   const response = await http.get<OrderDetailResponse>(endpoints.orderDetail(orderId), withCredentials)
-  return response.data
-}
-
-export const updateOrderStatus = async (
-  orderId: number,
-  request: OrderStatusUpdateRequest,
-): Promise<OrderStatusUpdateResponse> => {
-  const response = await http.patch<OrderStatusUpdateResponse>(
-    endpoints.orderStatus(orderId),
-    request,
-    withCredentials,
-  )
   return response.data
 }
 
