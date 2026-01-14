@@ -70,7 +70,7 @@ const handleSubmit = async () => {
   syncFromEditor()
   isSaving.value = true
   try {
-    const response = await fetch(`${apiBase}/api/seller/products/${id}`, {
+    const response = await fetch(`${apiBase}/seller/products/${id}`, {
       method: 'PUT',
       headers: {
         'Content-Type': 'application/json',
@@ -109,7 +109,7 @@ onMounted(() => {
 
   const load = async () => {
     try {
-      const response = await fetch(`${apiBase}/api/seller/products/${id}`, {
+      const response = await fetch(`${apiBase}/seller/products/${id}`, {
         method: 'GET',
         headers: {
           ...buildAuthHeaders(),

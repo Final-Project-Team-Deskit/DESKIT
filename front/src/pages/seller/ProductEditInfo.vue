@@ -87,7 +87,7 @@ const uploadImageFile = async (index: number, file: File) => {
   try {
     const formData = new FormData()
     formData.append('file', file)
-    const response = await fetch(`${apiBase}/api/seller/products/images/upload`, {
+    const response = await fetch(`${apiBase}/seller/products/images/upload`, {
       method: 'POST',
       headers: {
         ...buildAuthHeaders(),
@@ -229,7 +229,7 @@ const handleDelete = async () => {
   error.value = ''
   isDeleting.value = true
   try {
-    const response = await fetch(`${apiBase}/api/seller/products/${id}`, {
+    const response = await fetch(`${apiBase}/seller/products/${id}`, {
       method: 'DELETE',
       headers: {
         ...buildAuthHeaders(),

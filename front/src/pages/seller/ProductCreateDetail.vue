@@ -198,7 +198,7 @@ const handleSubmit = async () => {
     const uniqueTags = Array.from(new Set(normalizedTags))
 
     if (!tagMap.value || tagMap.value.size === 0) {
-      const tagResponse = await fetch(`${apiBase}/api/seller/tags`, {
+      const tagResponse = await fetch(`${apiBase}/seller/tags`, {
         method: 'GET',
         headers: {
           ...authHeaders,
@@ -233,7 +233,7 @@ const handleSubmit = async () => {
       .map((tag) => tagMap.value?.get(tag))
       .filter((tagId): tagId is number => typeof tagId === 'number')
 
-    const detailResponse = await fetch(`${apiBase}/api/seller/products/${productId}/detail`, {
+    const detailResponse = await fetch(`${apiBase}/seller/products/${productId}/detail`, {
       method: 'PATCH',
       headers: {
         'Content-Type': 'application/json',
