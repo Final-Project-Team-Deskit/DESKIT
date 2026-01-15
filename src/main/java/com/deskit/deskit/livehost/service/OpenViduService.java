@@ -31,8 +31,18 @@ public class OpenViduService {
     private final Map<Long, String> sessionMap = new ConcurrentHashMap<>();
 
     public String createSession(Long broadcastId) throws OpenViduJavaClientException, OpenViduHttpException {
-        if (sessionMap.containsKey(broadcastId)) {
-            return sessionMap.get(broadcastId);
+        String cachedSessionId = sessionMap.get(broadcastId);
+        if (cachedSessionId != null) {
+            return cachedSessionId;
+        }
+
+        String customSessionId = "broadcast-" + broadcastId;
+        Session existingSession = openVidu.getActiveSession(customSessionId);
+        if (existingSession != null) {
+            sessionMap.put(broadcastId, existingSession.getSessionId());
+            log.info("OpenVidu 기존 세션 재사용: broadcastId={}, sessionId={}", broadcastId,
+                    existingSession.getSessionId());
+            return existingSession.getSessionId();
         }
 
         RecordingProperties recordingProperties = new RecordingProperties.Builder()
@@ -40,13 +50,27 @@ public class OpenViduService {
                 .build();
 
         SessionProperties properties = new SessionProperties.Builder()
-                .customSessionId("broadcast-" + broadcastId)
+                .customSessionId(customSessionId)
                 .recordingMode(RecordingMode.MANUAL)
                 .defaultRecordingProperties(recordingProperties)
                 .build();
 
-        Session session = openVidu.createSession(properties);
-        sessionMap.put(broadcastId, session.getSessionId());
+        Session session;
+        try {
+            session = openVidu.createSession(properties);
+            sessionMap.put(broadcastId, session.getSessionId());
+        } catch (OpenViduHttpException e) {
+            if (e.getStatus() == 409) {
+                Session conflictSession = openVidu.getActiveSession(customSessionId);
+                if (conflictSession != null) {
+                    sessionMap.put(broadcastId, conflictSession.getSessionId());
+                    log.info("OpenVidu 세션 충돌 후 재사용: broadcastId={}, sessionId={}", broadcastId,
+                            conflictSession.getSessionId());
+                    return conflictSession.getSessionId();
+                }
+            }
+            throw e;
+        }
 
         log.info("OpenVidu 세션 생성: broadcastId={}, sessionId={}", broadcastId, session.getSessionId());
         return session.getSessionId();
