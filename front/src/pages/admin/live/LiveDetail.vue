@@ -24,7 +24,7 @@ import { resolveViewerId } from '../../../lib/live/viewer'
 const route = useRoute()
 const router = useRouter()
 const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080'
-const apiRoot = apiBase.replace(/\/api\/?$/, '')
+const wsBase = apiBase.replace(/\/+$/, '')
 
 // --- Types ---
 type AdminDetail = {
@@ -300,7 +300,7 @@ const handleIncomingMessage = (payload: LiveChatMessageDTO) => {
 const fetchRecentMessages = async () => {
   if (!broadcastId.value) return
   try {
-    const response = await fetch(`${apiRoot}/livechats/${broadcastId.value}/recent?seconds=300`)
+    const response = await fetch(`${wsBase}/livechats/${broadcastId.value}/recent?seconds=300`)
     if (!response.ok) return
     const recent = (await response.json()) as LiveChatMessageDTO[]
     if (!Array.isArray(recent)) return
@@ -338,7 +338,7 @@ const fetchRecentMessages = async () => {
 const connectChat = () => {
   if (!broadcastId.value || stompClient.value?.active) return
   const client = new Client({
-    webSocketFactory: () => new SockJS(`${apiRoot}/ws`, undefined, { withCredentials: true }),
+    webSocketFactory: () => new SockJS(`${wsBase}/ws`, undefined, { withCredentials: true }),
     reconnectDelay: 5000,
   })
 
