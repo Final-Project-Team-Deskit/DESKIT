@@ -15,7 +15,6 @@ import {
   type StoredCartItem,
 } from '../lib/cart/cart-storage'
 import { createCheckoutFromCart, saveCheckout } from '../lib/checkout/checkout-storage'
-import { createImageErrorHandler, resolvePrimaryImage } from '../lib/images/productImages'
 
 const router = useRouter()
 const cartItems = ref<StoredCartItem[]>(loadCart())
@@ -25,8 +24,6 @@ const priceSyncInFlight = ref(false)
 const priceChangePending = ref(false)
 const priceChangeModalOpen = ref(false)
 const priceChangeMessage = ref('')
-
-const { handleImageError } = createImageErrorHandler()
 
 const formatPrice = (value: number) => `${value.toLocaleString('ko-KR')}원`
 
@@ -257,12 +254,7 @@ onBeforeUnmount(() => {
               </label>
 
               <div class="cart-item__main">
-                <img
-                  :src="resolvePrimaryImage(item)"
-                  :alt="item.name"
-                  class="cart-item__thumb"
-                  @error="handleImageError"
-                />
+                <img :src="item.imageUrl" :alt="item.name" class="cart-item__thumb" />
                 <div class="cart-item__info">
                   <h3 class="cart-title">{{ item.name }}</h3>
                   <div class="cart-pricing">
