@@ -19,12 +19,13 @@ import { useNow } from '../../../lib/live/useNow'
 import { computeLifecycleStatus, getBroadcastStatusLabel, getScheduledEndMs, normalizeBroadcastStatus } from '../../../lib/broadcastStatus'
 import { getAuthUser } from '../../../lib/auth'
 import { createImageErrorHandler } from '../../../lib/images/productImages'
+import { resolveWsBase } from '../../../lib/ws'
 import { resolveViewerId } from '../../../lib/live/viewer'
 
 const route = useRoute()
 const router = useRouter()
 const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080'
-const wsBase = apiBase.replace(/\/+$/, '')
+const wsBase = resolveWsBase(apiBase)
 
 // --- Types ---
 type AdminDetail = {
