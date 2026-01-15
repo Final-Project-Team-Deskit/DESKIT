@@ -31,7 +31,7 @@ const route = useRoute()
 const router = useRouter()
 const { now } = useNow(1000)
 const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080'
-const apiRoot = apiBase.replace(/\/api\/?$/, '')
+const wsBase = apiBase.replace(/\/+$/, '')
 const sseSource = ref<EventSource | null>(null)
 const sseConnected = ref(false)
 const sseRetryCount = ref(0)
@@ -986,7 +986,7 @@ const connectChat = () => {
   }
   const client = new Client({
     webSocketFactory: () =>
-        new SockJS(`${apiRoot}/ws`, undefined, {
+        new SockJS(`${wsBase}/ws`, undefined, {
         withCredentials: true,
       }),
     reconnectDelay: 5000,
