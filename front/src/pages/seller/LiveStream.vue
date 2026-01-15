@@ -173,6 +173,7 @@ const recordingStartRequested = ref(false)
 const endRequested = ref(false)
 const endRequestTimer = ref<number | null>(null)
 const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080'
+const apiRoot = apiBase.replace(/\/api\/?$/, '')
 const viewerId = ref<string | null>(resolveViewerId(getAuthUser()))
 const joinedBroadcastId = ref<number | null>(null)
 const joinedViewerId = ref<string | null>(null)
@@ -355,7 +356,7 @@ const connectChat = () => {
 
   const client = new Client({
     webSocketFactory: () =>
-      new SockJS(`${apiBase}/ws`, undefined, {
+        new SockJS(`${apiRoot}/ws`, undefined, {
         withCredentials: true,
       }),
     reconnectDelay: 5000,
