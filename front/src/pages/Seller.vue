@@ -111,35 +111,35 @@ const handleExport = () => {
               </div>
               <div class="segmented" role="tablist" aria-label="기간 선택">
                 <button
-                  type="button"
-                  class="segmented__btn"
-                  :class="{ 'segmented__btn--active': periodSales === 'daily' }"
-                  @click="periodSales = 'daily'"
+                    type="button"
+                    class="segmented__btn"
+                    :class="{ 'segmented__btn--active': periodSales === 'daily' }"
+                    @click="periodSales = 'daily'"
                 >
                   일별
                 </button>
                 <button
-                  type="button"
-                  class="segmented__btn"
-                  :class="{ 'segmented__btn--active': periodSales === 'monthly' }"
-                  @click="periodSales = 'monthly'"
+                    type="button"
+                    class="segmented__btn"
+                    :class="{ 'segmented__btn--active': periodSales === 'monthly' }"
+                    @click="periodSales = 'monthly'"
                 >
                   월별
                 </button>
                 <button
-                  type="button"
-                  class="segmented__btn"
-                  :class="{ 'segmented__btn--active': periodSales === 'yearly' }"
-                  @click="periodSales = 'yearly'"
+                    type="button"
+                    class="segmented__btn"
+                    :class="{ 'segmented__btn--active': periodSales === 'yearly' }"
+                    @click="periodSales = 'yearly'"
                 >
                   연도별
                 </button>
               </div>
             </header>
             <div class="chart-placeholder">
-              <div class="bar-chart" role="img" aria-label="판매량 차트">
+              <div class="bar-chart" role="img" aria-label="상품 종류별 판매 현황">
                 <div v-for="item in salesChart" :key="item.label" class="bar-item">
-                  <div class="bar-value">{{ item.value }}건</div>
+                  <div class="bar-value">{{ item.value }}개</div>
                   <div class="bar-area">
                     <div class="bar" :style="{ height: `${(item.value / maxSales) * 100}%` }"></div>
                   </div>
@@ -175,26 +175,26 @@ const handleExport = () => {
               </div>
               <div class="segmented" role="tablist" aria-label="기간 선택">
                 <button
-                  type="button"
-                  class="segmented__btn"
-                  :class="{ 'segmented__btn--active': periodRevenue === 'daily' }"
-                  @click="periodRevenue = 'daily'"
+                    type="button"
+                    class="segmented__btn"
+                    :class="{ 'segmented__btn--active': periodRevenue === 'daily' }"
+                    @click="periodRevenue = 'daily'"
                 >
                   일별
                 </button>
                 <button
-                  type="button"
-                  class="segmented__btn"
-                  :class="{ 'segmented__btn--active': periodRevenue === 'monthly' }"
-                  @click="periodRevenue = 'monthly'"
+                    type="button"
+                    class="segmented__btn"
+                    :class="{ 'segmented__btn--active': periodRevenue === 'monthly' }"
+                    @click="periodRevenue = 'monthly'"
                 >
                   월별
                 </button>
                 <button
-                  type="button"
-                  class="segmented__btn"
-                  :class="{ 'segmented__btn--active': periodRevenue === 'yearly' }"
-                  @click="periodRevenue = 'yearly'"
+                    type="button"
+                    class="segmented__btn"
+                    :class="{ 'segmented__btn--active': periodRevenue === 'yearly' }"
+                    @click="periodRevenue = 'yearly'"
                 >
                   연도별
                 </button>
