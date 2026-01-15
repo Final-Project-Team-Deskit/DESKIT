@@ -150,6 +150,7 @@ public class SecurityConfig {
                                 "/login/**",
                                 "/login/oauth2/**",
                                 "/ws/**",
+                                "/ws/**",
                                 "/api/signup/**"
                         ).permitAll()
                         .requestMatchers("/api/admin/**").hasAuthority("ROLE_ADMIN")
