@@ -12,49 +12,49 @@ const isHome = computed(() => route.path === '/seller')
 
 const salesChartByPeriod = {
   daily: [
-    { label: '월', value: 42 },
-    { label: '화', value: 33 },
-    { label: '수', value: 28 },
-    { label: '목', value: 22 },
-    { label: '금', value: 18 },
+    { label: '오피스', value: 42 },
+    { label: '게이밍', value: 33 },
+    { label: '미니멀', value: 28 },
+    { label: '홈카페', value: 22 },
+    { label: '스탠딩', value: 18 },
   ],
   monthly: [
-    { label: '1주', value: 980 },
-    { label: '2주', value: 840 },
-    { label: '3주', value: 760 },
-    { label: '4주', value: 640 },
-    { label: '5주', value: 520 },
+    { label: '오피스', value: 980 },
+    { label: '게이밍', value: 840 },
+    { label: '미니멀', value: 760 },
+    { label: '홈카페', value: 640 },
+    { label: '스탠딩', value: 520 },
   ],
   yearly: [
-    { label: '2021', value: 11200 },
-    { label: '2022', value: 9800 },
-    { label: '2023', value: 8600 },
-    { label: '2024', value: 7400 },
-    { label: '2025', value: 6200 },
+    { label: '오피스', value: 11200 },
+    { label: '게이밍', value: 9800 },
+    { label: '미니멀', value: 8600 },
+    { label: '홈카페', value: 7400 },
+    { label: '스탠딩', value: 6200 },
   ],
 } as const
 
 const revenueChartByPeriod = {
   daily: [
-    { label: '월', value: 1200 },
-    { label: '화', value: 980 },
-    { label: '수', value: 860 },
-    { label: '목', value: 740 },
-    { label: '금', value: 620 },
+    { label: '오피스', value: 1200 },
+    { label: '게이밍', value: 980 },
+    { label: '미니멀', value: 860 },
+    { label: '홈카페', value: 740 },
+    { label: '스탠딩', value: 620 },
   ],
   monthly: [
-    { label: '1주', value: 35800 },
-    { label: '2주', value: 31200 },
-    { label: '3주', value: 28600 },
-    { label: '4주', value: 24800 },
-    { label: '5주', value: 21400 },
+    { label: '오피스', value: 35800 },
+    { label: '게이밍', value: 31200 },
+    { label: '미니멀', value: 28600 },
+    { label: '홈카페', value: 24800 },
+    { label: '스탠딩', value: 21400 },
   ],
   yearly: [
-    { label: '2021', value: 412000 },
-    { label: '2022', value: 368000 },
-    { label: '2023', value: 332000 },
-    { label: '2024', value: 286000 },
-    { label: '2025', value: 248000 },
+    { label: '오피스', value: 412000 },
+    { label: '게이밍', value: 368000 },
+    { label: '미니멀', value: 332000 },
+    { label: '홈카페', value: 286000 },
+    { label: '스탠딩', value: 248000 },
   ],
 } as const
 
@@ -62,31 +62,31 @@ const salesChart = computed(() => salesChartByPeriod[periodSales.value])
 const revenueChart = computed(() => revenueChartByPeriod[periodRevenue.value])
 
 const top5Items = [
-  { name: '에르고노믹 메쉬 체어 프리미엄', value: '1,240건' },
-  { name: 'USB-C 도킹 스테이션 11포트', value: '980건' },
-  { name: '기계식 키보드 RGB', value: '860건' },
-  { name: '무선 게이밍 마우스 프로', value: '740건' },
-  { name: '데스크 매트 그레이', value: '620건' },
+  { name: '모던 스탠딩 데스크', value: '1,240개' },
+  { name: '게이밍 데스크 매트 XL', value: '980개' },
+  { name: '알루미늄 모니터암', value: '860개' },
+  { name: '미니멀 수납 선반', value: '740개' },
+  { name: '데스크 램프 2세대', value: '620개' },
 ]
 
 const kpis = [
-  { label: '이번 달 주문 건수', value: '1,120', sub: '지난달 대비' },
-  { label: '이번 달 매출액', value: '₩8,400,000', sub: '지난달 대비' },
+  { label: '일일 총 판매량', value: '1,120', sub: '오늘 기준' },
+  { label: '일일 총 판매액', value: '₩28,400,000', sub: '오늘 기준' },
 ]
+
+const maxSales = computed(() => Math.max(...salesChart.value.map((item) => item.value)))
+const maxRevenue = computed(() => Math.max(...revenueChart.value.map((item) => item.value)))
 
 const handleExport = () => {
   exportSellerDashboardExcel({
     periodSales: periodSales.value,
     periodRevenue: periodRevenue.value,
-    salesChart: salesChart.value,
-    revenueChart: revenueChart.value,
+    salesChart: salesChart.value.map((item) => ({ ...item })),
+    revenueChart: revenueChart.value.map((item) => ({ ...item })),
     top5Items,
     kpis,
   })
 }
-
-const maxSales = computed(() => Math.max(...salesChart.value.map((item) => item.value)))
-const maxRevenue = computed(() => Math.max(...revenueChart.value.map((item) => item.value)))
 </script>
 
 <template>
