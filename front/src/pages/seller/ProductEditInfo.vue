@@ -5,6 +5,7 @@ import PageContainer from '../../components/PageContainer.vue'
 import PageHeader from '../../components/PageHeader.vue'
 import ProductBasicFields from '../../components/seller/ProductBasicFields.vue'
 import LiveImageCropModal from '../../components/LiveImageCropModal.vue'
+import { createImageErrorHandler, extractImageUrl } from '../../lib/images/productImages'
 
 const router = useRouter()
 const route = useRoute()
@@ -29,6 +30,14 @@ const cropperSource = ref('')
 const cropperFileName = ref('')
 const cropperIndex = ref<number | null>(null)
 const cropperInputRef = ref<HTMLInputElement | null>(null)
+const { handleImageError } = createImageErrorHandler()
+
+const resolvePreviewSrc = (img: string) => {
+  if (img.startsWith('http://') || img.startsWith('https://') || img.startsWith('blob:')) {
+    return img
+  }
+  return extractImageUrl({ stored_file_name: img })
+}
 
 const statusLabelMap: Record<ProductStatus, string> = {
   DRAFT: '작성중',
@@ -409,7 +418,7 @@ watch(cropperOpen, (open, wasOpen) => {
           <div v-for="(img, idx) in images" :key="idx" class="image-slot">
             <div class="image-slot__label">{{ idx === 0 ? '썸네일' : String(idx) }}</div>
             <div class="image-slot__preview">
-              <img v-if="img" :src="img" :alt="`상품 이미지 ${idx}`" />
+              <img v-if="img" :src="resolvePreviewSrc(img)" :alt="`상품 이미지 ${idx}`" @error="handleImageError" />
               <label v-if="!img" class="btn ghost image-slot__upload">
                 {{ uploadings[idx] ? '업로드 중' : '업로드' }}
                 <input

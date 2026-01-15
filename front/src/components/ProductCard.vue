@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { RouterLink } from 'vue-router'
+import { createImageErrorHandler, resolvePrimaryImage } from '../lib/images/productImages'
 
 const props = defineProps<{
   id: string | number
@@ -19,13 +20,16 @@ const discountRate = computed(() => {
   if (!props.originalPrice || props.originalPrice <= props.price) return 0
   return Math.round((1 - props.price / props.originalPrice) * 100)
 })
+
+const { handleImageError } = createImageErrorHandler()
+const imageSrc = computed(() => resolvePrimaryImage(props))
 </script>
 
 <template>
   <RouterLink :to="`/products/${props.id}`" class="card-link">
     <article class="card">
       <div class="thumb">
-        <img :src="props.imageUrl" :alt="props.name" />
+        <img :src="imageSrc" :alt="props.name" @error="handleImageError" />
         <span v-if="discountRate > 0" class="badge">-{{ discountRate }}%</span>
       </div>
       <div class="body">

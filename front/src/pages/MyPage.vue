@@ -6,6 +6,7 @@ import PageHeader from '../components/PageHeader.vue'
 import { type DbProduct } from '../lib/products-data'
 import { normalizeProducts } from '../api/products-normalizer'
 import { getAuthUser, requestLogout, requestWithdraw } from '../lib/auth'
+import { createImageErrorHandler, resolvePrimaryImage } from '../lib/images/productImages'
 
 type UserInfo = {
   name: string
@@ -34,6 +35,7 @@ const recommendedProducts = ref<DbProduct[]>([])
 const apiBase = (import.meta.env.VITE_API_BASE_URL || '').trim()
 const preferencePrompt =
   '지금 MBTI(직업군)를 입력하고 나에게 맞춘 데스크테리어 상품 추천을 받아보세요!'
+const { handleImageError } = createImageErrorHandler()
 
 const loadUser = () => {
   const parsed = getAuthUser()
@@ -229,7 +231,7 @@ onMounted(() => {
             :to="`/products/${item.product_id}`"
           >
             <div class="thumb">
-              <img :src="item.imageUrl" :alt="item.name" />
+              <img :src="resolvePrimaryImage(item)" :alt="item.name" @error="handleImageError" />
             </div>
             <div class="product-body">
               <p class="product-name">{{ item.name }}</p>
