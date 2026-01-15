@@ -1,8 +1,9 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 import { computed, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import PageContainer from '../components/PageContainer.vue'
 import PageHeader from '../components/PageHeader.vue'
+import { exportSellerDashboardExcel } from '../utils/exportExcel'
 
 const periodSales = ref<'daily' | 'monthly' | 'yearly'>('daily')
 const periodRevenue = ref<'daily' | 'monthly' | 'yearly'>('daily')
@@ -11,49 +12,49 @@ const isHome = computed(() => route.path === '/seller')
 
 const salesChartByPeriod = {
   daily: [
-    { label: '오피스', value: 42 },
-    { label: '게이밍', value: 33 },
-    { label: '미니멀', value: 28 },
-    { label: '홈카페', value: 22 },
-    { label: '스탠딩', value: 18 },
+    { label: '월', value: 42 },
+    { label: '화', value: 33 },
+    { label: '수', value: 28 },
+    { label: '목', value: 22 },
+    { label: '금', value: 18 },
   ],
   monthly: [
-    { label: '오피스', value: 980 },
-    { label: '게이밍', value: 840 },
-    { label: '미니멀', value: 760 },
-    { label: '홈카페', value: 640 },
-    { label: '스탠딩', value: 520 },
+    { label: '1주', value: 980 },
+    { label: '2주', value: 840 },
+    { label: '3주', value: 760 },
+    { label: '4주', value: 640 },
+    { label: '5주', value: 520 },
   ],
   yearly: [
-    { label: '오피스', value: 11200 },
-    { label: '게이밍', value: 9800 },
-    { label: '미니멀', value: 8600 },
-    { label: '홈카페', value: 7400 },
-    { label: '스탠딩', value: 6200 },
+    { label: '2021', value: 11200 },
+    { label: '2022', value: 9800 },
+    { label: '2023', value: 8600 },
+    { label: '2024', value: 7400 },
+    { label: '2025', value: 6200 },
   ],
 } as const
 
 const revenueChartByPeriod = {
   daily: [
-    { label: '오피스', value: 1200 },
-    { label: '게이밍', value: 980 },
-    { label: '미니멀', value: 860 },
-    { label: '홈카페', value: 740 },
-    { label: '스탠딩', value: 620 },
+    { label: '월', value: 1200 },
+    { label: '화', value: 980 },
+    { label: '수', value: 860 },
+    { label: '목', value: 740 },
+    { label: '금', value: 620 },
   ],
   monthly: [
-    { label: '오피스', value: 35800 },
-    { label: '게이밍', value: 31200 },
-    { label: '미니멀', value: 28600 },
-    { label: '홈카페', value: 24800 },
-    { label: '스탠딩', value: 21400 },
+    { label: '1주', value: 35800 },
+    { label: '2주', value: 31200 },
+    { label: '3주', value: 28600 },
+    { label: '4주', value: 24800 },
+    { label: '5주', value: 21400 },
   ],
   yearly: [
-    { label: '오피스', value: 412000 },
-    { label: '게이밍', value: 368000 },
-    { label: '미니멀', value: 332000 },
-    { label: '홈카페', value: 286000 },
-    { label: '스탠딩', value: 248000 },
+    { label: '2021', value: 412000 },
+    { label: '2022', value: 368000 },
+    { label: '2023', value: 332000 },
+    { label: '2024', value: 286000 },
+    { label: '2025', value: 248000 },
   ],
 } as const
 
@@ -61,17 +62,28 @@ const salesChart = computed(() => salesChartByPeriod[periodSales.value])
 const revenueChart = computed(() => revenueChartByPeriod[periodRevenue.value])
 
 const top5Items = [
-  { name: '모던 스탠딩 데스크', value: '1,240개' },
-  { name: '게이밍 데스크 매트 XL', value: '980개' },
-  { name: '알루미늄 모니터암', value: '860개' },
-  { name: '미니멀 수납 선반', value: '740개' },
-  { name: '데스크 램프 2세대', value: '620개' },
+  { name: '에르고노믹 메쉬 체어 프리미엄', value: '1,240건' },
+  { name: 'USB-C 도킹 스테이션 11포트', value: '980건' },
+  { name: '기계식 키보드 RGB', value: '860건' },
+  { name: '무선 게이밍 마우스 프로', value: '740건' },
+  { name: '데스크 매트 그레이', value: '620건' },
 ]
 
 const kpis = [
-  { label: '일일 총 판매량', value: '1,120', sub: '오늘 기준' },
-  { label: '일일 총 판매액', value: '₩28,400,000', sub: '오늘 기준' },
+  { label: '이번 달 주문 건수', value: '1,120', sub: '지난달 대비' },
+  { label: '이번 달 매출액', value: '₩8,400,000', sub: '지난달 대비' },
 ]
+
+const handleExport = () => {
+  exportSellerDashboardExcel({
+    periodSales: periodSales.value,
+    periodRevenue: periodRevenue.value,
+    salesChart: salesChart.value,
+    revenueChart: revenueChart.value,
+    top5Items,
+    kpis,
+  })
+}
 
 const maxSales = computed(() => Math.max(...salesChart.value.map((item) => item.value)))
 const maxRevenue = computed(() => Math.max(...revenueChart.value.map((item) => item.value)))
@@ -79,14 +91,14 @@ const maxRevenue = computed(() => Math.max(...revenueChart.value.map((item) => i
 
 <template>
   <PageContainer>
-    <PageHeader v-if="isHome" eyebrow="DESKIT" title="홈" />
+    <PageHeader v-if="isHome" eyebrow="DESKIT" title="판매자 대시보드" />
     <template v-if="isHome">
       <header class="dashboard-header">
         <div>
           <h2 class="section-title">판매자 대시보드</h2>
-          <p class="ds-section-sub">판매 현황과 운영 지표를 한눈에 확인하세요.</p>
+          <p class="ds-section-sub">판매 현황과 주요 지표를 한눈에 확인하세요.</p>
         </div>
-        <button type="button" class="excel-btn">Excel 추출</button>
+        <button type="button" class="excel-btn" @click="handleExport">Excel 추출</button>
       </header>
 
       <section class="dashboard-grid">
@@ -94,10 +106,10 @@ const maxRevenue = computed(() => Math.max(...revenueChart.value.map((item) => i
           <article class="card card--sales ds-surface">
             <header class="card-head">
               <div>
-                <h3>판매자 상품 판매 현황 (상품 종류)</h3>
-                <p class="card-sub">막대 그래프</p>
+                <h3>판매 추이 (판매량 기준)</h3>
+                <p class="card-sub">기간별 판매량 지표</p>
               </div>
-              <div class="segmented" role="tablist" aria-label="기간 선택">
+              <div class="segmented" role="tablist" aria-label="판매량 기간">
                 <button
                   type="button"
                   class="segmented__btn"
@@ -123,45 +135,45 @@ const maxRevenue = computed(() => Math.max(...revenueChart.value.map((item) => i
                   연도별
                 </button>
               </div>
-          </header>
-          <div class="chart-placeholder">
-            <div class="bar-chart" role="img" aria-label="상품 종류별 판매 현황">
-              <div v-for="item in salesChart" :key="item.label" class="bar-item">
-                <div class="bar-value">{{ item.value }}개</div>
-                <div class="bar-area">
-                  <div class="bar" :style="{ height: `${(item.value / maxSales) * 100}%` }"></div>
+            </header>
+            <div class="chart-placeholder">
+              <div class="bar-chart" role="img" aria-label="판매량 차트">
+                <div v-for="item in salesChart" :key="item.label" class="bar-item">
+                  <div class="bar-value">{{ item.value }}건</div>
+                  <div class="bar-area">
+                    <div class="bar" :style="{ height: `${(item.value / maxSales) * 100}%` }"></div>
+                  </div>
+                  <div class="bar-label">{{ item.label }}</div>
                 </div>
-                <div class="bar-label">{{ item.label }}</div>
               </div>
             </div>
-          </div>
-        </article>
+          </article>
 
           <article class="card card--top5 ds-surface">
             <header class="card-head">
               <div>
-                <h3>가장 많이 판매된 상품 TOP5</h3>
-                <p class="card-sub">최근 판매 기준</p>
+                <h3>판매량 상위 상품 TOP5</h3>
+                <p class="card-sub">최근 30일 기준</p>
               </div>
-          </header>
-          <ol class="top-list">
-            <li v-for="(item, index) in top5Items" :key="item.name" class="top-item">
-              <span class="rank">{{ String(index + 1).padStart(2, '0') }}</span>
-              <span class="label">{{ item.name }}</span>
-              <span class="value">{{ item.value }}</span>
-            </li>
-          </ol>
-        </article>
+            </header>
+            <ol class="top-list">
+              <li v-for="(item, index) in top5Items" :key="item.name" class="top-item">
+                <span class="rank">{{ String(index + 1).padStart(2, '0') }}</span>
+                <span class="label">{{ item.name }}</span>
+                <span class="value">{{ item.value }}</span>
+              </li>
+            </ol>
+          </article>
 
           <div class="dashboard-divider" aria-hidden="true"></div>
 
           <article class="card card--revenue ds-surface">
             <header class="card-head">
               <div>
-                <h3>판매자 상품 판매 현황 (매출)</h3>
-                <p class="card-sub">막대 그래프</p>
+                <h3>매출 추이 (매출액 기준)</h3>
+                <p class="card-sub">기간별 매출액 지표</p>
               </div>
-              <div class="segmented" role="tablist" aria-label="기간 선택">
+              <div class="segmented" role="tablist" aria-label="매출액 기간">
                 <button
                   type="button"
                   class="segmented__btn"
@@ -187,29 +199,29 @@ const maxRevenue = computed(() => Math.max(...revenueChart.value.map((item) => i
                   연도별
                 </button>
               </div>
-          </header>
-          <div class="chart-placeholder">
-            <div class="bar-chart" role="img" aria-label="상품 종류별 매출 현황">
-              <div v-for="item in revenueChart" :key="item.label" class="bar-item">
-                <div class="bar-value">₩{{ item.value.toLocaleString('ko-KR') }}</div>
-                <div class="bar-area">
-                  <div class="bar" :style="{ height: `${(item.value / maxRevenue) * 100}%` }"></div>
+            </header>
+            <div class="chart-placeholder">
+              <div class="bar-chart" role="img" aria-label="매출액 차트">
+                <div v-for="item in revenueChart" :key="item.label" class="bar-item">
+                  <div class="bar-value">₩{{ item.value.toLocaleString('ko-KR') }}</div>
+                  <div class="bar-area">
+                    <div class="bar" :style="{ height: `${(item.value / maxRevenue) * 100}%` }"></div>
+                  </div>
+                  <div class="bar-label">{{ item.label }}</div>
                 </div>
-                <div class="bar-label">{{ item.label }}</div>
               </div>
             </div>
-          </div>
-        </article>
-
-        <div class="kpi-grid">
-          <article v-for="kpi in kpis" :key="kpi.label" class="kpi-card ds-surface">
-            <p class="kpi-label">{{ kpi.label }}</p>
-            <p class="kpi-value">{{ kpi.value }}</p>
-            <p class="kpi-sub">{{ kpi.sub }}</p>
           </article>
+
+          <div class="kpi-grid">
+            <article v-for="kpi in kpis" :key="kpi.label" class="kpi-card ds-surface">
+              <p class="kpi-label">{{ kpi.label }}</p>
+              <p class="kpi-value">{{ kpi.value }}</p>
+              <p class="kpi-sub">{{ kpi.sub }}</p>
+            </article>
+          </div>
         </div>
-      </div>
-    </section>
+      </section>
     </template>
     <router-view v-else />
   </PageContainer>
