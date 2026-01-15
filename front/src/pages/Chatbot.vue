@@ -212,7 +212,16 @@ let connectedChatId: number | null = null
 
 const connectDirectChat = async () => {
   if (!chatId.value) return
-  if (connectedChatId === chatId.value && stompClient) return
+  if (connectedChatId === chatId.value && stompClient) {
+    try {
+      await stompClient.connect()
+      return
+    } catch (error) {
+      console.error('direct chat reconnect failed', error)
+      stompClient.disconnect()
+      stompClient = null
+    }
+  }
   if (stompClient) {
     stompClient.disconnect()
     stompClient = null

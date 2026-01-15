@@ -286,7 +286,16 @@ const loadDirectChatHistory = async (chatId: number) => {
 }
 
 const connectDirectChat = async (chatId: number) => {
-  if (connectedChatId === chatId && stompClient) return
+  if (connectedChatId === chatId && stompClient) {
+    try {
+      await stompClient.connect()
+      return
+    } catch (error) {
+      console.error('direct chat reconnect failed', error)
+      stompClient.disconnect()
+      stompClient = null
+    }
+  }
   if (stompClient) {
     stompClient.disconnect()
     stompClient = null
