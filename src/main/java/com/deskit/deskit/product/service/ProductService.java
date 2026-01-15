@@ -122,7 +122,11 @@ public class ProductService {
     Integer priceOverride = broadcastProductRepository.findLiveBpPriceByProductId(id).stream()
             .findFirst()
             .orElse(null);
-    return Optional.of(ProductResponse.fromWithPrice(product.get(), tags, tagsFlat, priceOverride));
+    String thumbnailUrl = productImageRepository
+      .findFirstByProductIdAndImageTypeAndSlotIndexAndDeletedAtIsNullOrderByIdAsc(id, ImageType.THUMBNAIL, 0)
+      .map(ProductImage::getProductImageUrl)
+      .orElse(null);
+    return Optional.of(ProductResponse.fromWithPriceAndThumbnail(product.get(), tags, tagsFlat, priceOverride, thumbnailUrl));
   }
 
   public List<SellerProductListResponse> getSellerProducts(Long sellerId) {
