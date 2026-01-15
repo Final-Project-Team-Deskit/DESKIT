@@ -18,6 +18,7 @@ import { parseLiveDate } from '../../../lib/live/utils'
 import { useNow } from '../../../lib/live/useNow'
 import { computeLifecycleStatus, getBroadcastStatusLabel, getScheduledEndMs, normalizeBroadcastStatus } from '../../../lib/broadcastStatus'
 import { getAuthUser } from '../../../lib/auth'
+import { createImageErrorHandler } from '../../../lib/images/productImages'
 import { resolveViewerId } from '../../../lib/live/viewer'
 
 const route = useRoute()
@@ -146,7 +147,7 @@ const openviduInstance = ref<OpenVidu | null>(null)
 const openviduSession = ref<Session | null>(null)
 const openviduSubscriber = shallowRef<Subscriber | null>(null)
 const openviduConnected = ref(false)
-const FALLBACK_IMAGE = 'data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs='
+const { handleImageError } = createImageErrorHandler()
 
 const reasonOptions = [
   '음란물',
@@ -202,13 +203,6 @@ const formatElapsed = (startAt?: string) => {
   const minutes = Math.floor((totalSeconds % 3600) / 60)
   const seconds = totalSeconds % 60
   return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`
-}
-
-const handleImageError = (event: Event) => {
-  const target = event.target as HTMLImageElement | null
-  if (!target || target.dataset.fallbackApplied) return
-  target.dataset.fallbackApplied = 'true'
-  target.src = FALLBACK_IMAGE
 }
 
 // 채팅 사용자 표시 포맷팅 (판매자/관리자 구분)

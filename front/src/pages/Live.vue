@@ -16,12 +16,11 @@ import { useNow } from '../lib/live/useNow'
 import { fetchBroadcastStats, fetchPublicBroadcastOverview } from '../lib/live/api'
 import { getAuthUser } from '../lib/auth'
 import { resolveViewerId } from '../lib/live/viewer'
+import { createImageErrorHandler } from '../lib/images/productImages'
 
 const router = useRouter()
 const today = new Date()
 const { now } = useNow(1000)
-
-const FALLBACK_IMAGE = 'data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs='
 
 const NOTIFY_KEY = 'deskit_live_notifications'
 const WATCH_HISTORY_CONSENT_KEY = 'deskit_live_watch_history_consent_v1'
@@ -83,12 +82,7 @@ const formatTime = (value: string) => {
   return `${hours}:${minutes}`
 }
 
-const handleImageError = (event: Event) => {
-  const target = event.target as HTMLImageElement | null
-  if (!target || target.dataset.fallbackApplied) return
-  target.dataset.fallbackApplied = 'true'
-  target.src = FALLBACK_IMAGE
-}
+const { handleImageError } = createImageErrorHandler()
 
 const getLifecycleStatus = (item: LiveItem): BroadcastStatus => {
   const startAtMs = parseLiveDate(item.startAt).getTime()
@@ -986,4 +980,3 @@ onMounted(() => {
   }
 }
 </style>
-

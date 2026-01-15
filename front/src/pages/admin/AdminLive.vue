@@ -14,6 +14,7 @@ import {parseLiveDate} from '../../lib/live/utils'
 import {type BroadcastCategory, fetchAdminBroadcasts, fetchBroadcastStats, fetchCategories} from '../../lib/live/api'
 import { getAuthUser } from '../../lib/auth'
 import { resolveViewerId } from '../../lib/live/viewer'
+import { createImageErrorHandler } from '../../lib/images/productImages'
 
 type LiveTab = 'all' | 'scheduled' | 'live' | 'vod'
 type LoopKind = 'live' | 'scheduled' | 'vod'
@@ -111,7 +112,7 @@ const vodCategory = ref<string>('all')
 const VOD_PAGE_SIZE = 12
 const vodPage = ref(1)
 
-const FALLBACK_IMAGE = 'data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs='
+const { handleImageError } = createImageErrorHandler()
 
 const liveItems = ref<LiveItem[]>([])
 const scheduledItems = ref<ReservationItem[]>([])
@@ -180,13 +181,6 @@ const toDateMs = (raw: string | undefined) => {
 const toNumber = (value: unknown, fallback = 0) => {
   const parsed = Number(value)
   return Number.isNaN(parsed) ? fallback : parsed
-}
-
-const handleImageError = (event: Event) => {
-  const target = event.target as HTMLImageElement | null
-  if (!target || target.dataset.fallbackApplied) return
-  target.dataset.fallbackApplied = 'true'
-  target.src = FALLBACK_IMAGE
 }
 
 const formatDateTime = (value?: string) => {
@@ -1887,4 +1881,3 @@ onBeforeUnmount(() => {
   }
 }
 </style>
-
