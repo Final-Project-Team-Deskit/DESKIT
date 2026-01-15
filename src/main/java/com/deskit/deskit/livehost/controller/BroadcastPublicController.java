@@ -34,7 +34,7 @@ public class BroadcastPublicController {
     private final BroadcastService broadcastService;
     private final SseService sseService;
 
-    @GetMapping("/broadcasts")
+    @GetMapping({"/broadcasts", "/broadcasts/"})
     public ResponseEntity<ApiResult<Object>> getBroadcasts(
             @ModelAttribute BroadcastSearch searchCondition,
             @PageableDefault(size = 10) Pageable pageable
