@@ -183,7 +183,7 @@ const routes: RouteRecordRaw[] = [
   {
     path: '/seller',
     name: 'seller',
-    component: () => import('../pages/seller/LiveStats.vue'),
+    component: () => import('../pages/Seller.vue'),
     children: [
       {
         path: 'live',
@@ -316,3 +316,5 @@ router.beforeEach(async (to) => {
   }
   return true
 })
+
+
