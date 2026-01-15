@@ -58,6 +58,7 @@ const form = reactive({
 })
 
 const normalizePhoneDigits = (value: string) => value.replace(/\D/g, '').slice(0, 11)
+const normalizeBusinessDigits = (value: string) => value.replace(/\D/g, '').slice(0, 10)
 
 const formatPhoneNumber = (digits: string) => {
   if (digits.length <= 3) {
@@ -70,11 +71,28 @@ const formatPhoneNumber = (digits: string) => {
 }
 
 const phoneDigits = computed(() => normalizePhoneDigits(form.phoneNumber))
+const businessDigits = computed(() => normalizeBusinessDigits(form.businessNumber))
 
 const handlePhoneInput = (event: Event) => {
   const input = event.target as HTMLInputElement
   const digits = normalizePhoneDigits(input.value)
   form.phoneNumber = formatPhoneNumber(digits)
+}
+
+const formatBusinessNumber = (digits: string) => {
+  if (digits.length <= 3) {
+    return digits
+  }
+  if (digits.length <= 5) {
+    return `${digits.slice(0, 3)}-${digits.slice(3)}`
+  }
+  return `${digits.slice(0, 3)}-${digits.slice(3, 5)}-${digits.slice(5)}`
+}
+
+const handleBusinessInput = (event: Event) => {
+  const input = event.target as HTMLInputElement
+  const digits = normalizeBusinessDigits(input.value)
+  form.businessNumber = formatBusinessNumber(digits)
 }
 
 const agreements = reactive<Record<AgreementKey, boolean>>({
@@ -434,6 +452,17 @@ const submitSignup = async () => {
     return
   }
 
+  if (form.memberType === 'SELLER') {
+    if (businessDigits.value.length !== 10) {
+      form.message = '사업자등록번호를 10자리로 입력해주세요.'
+      return
+    }
+    if (form.companyName.trim().length === 0) {
+      form.message = '사업자명을 입력해주세요.'
+      return
+    }
+  }
+
   const response = await fetch(`${apiBase}/signup/social/complete`, {
     method: 'POST',
     headers: {
@@ -446,7 +475,7 @@ const submitSignup = async () => {
       phoneNumber: digits,
       mbti: form.mbti,
       jobCategory: form.jobCategory,
-      businessNumber: form.businessNumber,
+      businessNumber: form.memberType === 'SELLER' ? businessDigits.value : form.businessNumber,
       companyName: form.companyName,
       description: form.description,
       planFileBase64: form.planFileBase64,
@@ -637,7 +666,14 @@ onMounted(() => {
             <h3>판매자 정보</h3>
             <label class="field">
               <span>사업자등록번호</span>
-              <input v-model="form.businessNumber" type="text" placeholder="사업자등록번호" />
+              <input
+                v-model="form.businessNumber"
+                type="text"
+                inputmode="numeric"
+                maxlength="12"
+                placeholder="사업자등록번호"
+                @input="handleBusinessInput"
+              />
             </label>
             <label class="field">
               <span>사업자명</span>
