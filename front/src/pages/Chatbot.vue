@@ -384,18 +384,25 @@ const sendMessage = async () => {
       if (!chatId.value) {
         await syncConversationStatus()
       }
-      if (!chatId.value) return
+      const currentChatId = chatId.value
+      if (!currentChatId) return
       await connectDirectChat()
       if (stompClient?.isConnected()) {
         stompClient.send(
-          `/app/direct-chats/${chatId.value}`,
+          `/app/direct-chats/${currentChatId}`,
           JSON.stringify({ sender: 'USER', content: text }),
         )
       } else {
-        await sendDirectMessageViaRest(chatId.value, text)
+        await sendDirectMessageViaRest(currentChatId, text)
       }
     } catch (error) {
-      await sendDirectMessageViaRest(chatId.value, text, error)
+      const fallbackChatId = chatId.value
+      if (fallbackChatId) {
+        await sendDirectMessageViaRest(fallbackChatId, text, error)
+      } else {
+        console.error('direct chat send failed', error)
+        appendMessage('system', '메시지 전송에 실패했습니다. 잠시 후 다시 시도해주세요.')
+      }
     } finally {
       isSending.value = false
     }
