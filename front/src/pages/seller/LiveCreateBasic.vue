@@ -457,6 +457,11 @@ const submit = () => {
     return
   }
 
+  if (!draft.value.thumb) {
+    error.value = '썸네일을 등록 해주세요'
+    return
+  }
+
   normalizeAllProductQuantities()
 
   const invalidProduct = draft.value.products.find((product) => {
