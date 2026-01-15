@@ -25,6 +25,14 @@ export class SimpleStompClient {
     this.url = url
   }
 
+  isConnected(): boolean {
+    return this.connected
+  }
+
+  isConnecting(): boolean {
+    return this.connecting !== null
+  }
+
   connect(): Promise<void> {
     if (this.connected) return Promise.resolve()
     if (this.connecting) return this.connecting
@@ -41,7 +49,11 @@ export class SimpleStompClient {
         )
       }
       this.socket.onmessage = (event) => this.handleMessage(event.data, resolve)
-      this.socket.onerror = () => reject(new Error('WebSocket connection failed'))
+      this.socket.onerror = () => {
+        this.connected = false
+        this.connecting = null
+        reject(new Error('WebSocket connection failed'))
+      }
       this.socket.onclose = () => {
         this.connected = false
         this.connecting = null
@@ -70,8 +82,15 @@ export class SimpleStompClient {
 
   disconnect(): void {
     if (!this.socket) return
-    this.sendFrame('DISCONNECT', {})
-    this.socket.close()
+    if (this.isSocketOpen()) {
+      this.sendFrame('DISCONNECT', {})
+    }
+    if (
+      this.socket.readyState === WebSocket.OPEN ||
+      this.socket.readyState === WebSocket.CONNECTING
+    ) {
+      this.socket.close()
+    }
     this.socket = null
     this.connected = false
     this.connecting = null
@@ -86,7 +105,7 @@ export class SimpleStompClient {
   }
 
   private sendFrame(command: string, headers: StompHeaders, body?: string): void {
-    if (!this.socket) return
+    if (!this.socket || !this.isSocketOpen()) return
     this.socket.send(buildFrame(command, headers, body))
   }
 
@@ -113,14 +132,21 @@ export class SimpleStompClient {
 
       if (command === 'CONNECTED') {
         this.connected = true
+        const destinations = new Set<string>()
+        for (const destination of this.subscriptions.keys()) {
+          destinations.add(destination)
+        }
         this.pendingSubs.forEach((sub) => {
-          this.sendFrame('SUBSCRIBE', {
-            id: `sub-${Date.now()}-${Math.random()}`,
-            destination: sub.destination,
-          })
           this.storeSubscription(sub.destination, sub.callback)
+          destinations.add(sub.destination)
         })
         this.pendingSubs = []
+        destinations.forEach((destination) => {
+          this.sendFrame('SUBSCRIBE', {
+            id: `sub-${Date.now()}-${Math.random()}`,
+            destination,
+          })
+        })
         resolve()
         return
       }
@@ -133,5 +159,9 @@ export class SimpleStompClient {
         callbacks.forEach((cb) => cb(body, headers))
       }
     })
+  }
+
+  private isSocketOpen(): boolean {
+    return this.socket?.readyState === WebSocket.OPEN
   }
 }
