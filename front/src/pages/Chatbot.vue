@@ -56,6 +56,7 @@ const statusLabelMap: Record<string, string> = {
 }
 const displayStatusLabel = computed(() => statusLabelMap[statusLabel.value] ?? statusLabel.value)
 const shouldShowClosedActions = computed(() => statusLabel.value === 'CLOSED')
+const shouldShowAdminClose = computed(() => statusLabel.value === 'ADMIN_ACTIVE')
 let stompClient: SimpleStompClient | null = null
 let statusPoller: number | null = null
 
@@ -249,6 +250,12 @@ const connectDirectChat = async () => {
           content: payload.content,
         })
         scrollToBottom()
+        if (payload.sender === 'SYSTEM' && payload.content?.includes('상담이 종료되었습니다.')) {
+          stompClient?.disconnect()
+          stompClient = null
+          connectedChatId = null
+          applyStatus('CLOSED')
+        }
       } catch (error) {
         console.error('direct chat message parse failed', error)
       }
@@ -379,13 +386,16 @@ const sendMessage = async () => {
       }
       if (!chatId.value) return
       await connectDirectChat()
-      stompClient?.send(
-        `/app/direct-chats/${chatId.value}`,
-        JSON.stringify({ sender: 'USER', content: text }),
-      )
+      if (stompClient?.isConnected()) {
+        stompClient.send(
+          `/app/direct-chats/${chatId.value}`,
+          JSON.stringify({ sender: 'USER', content: text }),
+        )
+      } else {
+        await sendDirectMessageViaRest(chatId.value, text)
+      }
     } catch (error) {
-      console.error('direct chat send failed', error)
-      appendMessage('system', '네트워크 오류가 발생했습니다. 잠시 후 다시 시도해주세요.')
+      await sendDirectMessageViaRest(chatId.value, text, error)
     } finally {
       isSending.value = false
     }
@@ -414,6 +424,54 @@ const sendMessage = async () => {
   } catch (error) {
     console.error('chat send failed', error)
     appendMessage('system', '네트워크 오류. 다시 시도해 주세요.')
+  } finally {
+    isSending.value = false
+  }
+}
+
+const sendDirectMessageViaRest = async (chatId: number, text: string, error?: unknown) => {
+  try {
+    const response = await fetchWithCredentials(`${apiBase}/direct-chats/${chatId}/messages`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sender: 'USER', content: text }),
+    })
+    if (!response.ok) {
+      appendMessage('system', '메시지 전송에 실패했습니다. 잠시 후 다시 시도해주세요.')
+      return
+    }
+    const payload = (await response.json()) as DirectChatMessage
+    messages.value.push({
+      id: `${payload.messageId}`,
+      role: payload.sender === 'USER' ? 'user' : payload.sender === 'SYSTEM' ? 'system' : 'bot',
+      content: payload.content ?? '',
+    })
+    scrollToBottom()
+  } catch (restError) {
+    console.error('direct chat send failed', error ?? restError)
+    appendMessage('system', '메시지 전송에 실패했습니다. 잠시 후 다시 시도해주세요.')
+  }
+}
+
+const closeDirectChat = async () => {
+  if (!chatId.value) return
+  isSending.value = true
+  try {
+    const response = await fetchWithCredentials(`${apiBase}/direct-chats/${chatId.value}/close`, {
+      method: 'POST',
+    })
+    if (!response.ok) {
+      appendMessage('system', '상담 종료에 실패했습니다. 잠시 후 다시 시도해주세요.')
+      return
+    }
+    stompClient?.disconnect()
+    stompClient = null
+    connectedChatId = null
+    applyStatus('CLOSED')
+    await loadDirectChatHistory()
+  } catch (error) {
+    console.error('direct chat close failed', error)
+    appendMessage('system', '상담 종료에 실패했습니다. 잠시 후 다시 시도해주세요.')
   } finally {
     isSending.value = false
   }
@@ -477,17 +535,22 @@ const handleVisibilityChange = () => {
           </span>
         </div>
         <p class="hint">
-          관리자에게 대화가 이관될 경우, 입력창이 잠시 비활성화돼요.
+          관리자에게 연결된 경우, 입력창이 잠시 비활성화될 수 있습니다.
         </p>
-      <div v-if="shouldShowClosedActions" class="chat-actions">
-        <button type="button" class="btn ghost" @click="viewPreviousChat">
-          이전 채팅 보기
-        </button>
-        <button type="button" class="btn primary" @click="startNewInquiry">
-          새 채팅
-        </button>
-      </div>
-    </header>
+        <div v-if="shouldShowAdminClose" class="chat-actions">
+          <button type="button" class="btn ghost" @click="closeDirectChat">
+            상담 종료
+          </button>
+        </div>
+        <div v-if="shouldShowClosedActions" class="chat-actions">
+          <button type="button" class="btn ghost" @click="viewPreviousChat">
+            이전 채팅 보기
+          </button>
+          <button type="button" class="btn primary" @click="startNewInquiry">
+            새 채팅
+          </button>
+        </div>
+      </header>
 
       <div class="chat-body">
         <div ref="chatListRef" class="chat-list">

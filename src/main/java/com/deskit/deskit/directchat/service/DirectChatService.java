@@ -18,6 +18,7 @@ import com.deskit.deskit.directchat.dto.DirectChatMessageResponse;
 import com.deskit.deskit.directchat.dto.DirectChatSummaryResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.ai.chat.messages.MessageType;
+import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -32,6 +33,7 @@ public class DirectChatService {
     private final ChatHandoffRepository chatHandoffRepository;
     private final MemberRepository memberRepository;
     private final SellerRepository sellerRepository;
+    private final SimpMessagingTemplate messagingTemplate;
 
     @Transactional(readOnly = true)
     public List<DirectChatSummaryResponse> getEscalatedChats() {
@@ -160,6 +162,15 @@ public class DirectChatService {
         closeMessage.setType(MessageType.SYSTEM);
         closeMessage.setContent("상담이 종료되었습니다.");
         chatRepository.save(closeMessage);
+
+        DirectChatMessageResponse response = DirectChatMessageResponse.builder()
+                .messageId(closeMessage.getMessageId())
+                .chatId(closeMessage.getChatId())
+                .sender(resolveSender(closeMessage.getType()))
+                .content(closeMessage.getContent())
+                .createdAt(closeMessage.getCreatedAt())
+                .build();
+        messagingTemplate.convertAndSend("/topic/direct-chats/" + chatId, response);
 
         chatHandoffRepository.findTopByChatIdOrderByCreatedAtDesc(chatId)
                 .ifPresent(handoff -> {

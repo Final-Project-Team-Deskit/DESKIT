@@ -328,6 +328,20 @@ const connectDirectChat = async (chatId: number) => {
       try {
         const payload = JSON.parse(body) as DirectChatMessage
         directMessages.value.push(payload)
+        if (payload.sender === 'SYSTEM' && payload.content?.includes('상담이 종료되었습니다.')) {
+          if (selectedChat.value?.chatId === chatId) {
+            selectedChat.value = {
+              ...selectedChat.value,
+              status: 'CLOSED',
+            }
+          }
+          activeChats.value = activeChats.value.filter((item) => item.chatId !== chatId)
+          if (connectedChatId === chatId) {
+            stompClient?.disconnect()
+            stompClient = null
+            connectedChatId = null
+          }
+        }
       } catch (error) {
         console.error('direct chat parse failed', error)
       }
@@ -395,6 +409,11 @@ const closeDirectChat = async (chatId: number) => {
         status: 'CLOSED',
       }
     }
+    if (connectedChatId === chatId) {
+      stompClient?.disconnect()
+      stompClient = null
+      connectedChatId = null
+    }
     activeChats.value = activeChats.value.filter((item) => item.chatId !== chatId)
     await loadDirectChatHistory(chatId)
   } catch (err) {
@@ -409,13 +428,39 @@ const sendDirectMessage = async () => {
   if (!text || !selectedChat.value) return
   try {
     await connectDirectChat(selectedChat.value.chatId)
-    stompClient?.send(
-      `/app/direct-chats/${selectedChat.value.chatId}`,
-      JSON.stringify({ sender: 'ADMIN', content: text }),
-    )
-    directInput.value = ''
+    if (stompClient?.isConnected()) {
+      stompClient.send(
+        `/app/direct-chats/${selectedChat.value.chatId}`,
+        JSON.stringify({ sender: 'ADMIN', content: text }),
+      )
+      directInput.value = ''
+      return
+    }
+    await sendDirectMessageViaRest(selectedChat.value.chatId, text)
   } catch (error) {
-    directError.value = error instanceof Error ? error.message : '메시지 전송에 실패했습니다.'
+    await sendDirectMessageViaRest(selectedChat.value.chatId, text, error)
+  }
+}
+
+const sendDirectMessageViaRest = async (chatId: number, text: string, error?: unknown) => {
+  try {
+    const response = await fetch(`${apiBase}/direct-chats/${chatId}/messages`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ sender: 'ADMIN', content: text }),
+    })
+    if (!response.ok) {
+      const message = await response.text()
+      directError.value = message || '메시지 전송에 실패했습니다.'
+      return
+    }
+    const payload = (await response.json()) as DirectChatMessage
+    directMessages.value.push(payload)
+    directInput.value = ''
+  } catch (restError) {
+    const fallback = error ?? restError
+    directError.value = fallback instanceof Error ? fallback.message : '메시지 전송에 실패했습니다.'
   }
 }
 
