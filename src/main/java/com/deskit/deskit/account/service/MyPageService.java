@@ -13,6 +13,9 @@ import com.deskit.deskit.admin.repository.AdminRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+
 @Service
 @RequiredArgsConstructor
 public class MyPageService {
@@ -28,6 +31,9 @@ public class MyPageService {
 		String email = safe(user.getEmail());
 		String mbti = "";
 		String job = "";
+		String phone = "";
+		String createdAt = "";
+		String resolvedRole = normalizedRole;
 
 		Member member = null;
 		if ("ROLE_MEMBER".equals(normalizedRole) && !loginId.isBlank()) {
@@ -35,6 +41,15 @@ public class MyPageService {
 			if (member != null) {
 				mbti = resolveMbti(member.getMbti());
 				job = resolveJobCategory(member.getJobCategory());
+			}
+		}
+
+		if ("ROLE_ADMIN".equals(normalizedRole) && !loginId.isBlank()) {
+			Admin admin = adminRepository.findByLoginId(loginId);
+			if (admin != null) {
+				phone = safe(admin.getPhone());
+				resolvedRole = safe(admin.getRole());
+				createdAt = formatAdminCreatedAt(admin.getCreatedAt());
 			}
 		}
 		String profileUrl = safe(user.getProfileUrl());
@@ -54,12 +69,14 @@ public class MyPageService {
 		return new MyPageResponse(
 				name,
 				email,
-				normalizedRole,
+				resolvedRole,
 				resolveMemberCategory(normalizedRole),
 				resolveSellerRole(normalizedRole),
 				mbti,
 				job,
-				profileUrl
+				profileUrl,
+				phone,
+				createdAt
 		);
 	}
 
@@ -152,6 +169,13 @@ public class MyPageService {
 			case ADMIN_PLAN_TYPE -> "기획/관리";
 			default -> "";
 		};
+	}
+
+	private String formatAdminCreatedAt(LocalDateTime value) {
+		if (value == null) {
+			return "";
+		}
+		return value.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"));
 	}
 
 	private String safe(String value) {

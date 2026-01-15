@@ -19,5 +19,7 @@ public class MyPageResponse {
     private final String mbti;
     private final String job;
     private final String profileUrl;
+    private final String phone;
+    private final String createdAt;
 
 }

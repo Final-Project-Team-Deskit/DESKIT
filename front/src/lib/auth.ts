@@ -4,6 +4,9 @@ export type AuthUser = {
   signupType: string
   memberCategory: string
   profileUrl?: string
+  role?: string
+  phone?: string
+  createdAt?: string
   sellerRole?: string
   mbti?: string
   job?: string
@@ -18,6 +21,8 @@ type SessionPayload = Partial<AuthUser> & {
   role?: string
   sellerRole?: string
   memberCategory?: string
+  phone?: string
+  createdAt?: string
 }
 
 const webBase = import.meta.env.VITE_WEB_BASE_URL || window.location.origin
@@ -198,6 +203,9 @@ export const hydrateSessionUser = async (): Promise<boolean> => {
       signupType: typeof payload.signupType === 'string' ? payload.signupType : '',
       memberCategory,
       profileUrl: typeof payload.profileUrl === 'string' ? payload.profileUrl : '',
+      role: typeof payload.role === 'string' ? payload.role : '',
+      phone: typeof payload.phone === 'string' ? payload.phone : '',
+      createdAt: typeof payload.createdAt === 'string' ? payload.createdAt : '',
       sellerRole: sellerRole || undefined,
       mbti: typeof payload.mbti === 'string' ? payload.mbti : '',
       job: typeof payload.job === 'string' ? payload.job : '',
