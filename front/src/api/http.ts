@@ -36,7 +36,11 @@ http.interceptors.request.use((config: InternalAxiosRequestConfig) => {
     config.baseURL = baseURL.replace(/\/api$/, '')
   }
 
-  const token = localStorage.getItem('access_token')
+  const token =
+    localStorage.getItem('access_token') ||
+    sessionStorage.getItem('access_token') ||
+    localStorage.getItem('access') ||
+    sessionStorage.getItem('access')
 
   const method = (config.method ?? 'get').toLowerCase()
   const rawUrl = config.url ?? ''
