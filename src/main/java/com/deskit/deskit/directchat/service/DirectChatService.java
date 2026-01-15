@@ -53,6 +53,33 @@ public class DirectChatService {
                 .toList();
     }
 
+    @Transactional(readOnly = true)
+    public List<DirectChatSummaryResponse> getActiveChats(Long adminId) {
+        if (adminId == null) {
+            return List.of();
+        }
+        return conversationRepository.findByStatus(ConversationStatus.ADMIN_ACTIVE).stream()
+                .map(chatInfo -> {
+                    ChatHandoff handoff = chatHandoffRepository.findTopByChatIdOrderByCreatedAtDesc(chatInfo.getChatId())
+                            .orElse(null);
+                    if (handoff == null || !adminId.equals(handoff.getAssignedAdminId())) {
+                        return null;
+                    }
+                    String loginId = resolveLoginId(chatInfo.getMemberId());
+                    return DirectChatSummaryResponse.builder()
+                            .chatId(chatInfo.getChatId())
+                            .memberId(chatInfo.getMemberId())
+                            .loginId(loginId)
+                            .status(chatInfo.getStatus().name())
+                            .createdAt(chatInfo.getCreatedAt())
+                            .assignedAdminId(handoff.getAssignedAdminId())
+                            .handoffStatus(handoff.getStatus().name())
+                            .build();
+                })
+                .filter(java.util.Objects::nonNull)
+                .toList();
+    }
+
     @Transactional
     public DirectChatLatestResponse getLatestConversation(Long memberId) {
         ChatInfo chatInfo = conversationRepository.findTopByMemberIdOrderByCreatedAtDesc(memberId)
