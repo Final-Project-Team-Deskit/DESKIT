@@ -34,6 +34,11 @@ public class BroadcastProductResponse {
     }
 
     public static BroadcastProductResponse fromEntity(BroadcastProduct bp, Integer remainingQuantity, Integer originalCostPrice) {
+        return fromEntityWithImageUrl(bp, remainingQuantity, originalCostPrice, null);
+    }
+
+    public static BroadcastProductResponse fromEntityWithImageUrl(BroadcastProduct bp, Integer remainingQuantity,
+                                                                  Integer originalCostPrice, String imageUrl) {
         Product p = bp.getProduct();
         int remaining = remainingQuantity != null ? remainingQuantity : bp.getBpQuantity();
 
@@ -41,7 +46,7 @@ public class BroadcastProductResponse {
                 .bpId(bp.getBpId())
                 .productId(p.getId())
                 .name(p.getProductName())
-//                .imageUrl(p.getProductThumbUrl())   // 추후 ProductImage 구현되면 추가 예정
+                .imageUrl(imageUrl)
                 .originalPrice(p.getCostPrice())
                 .originalCostPrice(originalCostPrice)
                 .stockQty(remaining)

@@ -53,6 +53,9 @@ public class ProductResponse {
   @JsonProperty("thumbnail_url")
   private final String thumbnailUrl;
 
+  @JsonProperty("product_images")
+  private final List<ProductImageResponse> productImages;
+
   /**
    * 생성자에서 null-safe 처리:
    * - tags/tagsFlat이 null로 들어오면 빈 값으로 치환해서 응답 안정성 확보
@@ -61,13 +64,14 @@ public class ProductResponse {
                          String detailHtml, Integer price, Integer costPrice,
                          Product.Status status, Integer stockQty, Integer safetyStock,
                          ProductTags tags, List<String> tagsFlat) {
-    this(productId, sellerId, name, shortDesc, detailHtml, price, costPrice, status, stockQty, safetyStock, tags, tagsFlat, null);
+    this(productId, sellerId, name, shortDesc, detailHtml, price, costPrice, status, stockQty, safetyStock, tags, tagsFlat, null, null);
   }
 
   public ProductResponse(Long productId, Long sellerId, String name, String shortDesc,
                          String detailHtml, Integer price, Integer costPrice,
                          Product.Status status, Integer stockQty, Integer safetyStock,
-                         ProductTags tags, List<String> tagsFlat, String thumbnailUrl) {
+                         ProductTags tags, List<String> tagsFlat, String thumbnailUrl,
+                         List<ProductImageResponse> productImages) {
     this.productId = productId;
     this.sellerId = sellerId;
     this.name = name;
@@ -81,6 +85,7 @@ public class ProductResponse {
     this.tags = tags == null ? ProductTags.empty() : tags;
     this.tagsFlat = tagsFlat == null ? Collections.emptyList() : tagsFlat;
     this.thumbnailUrl = thumbnailUrl;
+    this.productImages = productImages == null ? Collections.emptyList() : productImages;
   }
 
   /**
@@ -114,7 +119,8 @@ public class ProductResponse {
   }
 
   public static ProductResponse fromWithPriceAndThumbnail(Product product, ProductTags tags, List<String> tagsFlat,
-                                                          Integer priceOverride, String thumbnailUrl) {
+                                                          Integer priceOverride, String thumbnailUrl,
+                                                          List<ProductImageResponse> productImages) {
     Product.Status status = product.getStatus();
     if (product.isLimitedSale()) {
       status = Product.Status.LIMITED_SALE;
@@ -133,7 +139,8 @@ public class ProductResponse {
             product.getSafetyStock(),
             tags,
             tagsFlat,
-            thumbnailUrl
+            thumbnailUrl,
+            productImages
     );
   }
 
