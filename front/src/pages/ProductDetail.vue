@@ -275,13 +275,13 @@ onBeforeUnmount(() => {
         <div class="thumbs" v-if="imageList.length">
           <button
               v-for="(img, idx) in imageList"
-              :key="img + idx"
+              :key="`${img ?? ''}-${idx}`"
               type="button"
               class="thumb-btn"
               :class="{ active: idx === selectedImageIndex }"
               @click="selectedImageIndex = idx"
           >
-            <img :src="img" :alt="`${product.name} 썸네일 ${idx + 1}`" @error="handleImageError" />
+            <img :src="img || PLACEHOLDER_IMAGE" :alt="`${product.name} 썸네일 ${idx + 1}`" @error="handleImageError" />
           </button>
         </div>
         <div class="main-image">

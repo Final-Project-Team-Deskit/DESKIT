@@ -25,17 +25,6 @@ const resolveThumbnailUrl = (product: any) => {
   )
 }
 
-const resolveImageUrl = (product: any) => {
-  return (
-    product?.imageUrl ??
-    product?.product_image_url ??
-    product?.image_url ??
-    product?.thumbnailUrl ??
-    product?.thumbnail_url ??
-    ''
-  )
-}
-
 export const normalizeProduct = (raw: any): DbProduct => {
   const thumbnailUrl = resolveThumbnailUrl(raw)
   const imageSource = thumbnailUrl ? { ...raw, thumbnailUrl } : raw
