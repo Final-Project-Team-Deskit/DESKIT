@@ -100,6 +100,19 @@ const form = reactive({
 
 const isFinalized = computed(() => Boolean(selected.value?.adminEvaluation))
 
+const formatDateTime = (value: string) => {
+  const normalized = (value || '').trim()
+  if (!normalized) return '-'
+  const parsed = new Date(normalized)
+  if (Number.isNaN(parsed.getTime())) return normalized
+  const yyyy = parsed.getFullYear()
+  const mm = String(parsed.getMonth() + 1).padStart(2, '0')
+  const dd = String(parsed.getDate()).padStart(2, '0')
+  const hh = String(parsed.getHours()).padStart(2, '0')
+  const mi = String(parsed.getMinutes()).padStart(2, '0')
+  return `${yyyy}-${mm}-${dd} ${hh}:${mi}`
+}
+
 const normalizeTab = (value: unknown): CustomerCenterTab | null => {
   const tabValue = Array.isArray(value) ? value[0] : value
   if (tabValue === 'sellerApproval' || tabValue === 'inquiries') {
@@ -266,7 +279,7 @@ const loadDirectChatHistory = async (chatId: number) => {
     }
     directMessages.value = (await response.json()) as DirectChatMessage[]
   } catch (err) {
-    directError.value = err instanceof Error ? err.message : '채팅 내역을 불러오지 못했습니다.'
+    directError.value = err instanceof Error ? err.message : '채팅 이력을 불러오지 못했습니다.'
   } finally {
     directLoading.value = false
   }
@@ -316,7 +329,7 @@ const acceptDirectChat = async (chatId: number) => {
     })
     if (!response.ok) {
       const message = await response.text()
-      directError.value = message || '상담 수락에 실패했습니다.'
+      directError.value = message || '상담 연결에 실패했습니다.'
       return
     }
     const updated = (await response.json()) as DirectChatSummary
@@ -327,7 +340,7 @@ const acceptDirectChat = async (chatId: number) => {
     await loadDirectChatHistory(updated.chatId)
     await connectDirectChat(updated.chatId)
   } catch (err) {
-    directError.value = err instanceof Error ? err.message : '상담 수락에 실패했습니다.'
+    directError.value = err instanceof Error ? err.message : '상담 연결에 실패했습니다.'
   } finally {
     directLoading.value = false
   }
@@ -415,8 +428,8 @@ onBeforeUnmount(() => {
       <section class="support-card ds-surface">
         <div class="support-card__head">
           <div>
-            <h4>AI 심사 내역</h4>
-            <p>사업계획서 AI 심사 결과를 확인하고 최종 심사를 진행하세요.</p>
+            <h4>AI 심사 이력</h4>
+            <p>사업계획서 AI 심사 결과를 확인하고 최종 심사를 진행해주세요.</p>
           </div>
           <button type="button" class="btn ghost" :disabled="loading" @click="loadEvaluations">
             새로고침
@@ -425,13 +438,13 @@ onBeforeUnmount(() => {
 
         <p v-if="loading" class="state-text">심사 목록을 불러오는 중입니다.</p>
         <p v-else-if="error" class="state-text error">{{ error }}</p>
-        <p v-else-if="!evaluations.length" class="state-text">AI 심사 내역이 없습니다.</p>
+        <p v-else-if="!evaluations.length" class="state-text">AI 심사 이력이 없습니다.</p>
 
         <div v-else class="table-wrap">
           <table class="admin-table">
             <thead>
               <tr>
-                <th>순번</th>
+                <th>번호</th>
                 <th>판매자명</th>
                 <th>상호명</th>
                 <th>총점</th>
@@ -450,7 +463,7 @@ onBeforeUnmount(() => {
                 <td>{{ item.totalScore }}</td>
                 <td>{{ item.sellerGrade }}</td>
                 <td class="summary-cell">{{ item.summary }}</td>
-                <td>{{ item.createdAt }}</td>
+                <td>{{ formatDateTime(item.createdAt) }}</td>
                 <td>
                   <span class="status-pill" :class="item.finalized ? 'is-final' : 'is-pending'">
                     {{ item.finalized ? '완료' : '대기' }}
@@ -471,7 +484,7 @@ onBeforeUnmount(() => {
     <section v-else class="live-section">
       <div class="live-section__head">
         <h3>문의사항 확인</h3>
-        <p class="ds-section-sub">고객 문의 내역을 확인합니다.</p>
+        <p class="ds-section-sub">고객 문의 이력을 확인합니다.</p>
       </div>
 
       <section class="support-card ds-surface">
@@ -487,7 +500,7 @@ onBeforeUnmount(() => {
 
         <p v-if="directLoading" class="state-text">문의 목록을 불러오는 중입니다.</p>
         <p v-else-if="directError" class="state-text error">{{ directError }}</p>
-        <p v-else-if="!escalatedChats.length" class="state-text">대기 중인 문의가 없습니다.</p>
+        <p v-else-if="!escalatedChats.length" class="state-text">대기중인 문의가 없습니다.</p>
 
         <div v-else class="direct-chat-grid">
           <div class="direct-chat-list">
@@ -520,7 +533,7 @@ onBeforeUnmount(() => {
                     :disabled="directLoading"
                     @click="acceptDirectChat(selectedChat.chatId)"
                   >
-                    상담 수락
+                    상담 연결
                   </button>
                   <button
                     v-else-if="selectedChat.status === 'ADMIN_ACTIVE'"
@@ -534,7 +547,7 @@ onBeforeUnmount(() => {
                 </div>
               </header>
               <div class="direct-chat-messages">
-                <p v-if="!directMessages.length" class="state-text">채팅 내역이 없습니다.</p>
+                <p v-if="!directMessages.length" class="state-text">채팅 이력이 없습니다.</p>
                 <div
                   v-for="message in directMessages"
                   :key="message.messageId"
@@ -591,6 +604,10 @@ onBeforeUnmount(() => {
               <dd>{{ selected.registerId }}</dd>
             </div>
             <div class="detail-item">
+              <dt>신청일</dt>
+              <dd>{{ formatDateTime(selected.createdAt) }}</dd>
+            </div>
+            <div class="detail-item">
               <dt>회사명</dt>
               <dd>{{ selected.companyName }}</dd>
             </div>
@@ -639,7 +656,7 @@ onBeforeUnmount(() => {
           <section class="final-section">
             <div class="final-head">
               <h4>최종 심사</h4>
-              <span v-if="isFinalized" class="status-pill is-final">완료됨</span>
+              <span v-if="isFinalized" class="status-pill is-final">완료</span>
             </div>
             <p class="final-desc">최종 등급과 관리자 코멘트를 입력하면 판매자 이메일로 결과가 전송됩니다.</p>
 
@@ -681,6 +698,7 @@ onBeforeUnmount(() => {
             <div v-if="selected.adminEvaluation" class="final-info">
               <p>최종 등급: {{ selected.adminEvaluation.gradeRecommended }}</p>
               <p>관리자 코멘트: {{ selected.adminEvaluation.adminComment || '-' }}</p>
+              <p>관리자 평가일: {{ formatDateTime(selected.adminEvaluation.createdAt) }}</p>
             </div>
           </section>
         </div>
