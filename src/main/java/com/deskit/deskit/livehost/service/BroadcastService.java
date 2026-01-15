@@ -320,8 +320,9 @@ public class BroadcastService {
                 .asTable("reserved");
         var reservedProductId = field(name("reserved", "product_id"), Long.class);
         var reservedQty = field(name("reserved", "reserved_qty"), Integer.class);
-        var availableQty = stockQty.sub(safetyStock).sub(org.jooq.impl.DSL.coalesce(reservedQty, 0));
-
+        var availableQty = stockQty.cast(org.jooq.impl.SQLDataType.BIGINT)
+                .sub(safetyStock.cast(org.jooq.impl.SQLDataType.BIGINT))
+                .sub(org.jooq.impl.DSL.coalesce(reservedQty, 0).cast(org.jooq.impl.SQLDataType.BIGINT));
         var liveSubquery = dsl.select(
                         bpProductId.as("product_id"),
                         org.jooq.impl.DSL.max(broadcastId).as("broadcast_id")
@@ -336,7 +337,7 @@ public class BroadcastService {
 
         var condition = sellerField.eq(sellerId)
                 .and(statusField.in(statuses))
-                .and(availableQty.gt(0))
+                .and(availableQty.gt(0L))
                 .and(deletedAt.isNull());
         if (keyword != null && !keyword.isBlank()) {
             condition = condition.and(productName.containsIgnoreCase(keyword));
