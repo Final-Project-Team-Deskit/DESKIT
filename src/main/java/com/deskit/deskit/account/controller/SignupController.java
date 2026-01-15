@@ -85,9 +85,12 @@ public class SignupController {
         }
 
         // request payload에서 번호 꺼내기
-        String phoneNumber = request.getPhoneNumber();
-        if (phoneNumber == null || phoneNumber.isBlank()) {
+        String phoneNumber = normalizePhoneDigits(request.getPhoneNumber());
+        if (phoneNumber == null) {
             return new ResponseEntity<>("phone number required", HttpStatus.BAD_REQUEST);
+        }
+        if (!isValidPhoneDigits(phoneNumber)) {
+            return new ResponseEntity<>("invalid phone number", HttpStatus.BAD_REQUEST);
         }
 
         // 개발용 인증 코드 6자리 생성
@@ -123,8 +126,11 @@ public class SignupController {
         }
 
         // request payload에서 번호와 코드 꺼내기
-        String phoneNumber = request.getPhoneNumber();
+        String phoneNumber = normalizePhoneDigits(request.getPhoneNumber());
         String code = request.getCode();
+        if (phoneNumber == null || !isValidPhoneDigits(phoneNumber)) {
+            return new ResponseEntity<>("invalid phone number", HttpStatus.BAD_REQUEST);
+        }
 
         // 세션에 저장된 번호와 코드 꺼내기
         String storedPhone = (String) session.getAttribute(SESSION_PHONE_NUMBER);
@@ -174,7 +180,11 @@ public class SignupController {
         }
 
         String storedPhone = (String) session.getAttribute(SESSION_PHONE_NUMBER);
-        if (!Objects.equals(storedPhone, request.getPhoneNumber())) {
+        String requestPhone = normalizePhoneDigits(request.getPhoneNumber());
+        if (requestPhone == null || !isValidPhoneDigits(requestPhone)) {
+            return new ResponseEntity<>("invalid phone number", HttpStatus.BAD_REQUEST);
+        }
+        if (!Objects.equals(storedPhone, requestPhone)) {
             return new ResponseEntity<>("phone number mismatch", HttpStatus.BAD_REQUEST);
         }
 
@@ -488,6 +498,18 @@ public class SignupController {
             return normalized;
         }
         return null;
+    }
+
+    private String normalizePhoneDigits(String phoneNumber) {
+        if (phoneNumber == null) {
+            return null;
+        }
+        String digits = phoneNumber.replaceAll("\\D", "");
+        return digits.isEmpty() ? null : digits;
+    }
+
+    private boolean isValidPhoneDigits(String phoneNumber) {
+        return phoneNumber != null && phoneNumber.matches("^\\d{11}$");
     }
 }
 

@@ -57,6 +57,26 @@ const form = reactive({
   isVerified: false,
 })
 
+const normalizePhoneDigits = (value: string) => value.replace(/\D/g, '').slice(0, 11)
+
+const formatPhoneNumber = (digits: string) => {
+  if (digits.length <= 3) {
+    return digits
+  }
+  if (digits.length <= 7) {
+    return `${digits.slice(0, 3)}-${digits.slice(3)}`
+  }
+  return `${digits.slice(0, 3)}-${digits.slice(3, 7)}-${digits.slice(7)}`
+}
+
+const phoneDigits = computed(() => normalizePhoneDigits(form.phoneNumber))
+
+const handlePhoneInput = (event: Event) => {
+  const input = event.target as HTMLInputElement
+  const digits = normalizePhoneDigits(input.value)
+  form.phoneNumber = formatPhoneNumber(digits)
+}
+
 const agreements = reactive<Record<AgreementKey, boolean>>({
   serviceTerms: false,
   privacyPolicy: false,
@@ -337,6 +357,12 @@ const sendCode = async () => {
     return
   }
 
+  const digits = phoneDigits.value
+  if (digits.length !== 11) {
+    form.message = '전화번호를 11자리로 입력해주세요.'
+    return
+  }
+
   const response = await fetch(`${apiBase}/signup/social/phone/send`, {
     method: 'POST',
     headers: {
@@ -344,7 +370,7 @@ const sendCode = async () => {
       Authorization: `Bearer ${signupToken.value}`,
     },
     credentials: 'include',
-    body: JSON.stringify({ phoneNumber: form.phoneNumber }),
+    body: JSON.stringify({ phoneNumber: digits }),
   })
 
   if (!response.ok) {
@@ -362,6 +388,12 @@ const verifyCode = async () => {
     return
   }
 
+  const digits = phoneDigits.value
+  if (digits.length !== 11) {
+    form.message = '전화번호를 11자리로 입력해주세요.'
+    return
+  }
+
   const response = await fetch(`${apiBase}/signup/social/phone/verify`, {
     method: 'POST',
     headers: {
@@ -370,7 +402,7 @@ const verifyCode = async () => {
     },
     credentials: 'include',
     body: JSON.stringify({
-      phoneNumber: form.phoneNumber,
+      phoneNumber: digits,
       code: form.verificationCode,
     }),
   })
@@ -396,6 +428,12 @@ const submitSignup = async () => {
     return
   }
 
+  const digits = phoneDigits.value
+  if (digits.length !== 11) {
+    form.message = '전화번호를 11자리로 입력해주세요.'
+    return
+  }
+
   const response = await fetch(`${apiBase}/signup/social/complete`, {
     method: 'POST',
     headers: {
@@ -405,7 +443,7 @@ const submitSignup = async () => {
     credentials: 'include',
     body: JSON.stringify({
       memberType: form.memberType,
-      phoneNumber: form.phoneNumber,
+      phoneNumber: digits,
       mbti: form.mbti,
       jobCategory: form.jobCategory,
       businessNumber: form.businessNumber,
@@ -548,7 +586,15 @@ onMounted(() => {
           <div class="section">
             <h3>전화번호 인증</h3>
             <div class="field-row">
-              <input v-model="form.phoneNumber" type="text" placeholder="전화번호" />
+              <input
+                v-model="form.phoneNumber"
+                type="text"
+                inputmode="numeric"
+                autocomplete="tel"
+                maxlength="13"
+                placeholder="전화번호"
+                @input="handlePhoneInput"
+              />
               <button type="button" class="btn" @click="sendCode">인증번호 받기</button>
             </div>
             <div class="field-row">
