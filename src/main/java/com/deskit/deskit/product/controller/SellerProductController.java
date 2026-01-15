@@ -44,7 +44,7 @@ import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.multipart.MultipartFile;
 
 @RestController
-@RequestMapping("/seller/products")
+@RequestMapping("/api/seller/products")
 public class SellerProductController {
 
   private final ProductService productService;
