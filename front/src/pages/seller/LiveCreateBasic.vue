@@ -800,7 +800,7 @@ watch(
               <td>
                 <div class="product-cell">
                   <div class="thumb" v-if="product.thumb">
-                    <img :src="product.thumb" :alt="product.name" />
+                  <img :src="product.thumb" <!--  :alt="product.name"--> />
                   </div>
                   <div class="product-text">
                     <strong>{{ product.name }}</strong>
