@@ -61,6 +61,7 @@ const storeAuthUser = (payload: VerifyResponse) => {
     email: payload.email ?? '',
     signupType: '관리자',
     memberCategory: '관리자',
+    role: payload.role ?? '',
   }
 
   setAuthUser(authUser)

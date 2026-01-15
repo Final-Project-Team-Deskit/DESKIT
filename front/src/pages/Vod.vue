@@ -18,12 +18,13 @@ import {
 import type { LiveItem } from '../lib/live/types'
 import { getAuthUser } from '../lib/auth'
 import { resolveViewerId } from '../lib/live/viewer'
+import { createImageErrorHandler } from '../lib/images/productImages'
 
 const route = useRoute()
 const router = useRouter()
 const { now } = useNow(1000)
 
-const FALLBACK_IMAGE = 'data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs='
+const { handleImageError } = createImageErrorHandler()
 
 const vodId = computed(() => {
   const value = route.params.id
@@ -58,14 +59,6 @@ const statusBadgeClass = computed(() => {
   }
   return `status-badge--${status.value.toLowerCase()}`
 })
-
-const handleImageError = (event: Event) => {
-  const target = event.target as HTMLImageElement | null
-  if (!target || target.dataset.fallbackApplied) return
-  target.dataset.fallbackApplied = 'true'
-  target.src = FALLBACK_IMAGE
-}
-
 
 const showChat = ref(true)
 const isLiked = ref(false)

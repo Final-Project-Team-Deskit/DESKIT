@@ -1,4 +1,5 @@
 import { type DbProduct } from '../lib/products-data'
+import { PLACEHOLDER_IMAGE, resolvePrimaryImage } from '../lib/images/productImages'
 
 const resolveTimestamp = (primary: any, fallback: any) => {
   return primary ?? fallback ?? ''
@@ -24,24 +25,14 @@ const resolveThumbnailUrl = (product: any) => {
   )
 }
 
-const resolveImageUrl = (product: any) => {
-  return (
-    product?.imageUrl ??
-    product?.product_image_url ??
-    product?.image_url ??
-    product?.thumbnailUrl ??
-    product?.thumbnail_url ??
-    ''
-  )
-}
-
 export const normalizeProduct = (raw: any): DbProduct => {
   const thumbnailUrl = resolveThumbnailUrl(raw)
+  const imageSource = thumbnailUrl ? { ...raw, thumbnailUrl } : raw
   return {
     ...(raw ?? {}),
     product_id: raw?.product_id ?? raw?.id ?? 0,
     name: raw?.name ?? raw?.product_name ?? '',
-    imageUrl: resolveImageUrl(raw) || thumbnailUrl || '/placeholder-product.jpg',
+    imageUrl: resolvePrimaryImage(imageSource) || PLACEHOLDER_IMAGE,
     created_dt: resolveTimestamp(
       raw?.created_at ?? raw?.created_dt ?? raw?.createdAt,
       raw?.created_dt ?? raw?.createdAt

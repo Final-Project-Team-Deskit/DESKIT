@@ -150,13 +150,13 @@ const loadEvaluations = async () => {
     })
     if (!response.ok) {
       const message = await response.text()
-      error.value = message || '심사 목록을 불러오지 못했습니다.'
+      error.value = message || '�科 諈拘��� 賱�木� 諈魁��蛟���.'
       evaluations.value = []
       return
     }
     evaluations.value = (await response.json()) as AiEvaluationSummary[]
   } catch (err) {
-    error.value = err instanceof Error ? err.message : '심사 목록을 불러오지 못했습니다.'
+    error.value = err instanceof Error ? err.message : '�科 諈拘��� 賱�木� 諈魁��蛟���.'
   } finally {
     loading.value = false
   }
@@ -172,7 +172,7 @@ const loadEvaluationDetail = async (aiEvalId: number) => {
     })
     if (!response.ok) {
       const message = await response.text()
-      form.message = message || '심사 상세 정보를 불러오지 못했습니다.'
+      form.message = message || '�科 � �陷諝� 賱�木� 諈魁��蛟���.'
       form.hasError = true
       selected.value = null
       return
@@ -181,7 +181,7 @@ const loadEvaluationDetail = async (aiEvalId: number) => {
     form.gradeRecommended = selected.value.adminEvaluation?.gradeRecommended ?? selected.value.sellerGrade
     form.adminComment = selected.value.adminEvaluation?.adminComment ?? ''
   } catch (err) {
-    form.message = err instanceof Error ? err.message : '심사 상세 정보를 불러오지 못했습니다.'
+    form.message = err instanceof Error ? err.message : '�科 � �陷諝� 賱�木� 諈魁��蛟���.'
     form.hasError = true
     selected.value = null
   } finally {
@@ -206,7 +206,7 @@ const closeModal = () => {
 const finalizeEvaluation = async () => {
   if (!selected.value || isFinalized.value) return
   if (!form.gradeRecommended) {
-    form.message = '최종 등급을 선택해주세요.'
+    form.message = '黖� �梓��� ���渥ˉ�賄�.'
     form.hasError = true
     return
   }
@@ -226,15 +226,15 @@ const finalizeEvaluation = async () => {
     })
     if (!response.ok) {
       const message = await response.text()
-      form.message = message || '최종 심사 처리에 실패했습니다.'
+      form.message = message || '黖� �科 麮收�� �欠��.'
       form.hasError = true
       return
     }
-    form.message = '최종 심사가 완료되었습니다.'
+    form.message = '黖� �科穈 �����蛟���.'
     await loadEvaluationDetail(selected.value.aiEvalId)
     await loadEvaluations()
   } catch (err) {
-    form.message = err instanceof Error ? err.message : '최종 심사 처리에 실패했습니다.'
+    form.message = err instanceof Error ? err.message : '黖� �科 麮收�� �欠��.'
     form.hasError = true
   } finally {
     form.submitting = false
@@ -255,13 +255,13 @@ const loadEscalatedChats = async () => {
     })
     if (!response.ok) {
       const message = await response.text()
-      directError.value = message || '문의 목록을 불러오지 못했습니다.'
+      directError.value = message || '諡賄� 諈拘��� 賱�木� 諈魁��蛟���.'
       escalatedChats.value = []
       return
     }
     escalatedChats.value = (await response.json()) as DirectChatSummary[]
   } catch (err) {
-    directError.value = err instanceof Error ? err.message : '문의 목록을 불러오지 못했습니다.'
+    directError.value = err instanceof Error ? err.message : '諡賄� 諈拘��� 賱�木� 諈魁��蛟���.'
   } finally {
     directLoading.value = false
   }
@@ -279,7 +279,7 @@ const loadDirectChatHistory = async (chatId: number) => {
     }
     directMessages.value = (await response.json()) as DirectChatMessage[]
   } catch (err) {
-    directError.value = err instanceof Error ? err.message : '채팅 이력을 불러오지 못했습니다.'
+    directError.value = err instanceof Error ? err.message : '麇� �渠�� 賱�木� 諈魁��蛟���.'
   } finally {
     directLoading.value = false
   }
@@ -329,7 +329,7 @@ const acceptDirectChat = async (chatId: number) => {
     })
     if (!response.ok) {
       const message = await response.text()
-      directError.value = message || '상담 연결에 실패했습니다.'
+      directError.value = message || '� �國盒�� �欠��.'
       return
     }
     const updated = (await response.json()) as DirectChatSummary
@@ -340,7 +340,7 @@ const acceptDirectChat = async (chatId: number) => {
     await loadDirectChatHistory(updated.chatId)
     await connectDirectChat(updated.chatId)
   } catch (err) {
-    directError.value = err instanceof Error ? err.message : '상담 연결에 실패했습니다.'
+    directError.value = err instanceof Error ? err.message : '� �國盒�� �欠��.'
   } finally {
     directLoading.value = false
   }
@@ -355,7 +355,7 @@ const closeDirectChat = async (chatId: number) => {
     })
     if (!response.ok) {
       const message = await response.text()
-      directError.value = message || '상담 종료에 실패했습니다.'
+      directError.value = message || '� 鮈��� �欠��.'
       return
     }
     if (selectedChat.value?.chatId === chatId) {
@@ -366,7 +366,7 @@ const closeDirectChat = async (chatId: number) => {
     }
     await loadDirectChatHistory(chatId)
   } catch (err) {
-    directError.value = err instanceof Error ? err.message : '상담 종료에 실패했습니다.'
+    directError.value = err instanceof Error ? err.message : '� 鮈��� �欠��.'
   } finally {
     directLoading.value = false
   }
@@ -383,7 +383,7 @@ const sendDirectMessage = async () => {
     )
     directInput.value = ''
   } catch (error) {
-    directError.value = error instanceof Error ? error.message : '메시지 전송에 실패했습니다.'
+    directError.value = error instanceof Error ? error.message : '諰�鴔 ��� �欠��.'
   }
 }
 
@@ -415,44 +415,44 @@ onBeforeUnmount(() => {
 
 <template>
   <div>
-    <PageHeader eyebrow="DESKIT" title="고객센터" />
+    <PageHeader eyebrow="DESKIT" title="窸��潤" />
 
     <CustomerCenterTabs :model-value="activeTab" @update:model-value="setActiveTab" />
 
     <section v-if="activeTab === 'sellerApproval'" class="live-section">
       <div class="live-section__head">
-        <h3>판매자 등록 승인</h3>
-        <p class="ds-section-sub">판매자 등록 요청을 확인하고 승인합니다.</p>
+        <h3>�坐�� �梵� �寢</h3>
+        <p class="ds-section-sub">�坐�� �梵� �痍�� ��� �寢�拘���.</p>
       </div>
 
       <section class="support-card ds-surface">
         <div class="support-card__head">
           <div>
-            <h4>AI 심사 이력</h4>
-            <p>사업계획서 AI 심사 결과를 확인하고 최종 심사를 진행해주세요.</p>
+            <h4>AI �科 �渠</h4>
+            <p>�科�窸��� AI �科 窶國頃諝� ��� 黖� �科諝� 鴔��渥ˉ�賄�.</p>
           </div>
           <button type="button" class="btn ghost" :disabled="loading" @click="loadEvaluations">
-            새로고침
+            ��窸麂
           </button>
         </div>
 
-        <p v-if="loading" class="state-text">심사 목록을 불러오는 중입니다.</p>
+        <p v-if="loading" class="state-text">�科 諈拘��� 賱�月� 鴗��.</p>
         <p v-else-if="error" class="state-text error">{{ error }}</p>
-        <p v-else-if="!evaluations.length" class="state-text">AI 심사 이력이 없습니다.</p>
+        <p v-else-if="!evaluations.length" class="state-text">AI �科 �渠�� ��.</p>
 
         <div v-else class="table-wrap">
           <table class="admin-table">
             <thead>
               <tr>
-                <th>번호</th>
-                <th>판매자명</th>
-                <th>상호명</th>
-                <th>총점</th>
-                <th>그룹</th>
-                <th>결과 요약</th>
-                <th>신청일</th>
-                <th>상태</th>
-                <th>결과</th>
+                <th>貒</th>
+                <th>�坐��</th>
+                <th>�諈�</th>
+                <th>黕�</th>
+                <th>篞賈ㄨ</th>
+                <th>窶國頃 �</th>
+                <th>�痍��</th>
+                <th>��</th>
+                <th>窶國頃</th>
               </tr>
             </thead>
             <tbody>
@@ -466,12 +466,12 @@ onBeforeUnmount(() => {
                 <td>{{ formatDateTime(item.createdAt) }}</td>
                 <td>
                   <span class="status-pill" :class="item.finalized ? 'is-final' : 'is-pending'">
-                    {{ item.finalized ? '완료' : '대기' }}
+                    {{ item.finalized ? '��' : '�篣�' }}
                   </span>
                 </td>
                 <td>
                   <button type="button" class="btn ghost" @click="openEvaluation(item.aiEvalId)">
-                    결과 보기
+                    窶國頃 貐湊萼
                   </button>
                 </td>
               </tr>
@@ -483,24 +483,24 @@ onBeforeUnmount(() => {
 
     <section v-else class="live-section">
       <div class="live-section__head">
-        <h3>문의사항 확인</h3>
-        <p class="ds-section-sub">고객 문의 이력을 확인합니다.</p>
+        <h3>諡賄��秒 �</h3>
+        <p class="ds-section-sub">窸� 諡賄� �渠�� ��拘���.</p>
       </div>
 
       <section class="support-card ds-surface">
         <div class="support-card__head">
           <div>
-            <h4>1:1 문의 목록</h4>
-            <p>관리자 이관 요청을 확인하고 상담을 시작하세요.</p>
+            <h4>1:1 諡賄� 諈拘�</h4>
+            <p>窵謔科� �湊� �痍�� ��� ��� �����.</p>
           </div>
           <button type="button" class="btn ghost" :disabled="directLoading" @click="loadEscalatedChats">
-            새로고침
+            ��窸麂
           </button>
         </div>
 
-        <p v-if="directLoading" class="state-text">문의 목록을 불러오는 중입니다.</p>
+        <p v-if="directLoading" class="state-text">諡賄� 諈拘��� 賱�月� 鴗��.</p>
         <p v-else-if="directError" class="state-text error">{{ directError }}</p>
-        <p v-else-if="!escalatedChats.length" class="state-text">대기중인 문의가 없습니다.</p>
+        <p v-else-if="!escalatedChats.length" class="state-text">�篣域��� 諡賄�穈 ��.</p>
 
         <div v-else class="direct-chat-grid">
           <div class="direct-chat-list">
@@ -513,17 +513,17 @@ onBeforeUnmount(() => {
               @click="selectDirectChat(chat)"
             >
               <span class="direct-chat-item__id">Chat #{{ chat.chatId }}</span>
-              <span class="direct-chat-item__meta">로그인ID {{ chat.loginId || '-' }}</span>
+              <span class="direct-chat-item__meta">諢溢�碰D {{ chat.loginId || '-' }}</span>
               <span class="direct-chat-item__status">{{ chat.status }}</span>
             </button>
           </div>
           <div class="direct-chat-panel">
-            <div v-if="!selectedChat" class="state-text">문의 항목을 선택해주세요.</div>
+            <div v-if="!selectedChat" class="state-text">諡賄� �卿版�� ���渥ˉ�賄�.</div>
             <div v-else class="direct-chat-card">
               <header class="direct-chat-card__head">
                 <div>
                   <h4>Chat #{{ selectedChat.chatId }}</h4>
-                  <p>로그인ID {{ selectedChat.loginId || '-' }} · {{ selectedChat.status }}</p>
+                  <p>諢溢�碰D {{ selectedChat.loginId || '-' }} 繚 {{ selectedChat.status }}</p>
                 </div>
                 <div class="direct-chat-actions">
                   <button
@@ -533,7 +533,7 @@ onBeforeUnmount(() => {
                     :disabled="directLoading"
                     @click="acceptDirectChat(selectedChat.chatId)"
                   >
-                    상담 연결
+                    � �國盒
                   </button>
                   <button
                     v-else-if="selectedChat.status === 'ADMIN_ACTIVE'"
@@ -542,12 +542,12 @@ onBeforeUnmount(() => {
                     :disabled="directLoading"
                     @click="closeDirectChat(selectedChat.chatId)"
                   >
-                    상담 종료
+                    � 鮈�
                   </button>
                 </div>
               </header>
               <div class="direct-chat-messages">
-                <p v-if="!directMessages.length" class="state-text">채팅 이력이 없습니다.</p>
+                <p v-if="!directMessages.length" class="state-text">麇� �渠�� ��.</p>
                 <div
                   v-for="message in directMessages"
                   :key="message.messageId"
@@ -561,7 +561,7 @@ onBeforeUnmount(() => {
                 <input
                   v-model="directInput"
                   type="text"
-                  placeholder="메시지를 입력하세요."
+                  placeholder="諰�鴔諝� ����."
                   :disabled="selectedChat.status !== 'ADMIN_ACTIVE'"
                   @keydown.enter.prevent="sendDirectMessage"
                 />
@@ -571,7 +571,7 @@ onBeforeUnmount(() => {
                   :disabled="selectedChat.status !== 'ADMIN_ACTIVE'"
                   @click="sendDirectMessage"
                 >
-                  전송
+                  �
                 </button>
               </div>
             </div>
@@ -580,19 +580,19 @@ onBeforeUnmount(() => {
       </section>
     </section>
 
-    <div v-if="showModal" class="evaluation-modal" role="dialog" aria-modal="true" aria-label="심사 상세">
+    <div v-if="showModal" class="evaluation-modal" role="dialog" aria-modal="true" aria-label="�科 �">
       <div class="evaluation-modal__backdrop" @click="closeModal"></div>
       <div class="evaluation-modal__card ds-surface">
         <div class="evaluation-modal__head">
           <div>
-            <h3>AI 심사 상세</h3>
-            <p>AI 심사 결과를 확인하고 최종 심사를 진행합니다.</p>
+            <h3>AI �科 �</h3>
+            <p>AI �科 窶國頃諝� ��� 黖� �科諝� 鴔��拘���.</p>
           </div>
-          <button type="button" class="btn ghost" @click="closeModal">닫기</button>
+          <button type="button" class="btn ghost" @click="closeModal">�恰萼</button>
         </div>
 
-        <div v-if="detailLoading" class="state-text">상세 정보를 불러오는 중입니다.</div>
-        <div v-else-if="!selected" class="state-text error">심사 상세 정보를 불러오지 못했습니다.</div>
+        <div v-if="detailLoading" class="state-text">� �陷諝� 賱�月� 鴗��.</div>
+        <div v-else-if="!selected" class="state-text error">�科 � �陷諝� 賱�木� 諈魁��蛟���.</div>
         <div v-else class="evaluation-detail">
           <dl class="detail-grid">
             <div class="detail-item">
@@ -604,67 +604,67 @@ onBeforeUnmount(() => {
               <dd>{{ selected.registerId }}</dd>
             </div>
             <div class="detail-item">
-              <dt>신청일</dt>
+              <dt>�痍��</dt>
               <dd>{{ formatDateTime(selected.createdAt) }}</dd>
             </div>
             <div class="detail-item">
-              <dt>회사명</dt>
+              <dt>�諈�</dt>
               <dd>{{ selected.companyName }}</dd>
             </div>
             <div class="detail-item">
-              <dt>담당 이메일</dt>
+              <dt>�渠 �渠���</dt>
               <dd>{{ selected.sellerEmail }}</dd>
             </div>
             <div class="detail-item">
-              <dt>사업 안정성</dt>
+              <dt>�科� ����</dt>
               <dd>{{ selected.businessStability }}</dd>
             </div>
             <div class="detail-item">
-              <dt>상품 경쟁력</dt>
+              <dt>�� 窶趣���</dt>
               <dd>{{ selected.productCompetency }}</dd>
             </div>
             <div class="detail-item">
-              <dt>라이브 적합성</dt>
+              <dt>�潰賳� ���</dt>
               <dd>{{ selected.liveSuitability }}</dd>
             </div>
             <div class="detail-item">
-              <dt>운영 협업</dt>
+              <dt>�渥� ��</dt>
               <dd>{{ selected.operationCoop }}</dd>
             </div>
             <div class="detail-item">
-              <dt>성장 가능성</dt>
+              <dt>�桿 穈�伊</dt>
               <dd>{{ selected.growthPotential }}</dd>
             </div>
             <div class="detail-item">
-              <dt>총점</dt>
+              <dt>黕�</dt>
               <dd>{{ selected.totalScore }}</dd>
             </div>
             <div class="detail-item">
-              <dt>AI 권장 등급</dt>
+              <dt>AI 窷 �梓�</dt>
               <dd>{{ selected.sellerGrade }}</dd>
             </div>
             <div class="detail-item full">
-              <dt>요약</dt>
+              <dt>�</dt>
               <dd>{{ selected.summary }}</dd>
             </div>
             <div class="detail-item full">
-              <dt>설명</dt>
+              <dt>�月�</dt>
               <dd>{{ selected.description || '-' }}</dd>
             </div>
           </dl>
 
           <section class="final-section">
             <div class="final-head">
-              <h4>최종 심사</h4>
-              <span v-if="isFinalized" class="status-pill is-final">완료</span>
+              <h4>黖� �科</h4>
+              <span v-if="isFinalized" class="status-pill is-final">��</span>
             </div>
-            <p class="final-desc">최종 등급과 관리자 코멘트를 입력하면 판매자 이메일로 결과가 전송됩니다.</p>
+            <p class="final-desc">黖� �梓�窸� 窵謔科� 儠��賈未 ��庖 �坐�� �渠��潺� 窶國頃穈 ��拘���.</p>
 
             <div class="final-form">
               <label class="field">
-                <span class="field__label">최종 등급</span>
+                <span class="field__label">黖� �梓�</span>
                 <select v-model="form.gradeRecommended" :disabled="isFinalized || detailLoading" class="field-input">
-                  <option disabled value="">등급 선택</option>
+                  <option disabled value="">�梓� ��</option>
                   <option value="A">A</option>
                   <option value="B">B</option>
                   <option value="C">C</option>
@@ -672,12 +672,12 @@ onBeforeUnmount(() => {
                 </select>
               </label>
               <label class="field">
-                <span class="field__label">관리자 코멘트</span>
+                <span class="field__label">窵謔科� 儠���</span>
                 <textarea
                   v-model="form.adminComment"
                   class="field-input textarea"
                   :disabled="isFinalized || detailLoading"
-                  placeholder="최종 심사 코멘트를 입력하세요."
+                  placeholder="黖� �科 儠��賈未 ����."
                 ></textarea>
               </label>
               <div class="final-actions">
@@ -687,7 +687,7 @@ onBeforeUnmount(() => {
                   :disabled="isFinalized || form.submitting"
                   @click="finalizeEvaluation"
                 >
-                  {{ form.submitting ? '처리 중...' : '최종 심사 완료' }}
+                  {{ form.submitting ? '麮收 鴗�...' : '黖� �科 ��' }}
                 </button>
               </div>
               <p v-if="form.message" class="form-message" :class="{ error: form.hasError }">
@@ -696,9 +696,9 @@ onBeforeUnmount(() => {
             </div>
 
             <div v-if="selected.adminEvaluation" class="final-info">
-              <p>최종 등급: {{ selected.adminEvaluation.gradeRecommended }}</p>
-              <p>관리자 코멘트: {{ selected.adminEvaluation.adminComment || '-' }}</p>
-              <p>관리자 평가일: {{ formatDateTime(selected.adminEvaluation.createdAt) }}</p>
+              <p>黖� �梓�: {{ selected.adminEvaluation.gradeRecommended }}</p>
+              <p>窵謔科� 儠���: {{ selected.adminEvaluation.adminComment || '-' }}</p>
+              <p>窵謔科� ����: {{ formatDateTime(selected.adminEvaluation.createdAt) }}</p>
             </div>
           </section>
         </div>
