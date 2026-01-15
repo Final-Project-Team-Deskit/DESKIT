@@ -5,6 +5,7 @@ import PageContainer from '../components/PageContainer.vue'
 import PageHeader from '../components/PageHeader.vue'
 import { cancelOrder, getMyOrderDetail, getMyOrders } from '../api/orders'
 import { productsData } from '../lib/products-data'
+import { createImageErrorHandler, resolvePrimaryImage } from '../lib/images/productImages'
 
 type OrderStatus =
   | 'CREATED'
@@ -78,6 +79,7 @@ const isModalOpen = ref(false)
 const selectedOrderId = ref<string | null>(null)
 const cancelReasonCategory = ref('')
 const cancelError = ref('')
+const { handleImageError } = createImageErrorHandler()
 const cancelReasons = [
   '단순 변심',
   '가격 변동(쿠폰·프로모션) 불만',
@@ -186,16 +188,15 @@ const modalTitle = (orderId: string) => {
 
 const productImageOf = (productId: string) => {
   const p = productsData.find((x: any) => String(x.product_id) === String(productId))
-  return String(p?.imageUrl ?? '')
+  return resolvePrimaryImage(p)
 }
 
 const thumbOf = (order: OrderViewModel) => {
   const first = order.items?.[0]
-  const direct = first?.image ?? first?.thumbnail ?? first?.thumb ?? first?.imageUrl ?? first?.img ?? ''
+  if (!first) return ''
+  const direct = resolvePrimaryImage(first)
   if (direct) return String(direct)
-
   const pid = first?.productId ?? null
-
   return pid != null && String(pid) !== '' ? productImageOf(String(pid)) : ''
 }
 
@@ -371,7 +372,12 @@ onMounted(() => {
           <div class="info">
             <div class="info__row header">
               <div class="thumb" :class="{ 'thumb--empty': !thumbOf(order) }">
-                <img v-if="thumbOf(order)" :src="thumbOf(order)" :alt="order.items[0]?.name || '상품'" />
+                <img
+                  v-if="thumbOf(order)"
+                  :src="thumbOf(order)"
+                  :alt="order.items[0]?.name || '상품'"
+                  @error="handleImageError"
+                />
                 <span v-else class="thumb__ph">DESKIT</span>
               </div>
               <div class="header-block">
