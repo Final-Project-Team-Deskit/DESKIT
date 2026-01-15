@@ -43,4 +43,9 @@ public class DirectChatController {
     ) {
         return directChatService.saveMessage(chatId, request);
     }
+
+    @PostMapping("/{chatId}/close")
+    public void closeChat(@PathVariable Long chatId) {
+        directChatService.closeChat(chatId);
+    }
 }
