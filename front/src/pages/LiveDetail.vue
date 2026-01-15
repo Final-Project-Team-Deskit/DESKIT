@@ -11,6 +11,7 @@ import { parseLiveDate } from '../lib/live/utils'
 import { useNow } from '../lib/live/useNow'
 import { getAuthUser, hydrateSessionUser } from '../lib/auth'
 import { resolveViewerId } from '../lib/live/viewer'
+import { createImageErrorHandler } from '../lib/images/productImages'
 import {
   fetchBroadcastLikeStatus,
   fetchBroadcastProducts,
@@ -48,7 +49,7 @@ const openviduSubscriber = ref<Subscriber | null>(null)
 const openviduConnected = ref(false)
 const openviduConnectionId = ref<string | null>(null)
 
-const FALLBACK_IMAGE = 'data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs='
+const { handleImageError } = createImageErrorHandler()
 
 const liveId = computed(() => {
   const value = route.params.id
@@ -163,13 +164,6 @@ const viewerExtraLabel = computed(() => {
   return ''
 })
 const hasSubscriberStream = computed(() => openviduConnected.value && !!openviduSubscriber.value)
-
-const handleImageError = (event: Event) => {
-  const target = event.target as HTMLImageElement | null
-  if (!target || target.dataset.fallbackApplied) return
-  target.dataset.fallbackApplied = 'true'
-  target.src = FALLBACK_IMAGE
-}
 
 const scheduledLabel = computed(() => {
   if (!liveItem.value) {
@@ -2240,4 +2234,3 @@ onBeforeUnmount(() => {
   }
 }
 </style>
-

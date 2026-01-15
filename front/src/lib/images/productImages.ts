@@ -61,11 +61,13 @@ export const createImageErrorHandler = () => {
   const handleImageError = (event: Event) => {
     const target = event.target as HTMLImageElement | null
     if (!target) return
+    if (target.dataset.fallbackApplied) return
     const failedSrc = target.currentSrc || target.src || ''
     if (failedSrc && !warnedImageSources.has(failedSrc)) {
       console.warn('[Image] failed to load:', failedSrc)
       warnedImageSources.add(failedSrc)
     }
+    target.dataset.fallbackApplied = 'true'
     if (target.src !== PLACEHOLDER_IMAGE) {
       target.src = PLACEHOLDER_IMAGE
     }

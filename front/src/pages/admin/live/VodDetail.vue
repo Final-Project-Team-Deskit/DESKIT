@@ -13,11 +13,12 @@ import {
   updateAdminVodVisibility,
 } from '../../../lib/live/api'
 import { getBroadcastStatusLabel } from '../../../lib/broadcastStatus'
+import { createImageErrorHandler } from '../../../lib/images/productImages'
 
 const route = useRoute()
 const router = useRouter()
 
-const FALLBACK_IMAGE = 'data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs='
+const { handleImageError } = createImageErrorHandler()
 
 const vodId = computed(() => (typeof route.params.vodId === 'string' ? route.params.vodId : ''))
 
@@ -104,13 +105,6 @@ const confirmDelete = async () => {
   } catch {
     return
   }
-}
-
-const handleImageError = (event: Event) => {
-  const target = event.target as HTMLImageElement | null
-  if (!target || target.dataset.fallbackApplied) return
-  target.dataset.fallbackApplied = 'true'
-  target.src = FALLBACK_IMAGE
 }
 
 const sendChat = () => {
