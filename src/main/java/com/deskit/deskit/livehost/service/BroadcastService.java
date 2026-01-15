@@ -49,6 +49,9 @@ import com.deskit.deskit.livechat.repository.LiveChatRepository;
 import com.deskit.deskit.order.enums.OrderStatus;
 import com.deskit.deskit.product.entity.Product;
 import com.deskit.deskit.product.entity.Product.Status;
+import com.deskit.deskit.product.entity.ProductImage;
+import com.deskit.deskit.product.entity.ProductImage.ImageType;
+import com.deskit.deskit.product.repository.ProductImageRepository;
 import com.deskit.deskit.product.repository.ProductRepository;
 import com.deskit.deskit.tag.entity.TagCategory;
 import com.deskit.deskit.tag.repository.TagCategoryRepository;
@@ -78,6 +81,7 @@ import java.io.InputStream;
 import java.math.BigDecimal;
 import java.net.HttpURLConnection;
 import java.net.URL;
+import java.util.Collections;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -112,6 +116,7 @@ public class BroadcastService {
 
     private final BroadcastRepository broadcastRepository;
     private final BroadcastProductRepository broadcastProductRepository;
+    private final ProductImageRepository productImageRepository;
     private final com.deskit.deskit.livehost.repository.QcardRepository qcardRepository;
     private final BroadcastResultRepository broadcastResultRepository;
     private final VodRepository vodRepository;
@@ -1103,11 +1108,28 @@ public class BroadcastService {
             sseService.notifyBroadcastUpdate(broadcastId, "PRODUCT_UNPINNED", "soldout");
         }
 
+        List<Long> productIds = products.stream()
+                .map(bp -> bp.getProduct().getId())
+                .distinct()
+                .collect(Collectors.toList());
+        Map<Long, String> thumbnailUrls = productIds.isEmpty()
+                ? Collections.emptyMap()
+                : productImageRepository
+                .findAllByProductIdInAndImageTypeAndSlotIndexAndDeletedAtIsNullOrderByProductIdAscIdAsc(
+                        productIds, ImageType.THUMBNAIL, 0
+                ).stream()
+                .collect(Collectors.toMap(
+                        ProductImage::getProductId,
+                        ProductImage::getProductImageUrl,
+                        (left, right) -> left
+                ));
+
         return products.stream()
-                .map(bp -> BroadcastProductResponse.fromEntity(
+                .map(bp -> BroadcastProductResponse.fromEntityWithImageUrl(
                         bp,
                         remainingQuantities.getOrDefault(bp.getProduct().getId(), bp.getBpQuantity()),
-                        resolveOriginalPrice(broadcast, bp)
+                        resolveOriginalPrice(broadcast, bp),
+                        thumbnailUrls.get(bp.getProduct().getId())
                 ))
                 .collect(Collectors.toList());
     }

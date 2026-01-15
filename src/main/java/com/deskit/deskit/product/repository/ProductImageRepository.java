@@ -22,5 +22,11 @@ public interface ProductImageRepository extends JpaRepository<ProductImage, Long
     Integer slotIndex
   );
 
+  List<ProductImage> findAllByProductIdInAndImageTypeAndSlotIndexAndDeletedAtIsNullOrderByProductIdAscIdAsc(
+    List<Long> productIds,
+    ImageType imageType,
+    Integer slotIndex
+  );
+
   List<ProductImage> findAllByProductIdAndDeletedAtIsNullOrderBySlotIndexAsc(Long productId);
 }
