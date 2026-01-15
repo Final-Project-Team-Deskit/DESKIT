@@ -31,6 +31,7 @@ const route = useRoute()
 const router = useRouter()
 const { now } = useNow(1000)
 const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080'
+const apiRoot = apiBase.replace(/\/api\/?$/, '')
 const sseSource = ref<EventSource | null>(null)
 const sseConnected = ref(false)
 const sseRetryCount = ref(0)
@@ -955,7 +956,7 @@ const fetchRecentMessages = async () => {
     return
   }
   try {
-    const response = await fetch(`${apiBase}/livechats/${broadcastId.value}/recent?seconds=60`)
+    const response = await fetch(`${apiRoot}/livechats/${broadcastId.value}/recent?seconds=60`)
     if (!response.ok) {
       return
     }
@@ -985,7 +986,7 @@ const connectChat = () => {
   }
   const client = new Client({
     webSocketFactory: () =>
-      new SockJS(`${apiBase}/ws`, undefined, {
+        new SockJS(`${apiRoot}/ws`, undefined, {
         withCredentials: true,
       }),
     reconnectDelay: 5000,

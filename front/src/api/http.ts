@@ -32,6 +32,10 @@ http.interceptors.request.use((config: InternalAxiosRequestConfig) => {
     config.url = url.replace(/^\/api/, '')
   }
 
+  if (baseURL.endsWith('/api') && url.startsWith('/livechats/')) {
+    config.baseURL = baseURL.replace(/\/api$/, '')
+  }
+
   const token = localStorage.getItem('access_token')
 
   const method = (config.method ?? 'get').toLowerCase()
