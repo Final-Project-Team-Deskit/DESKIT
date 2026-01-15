@@ -98,7 +98,7 @@ const handleEdit = (product: SellerProduct) => {
 const fetchProducts = async () => {
   const base = import.meta.env.VITE_API_BASE_URL ?? ''
   try {
-    const response = await fetch(`${base}/api/seller/products`, {
+    const response = await fetch(`${base}/seller/products`, {
       method: 'GET',
       credentials: 'include',
     })
