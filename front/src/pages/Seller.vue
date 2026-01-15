@@ -152,8 +152,8 @@ const handleExport = () => {
           <article class="card card--top5 ds-surface">
             <header class="card-head">
               <div>
-                <h3>판매량 상위 상품 TOP5</h3>
-                <p class="card-sub">최근 30일 기준</p>
+                <h3>가장 많이 판매된 상품 TOP5</h3>
+                <p class="card-sub">최근 판매 기준</p>
               </div>
             </header>
             <ol class="top-list">
@@ -170,10 +170,10 @@ const handleExport = () => {
           <article class="card card--revenue ds-surface">
             <header class="card-head">
               <div>
-                <h3>매출 추이 (매출액 기준)</h3>
-                <p class="card-sub">기간별 매출액 지표</p>
+                <h3>판매자 상품 판매 현황 (매출)</h3>
+                <p class="card-sub">막대 그래프</p>
               </div>
-              <div class="segmented" role="tablist" aria-label="매출액 기간">
+              <div class="segmented" role="tablist" aria-label="기간 선택">
                 <button
                   type="button"
                   class="segmented__btn"
