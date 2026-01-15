@@ -12,6 +12,7 @@ import { useNow } from '../lib/live/useNow'
 import { getAuthUser, hydrateSessionUser } from '../lib/auth'
 import { resolveViewerId } from '../lib/live/viewer'
 import { createImageErrorHandler } from '../lib/images/productImages'
+import { resolveWsBase } from '../lib/ws'
 import {
   fetchBroadcastLikeStatus,
   fetchBroadcastProducts,
@@ -31,7 +32,7 @@ const route = useRoute()
 const router = useRouter()
 const { now } = useNow(1000)
 const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080'
-const wsBase = apiBase.replace(/\/+$/, '')
+const wsBase = resolveWsBase(apiBase)
 const sseSource = ref<EventSource | null>(null)
 const sseConnected = ref(false)
 const sseRetryCount = ref(0)
