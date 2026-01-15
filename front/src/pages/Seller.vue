@@ -91,12 +91,12 @@ const handleExport = () => {
 
 <template>
   <PageContainer>
-    <PageHeader v-if="isHome" eyebrow="DESKIT" title="판매자 대시보드" />
+    <PageHeader v-if="isHome" eyebrow="DESKIT" title="홈" />
     <template v-if="isHome">
       <header class="dashboard-header">
         <div>
           <h2 class="section-title">판매자 대시보드</h2>
-          <p class="ds-section-sub">판매 현황과 주요 지표를 한눈에 확인하세요.</p>
+          <p class="ds-section-sub">판매 현황과 운영 지표를 한눈에 확인하세요.</p>
         </div>
         <button type="button" class="excel-btn" @click="handleExport">Excel 추출</button>
       </header>
@@ -106,10 +106,10 @@ const handleExport = () => {
           <article class="card card--sales ds-surface">
             <header class="card-head">
               <div>
-                <h3>판매 추이 (판매량 기준)</h3>
-                <p class="card-sub">기간별 판매량 지표</p>
+                <h3>판매자 상품 판매 현황 (상품 종류)</h3>
+                <p class="card-sub">막대 그래프</p>
               </div>
-              <div class="segmented" role="tablist" aria-label="판매량 기간">
+              <div class="segmented" role="tablist" aria-label="기간 선택">
                 <button
                   type="button"
                   class="segmented__btn"
@@ -201,7 +201,7 @@ const handleExport = () => {
               </div>
             </header>
             <div class="chart-placeholder">
-              <div class="bar-chart" role="img" aria-label="매출액 차트">
+              <div class="bar-chart" role="img" aria-label="상품 종류별 매출 현황">
                 <div v-for="item in revenueChart" :key="item.label" class="bar-item">
                   <div class="bar-value">₩{{ item.value.toLocaleString('ko-KR') }}</div>
                   <div class="bar-area">
