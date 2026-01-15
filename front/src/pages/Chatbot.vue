@@ -144,7 +144,17 @@ const loadDirectChatHistory = async () => {
 }
 
 const wsEndpoint = computed(() => {
-  const base = apiBase.replace(/^http/, 'ws')
+  const origin = window.location.origin
+  let url: URL
+  try {
+    url = new URL(apiBase || origin, origin)
+  } catch {
+    url = new URL(origin)
+  }
+  url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
+  const normalizedPath = url.pathname.replace(/\/api\/?$/, '').replace(/\/$/, '')
+  url.pathname = normalizedPath || '/'
+  const base = url.toString().replace(/\/$/, '')
   return `${base}/ws-live/websocket`
 })
 

@@ -1,4 +1,4 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import CustomerCenterTabs from '../../components/CustomerCenterTabs.vue'
@@ -77,6 +77,7 @@ const detailLoading = ref(false)
 const error = ref('')
 const showModal = ref(false)
 const escalatedChats = ref<DirectChatSummary[]>([])
+const activeChats = ref<DirectChatSummary[]>([])
 const selectedChat = ref<DirectChatSummary | null>(null)
 const directMessages = ref<DirectChatMessage[]>([])
 const directInput = ref('')
@@ -242,24 +243,43 @@ const finalizeEvaluation = async () => {
 }
 
 const wsEndpoint = computed(() => {
-  const base = apiBase.replace(/^http/, 'ws')
+  const origin = window.location.origin
+  let url: URL
+  try {
+    url = new URL(apiBase || origin, origin)
+  } catch {
+    url = new URL(origin)
+  }
+  url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
+  const normalizedPath = url.pathname.replace(/\/api\/?$/, '').replace(/\/$/, '')
+  url.pathname = normalizedPath || '/'
+  const base = url.toString().replace(/\/$/, '')
   return `${base}/ws-live/websocket`
 })
 
-const loadEscalatedChats = async () => {
+const loadDirectChats = async () => {
   directLoading.value = true
   directError.value = ''
   try {
-    const response = await fetch(`${apiBase}/admin/direct-chats/escalated`, {
-      credentials: 'include',
-    })
-    if (!response.ok) {
-      const message = await response.text()
+    const [activeResponse, escalatedResponse] = await Promise.all([
+      fetch(`${apiBase}/admin/direct-chats/active?adminId=${adminId.value}`, {
+        credentials: 'include',
+      }),
+      fetch(`${apiBase}/admin/direct-chats/escalated`, {
+        credentials: 'include',
+      }),
+    ])
+    if (!activeResponse.ok || !escalatedResponse.ok) {
+      const message = !(activeResponse.ok && escalatedResponse.ok)
+        ? await (activeResponse.ok ? escalatedResponse.text() : activeResponse.text())
+        : ''
       directError.value = message || '문의 목록을 불러오지 못했습니다.'
       escalatedChats.value = []
+      activeChats.value = []
       return
     }
-    escalatedChats.value = (await response.json()) as DirectChatSummary[]
+    activeChats.value = (await activeResponse.json()) as DirectChatSummary[]
+    escalatedChats.value = (await escalatedResponse.json()) as DirectChatSummary[]
   } catch (err) {
     directError.value = err instanceof Error ? err.message : '문의 목록을 불러오지 못했습니다.'
   } finally {
@@ -279,7 +299,7 @@ const loadDirectChatHistory = async (chatId: number) => {
     }
     directMessages.value = (await response.json()) as DirectChatMessage[]
   } catch (err) {
-    directError.value = err instanceof Error ? err.message : '채팅 이력을 불러오지 못했습니다.'
+    directError.value = err instanceof Error ? err.message : '채팅 내역을 불러오지 못했습니다.'
   } finally {
     directLoading.value = false
   }
@@ -343,9 +363,11 @@ const acceptDirectChat = async (chatId: number) => {
     }
     const updated = (await response.json()) as DirectChatSummary
     selectedChat.value = updated
-    escalatedChats.value = escalatedChats.value.map((item) =>
-      item.chatId === updated.chatId ? updated : item,
-    )
+    escalatedChats.value = escalatedChats.value.filter((item) => item.chatId !== updated.chatId)
+    activeChats.value = [
+      updated,
+      ...activeChats.value.filter((item) => item.chatId !== updated.chatId),
+    ]
     await loadDirectChatHistory(updated.chatId)
     await connectDirectChat(updated.chatId)
   } catch (err) {
@@ -373,6 +395,7 @@ const closeDirectChat = async (chatId: number) => {
         status: 'CLOSED',
       }
     }
+    activeChats.value = activeChats.value.filter((item) => item.chatId !== chatId)
     await loadDirectChatHistory(chatId)
   } catch (err) {
     directError.value = err instanceof Error ? err.message : '상담 종료에 실패했습니다.'
@@ -409,7 +432,7 @@ watch(
       loadEvaluations()
     }
     if (tab === 'inquiries') {
-      loadEscalatedChats()
+      loadDirectChats()
     }
   },
   { immediate: true },
@@ -431,7 +454,7 @@ onBeforeUnmount(() => {
     <section v-if="activeTab === 'sellerApproval'" class="live-section">
       <div class="live-section__head">
         <h3>판매자 등록 승인</h3>
-        <p class="ds-section-sub">판매자 등록 요청을 확인하고 승인합니다.</p>
+        <p class="ds-section-sub">판매자 등록 신청서를 확인하고 승인합니다.</p>
       </div>
 
       <section class="support-card ds-surface">
@@ -451,19 +474,23 @@ onBeforeUnmount(() => {
 
         <div v-else class="table-wrap">
           <table class="admin-table">
-            <thead>
+            
+
+<thead>
               <tr>
                 <th>번호</th>
                 <th>판매자명</th>
-                <th>상호명</th>
+                <th>회사명</th>
                 <th>총점</th>
-                <th>그룹</th>
+                <th>등급</th>
                 <th>결과 요약</th>
                 <th>신청일</th>
                 <th>상태</th>
                 <th>결과</th>
               </tr>
             </thead>
+
+
             <tbody>
               <tr v-for="(item, index) in evaluations" :key="item.aiEvalId">
                 <td>{{ index + 1 }}</td>
@@ -502,29 +529,45 @@ onBeforeUnmount(() => {
             <h4>1:1 문의 목록</h4>
             <p>관리자 이관 요청을 확인하고 상담을 시작하세요.</p>
           </div>
-          <button type="button" class="btn ghost" :disabled="directLoading" @click="loadEscalatedChats">
-            새로고침
-          </button>
+          <button type="button" class="btn ghost" :disabled="directLoading" @click="loadDirectChats">새로고침</button>
         </div>
 
         <p v-if="directLoading" class="state-text">문의 목록을 불러오는 중입니다.</p>
         <p v-else-if="directError" class="state-text error">{{ directError }}</p>
-        <p v-else-if="!escalatedChats.length" class="state-text">대기중인 문의가 없습니다.</p>
+        <p v-else-if="!activeChats.length && !escalatedChats.length" class="state-text">대기중인 문의가 없습니다.</p>
 
         <div v-else class="direct-chat-grid">
           <div class="direct-chat-list">
-            <button
-              v-for="chat in escalatedChats"
-              :key="chat.chatId"
-              type="button"
-              class="direct-chat-item"
-              :class="{ active: selectedChat?.chatId === chat.chatId }"
-              @click="selectDirectChat(chat)"
-            >
-              <span class="direct-chat-item__id">Chat #{{ chat.chatId }}</span>
-              <span class="direct-chat-item__meta">로그인ID {{ chat.loginId || '-' }}</span>
-              <span class="direct-chat-item__status">{{ chat.status }}</span>
-            </button>
+            <div v-if="activeChats.length" class="direct-chat-group">
+              <p class="direct-chat-group__title">상담중</p>
+              <button
+                v-for="chat in activeChats"
+                :key="`active-${chat.chatId}`"
+                type="button"
+                class="direct-chat-item"
+                :class="{ active: selectedChat?.chatId === chat.chatId }"
+                @click="selectDirectChat(chat)"
+              >
+                <span class="direct-chat-item__id">Chat #{{ chat.chatId }}</span>
+                <span class="direct-chat-item__meta">로그인ID {{ chat.loginId || '-' }}</span>
+                <span class="direct-chat-item__status">{{ chat.status }}</span>
+              </button>
+            </div>
+            <div v-if="escalatedChats.length" class="direct-chat-group">
+              <p class="direct-chat-group__title">대기중</p>
+              <button
+                v-for="chat in escalatedChats"
+                :key="`escalated-${chat.chatId}`"
+                type="button"
+                class="direct-chat-item"
+                :class="{ active: selectedChat?.chatId === chat.chatId }"
+                @click="selectDirectChat(chat)"
+              >
+                <span class="direct-chat-item__id">Chat #{{ chat.chatId }}</span>
+                <span class="direct-chat-item__meta">로그인ID {{ chat.loginId || '-' }}</span>
+                <span class="direct-chat-item__status">{{ chat.status }}</span>
+              </button>
+            </div>
           </div>
           <div class="direct-chat-panel">
             <div v-if="!selectedChat" class="state-text">문의 항목을 선택해주세요.</div>
@@ -541,22 +584,18 @@ onBeforeUnmount(() => {
                     class="btn primary"
                     :disabled="directLoading"
                     @click="acceptDirectChat(selectedChat.chatId)"
-                  >
-                    상담 연결
-                  </button>
+                  >상담 연결</button>
                   <button
                     v-else-if="selectedChat.status === 'ADMIN_ACTIVE'"
                     type="button"
                     class="btn ghost"
                     :disabled="directLoading"
                     @click="closeDirectChat(selectedChat.chatId)"
-                  >
-                    상담 종료
-                  </button>
+                  >상담 종료</button>
                 </div>
               </header>
               <div class="direct-chat-messages">
-                <p v-if="!directMessages.length" class="state-text">채팅 이력이 없습니다.</p>
+                <p v-if="!directMessages.length" class="state-text">채팅 내역이 없습니다.</p>
                 <div
                   v-for="message in directMessages"
                   :key="message.messageId"
@@ -603,7 +642,9 @@ onBeforeUnmount(() => {
         <div v-if="detailLoading" class="state-text">상세 정보를 불러오는 중입니다.</div>
         <div v-else-if="!selected" class="state-text error">심사 상세 정보를 불러오지 못했습니다.</div>
         <div v-else class="evaluation-detail">
-          <dl class="detail-grid">
+          
+
+<dl class="detail-grid">
             <div class="detail-item">
               <dt>Seller ID</dt>
               <dd>{{ selected.sellerId }}</dd>
@@ -662,12 +703,16 @@ onBeforeUnmount(() => {
             </div>
           </dl>
 
-          <section class="final-section">
+
+
+                    <section class="final-section">
             <div class="final-head">
               <h4>최종 심사</h4>
               <span v-if="isFinalized" class="status-pill is-final">완료</span>
             </div>
-            <p class="final-desc">최종 등급과 관리자 코멘트를 입력하면 판매자 이메일로 결과가 전송됩니다.</p>
+            <p class="final-desc">
+              최종 등급과 관리자 코멘트를 입력하면 판매자 이메일로 결과가 전송됩니다.
+            </p>
 
             <div class="final-form">
               <label class="field">
@@ -1043,6 +1088,21 @@ onBeforeUnmount(() => {
   gap: 10px;
 }
 
+.direct-chat-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.direct-chat-group__title {
+  margin: 0;
+  font-size: 0.8rem;
+  font-weight: 900;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
 .direct-chat-item {
   border: 1px solid var(--border-color);
   border-radius: 12px;
@@ -1199,3 +1259,14 @@ onBeforeUnmount(() => {
   }
 }
 </style>
+
+
+
+
+
+
+
+
+
+
+
