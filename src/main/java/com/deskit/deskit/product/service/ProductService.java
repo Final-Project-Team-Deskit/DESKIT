@@ -4,6 +4,7 @@ import com.deskit.deskit.product.dto.ProductCreateRequest;
 import com.deskit.deskit.product.dto.ProductCreateResponse;
 import com.deskit.deskit.product.dto.ProductBasicUpdateRequest;
 import com.deskit.deskit.product.dto.ProductDetailUpdateRequest;
+import com.deskit.deskit.product.dto.ProductImageResponse;
 import com.deskit.deskit.product.dto.ProductResponse;
 import com.deskit.deskit.product.dto.ProductResponse.ProductTags;
 import com.deskit.deskit.product.dto.SellerProductListResponse;
@@ -78,6 +79,16 @@ public class ProductService {
             .map(Product::getId)
             .collect(Collectors.toList());
 
+    Map<Long, String> thumbnailUrls = productImageRepository
+      .findAllByProductIdInAndImageTypeAndSlotIndexAndDeletedAtIsNullOrderByProductIdAscIdAsc(
+        productIds, ImageType.THUMBNAIL, 0
+      ).stream()
+      .collect(Collectors.toMap(
+        ProductImage::getProductId,
+        ProductImage::getProductImageUrl,
+        (left, right) -> left
+      ));
+
     Map<Long, Integer> livePrices = broadcastProductRepository.findLiveBpPrices(productIds).stream()
             .collect(Collectors.toMap(
                     BroadcastProductRepository.LivePriceRow::getProductId,
@@ -98,7 +109,10 @@ public class ProductService {
               ProductTags tags = bundle == null ? ProductTags.empty() : bundle.getTags();
               List<String> tagsFlat = bundle == null ? Collections.emptyList() : bundle.getTagsFlat();
               Integer priceOverride = livePrices.get(product.getId());
-              return ProductResponse.fromWithPrice(product, tags, tagsFlat, priceOverride);
+              String thumbnailUrl = thumbnailUrls.get(product.getId());
+              return ProductResponse.fromWithPriceAndThumbnail(
+                product, tags, tagsFlat, priceOverride, thumbnailUrl, null
+              );
             })
             .collect(Collectors.toList());
   }
@@ -126,7 +140,14 @@ public class ProductService {
       .findFirstByProductIdAndImageTypeAndSlotIndexAndDeletedAtIsNullOrderByIdAsc(id, ImageType.THUMBNAIL, 0)
       .map(ProductImage::getProductImageUrl)
       .orElse(null);
-    return Optional.of(ProductResponse.fromWithPriceAndThumbnail(product.get(), tags, tagsFlat, priceOverride, thumbnailUrl));
+    List<ProductImageResponse> productImages = productImageRepository
+      .findAllByProductIdAndDeletedAtIsNullOrderBySlotIndexAsc(id).stream()
+      .filter(image -> image.getImageType() == ImageType.GALLERY)
+      .map(ProductImageResponse::from)
+      .collect(Collectors.toList());
+    return Optional.of(ProductResponse.fromWithPriceAndThumbnail(
+      product.get(), tags, tagsFlat, priceOverride, thumbnailUrl, productImages
+    ));
   }
 
   public List<SellerProductListResponse> getSellerProducts(Long sellerId) {
