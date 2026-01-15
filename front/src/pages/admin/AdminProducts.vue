@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import PageHeader from '../../components/PageHeader.vue'
-import { createImageErrorHandler, resolvePrimaryImage } from '../../lib/images/productImages'
 import { type DbProduct } from '../../lib/products-data'
 import { deleteProduct, listProducts } from '../../api/products'
 import { USE_MOCK_API } from '../../api/config'
@@ -23,7 +22,6 @@ const isLoading = ref(false)
 const errorMessage = ref('')
 const deletingKey = ref<string | null>(null)
 const mockEventName = ref<string | null>(null)
-const { handleImageError } = createImageErrorHandler()
 
 const statusLabelMap: Record<ProductStatus, string> = {
   selling: '판매중',
@@ -212,14 +210,15 @@ onBeforeUnmount(() => {
     </section>
     <section v-else class="product-list">
       <article v-for="item in keyedProducts" :key="item.key">
-          <div class="product-card ds-surface">
-            <div class="thumb">
+        <div class="product-card ds-surface">
+          <div class="thumb">
             <img
-              :src="resolvePrimaryImage(item.product)"
+              v-if="item.product.imageUrl"
+              :src="item.product.imageUrl"
               :alt="item.product.name"
-              @error="handleImageError"
             />
-            </div>
+            <div v-else class="thumb__placeholder"></div>
+          </div>
           <div class="product-main">
             <div class="product-title">{{ item.product.name }}</div>
             <p class="product-desc">{{ item.product.short_desc }}</p>

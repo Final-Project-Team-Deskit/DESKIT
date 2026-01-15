@@ -6,12 +6,6 @@ import { flattenTags, type DbProduct } from '../lib/products-data'
 import PageContainer from '../components/PageContainer.vue'
 import { upsertCartItem } from '../lib/cart/cart-storage'
 import { createCheckoutFromBuyNow, saveCheckout } from '../lib/checkout/checkout-storage'
-import {
-  createImageErrorHandler,
-  PLACEHOLDER_IMAGE,
-  resolveImageList,
-  resolvePrimaryImage,
-} from '../lib/images/productImages'
 
 const route = useRoute()
 const router = useRouter()
@@ -59,15 +53,13 @@ watch(productId, () => {
   loadProduct({ notifyOnChange: false })
 }, { immediate: true })
 
-const { handleImageError } = createImageErrorHandler()
-
 const product = computed(() => {
   const raw = rawProduct.value as any
   if (!raw) return undefined
   return {
     ...raw,
     id: String(raw.product_id),
-    imageUrl: resolvePrimaryImage(raw),
+    imageUrl: (raw as any).imageUrl ?? (raw as any).image_url ?? '/placeholder-product.jpg',
     description: (raw as any).short_desc ?? (raw as any).description,
     seller: (raw as any).seller_id ? `판매자 #${(raw as any).seller_id}` : undefined,
     tags: (raw as any).tags ?? { space: [], tone: [], situation: [], mood: [] },
@@ -82,18 +74,11 @@ const flatTags = computed(() => {
 })
 
 const imageList = computed(() => {
-  const raw = rawProduct.value as any
-  if (!raw) return []
-  const gallery = resolveImageList(raw)
-  if (gallery.length === 0) {
-    const primary = resolvePrimaryImage(raw)
-    return [primary, primary, primary]
-  }
-  if (gallery.length === 1) {
-    const primary = gallery[0]
-    return [primary, primary, primary]
-  }
-  return gallery
+  if (!product.value) return []
+  const primary = product.value.imageUrl ?? '/placeholder-product.jpg'
+  const images = [primary]
+  while (images.length < 3) images.push(primary)
+  return images
 })
 
 const selectedImageIndex = ref(0)
@@ -156,7 +141,12 @@ const handleAddToCart = () => {
   const orig = originalPrice.value ?? salePrice
   const discount = orig > salePrice ? Math.round(((orig - salePrice) / orig) * 100) : 0
 
-  const imageUrl = product.value.imageUrl || (product.value as any).image_url || PLACEHOLDER_IMAGE
+  const imageUrl =
+      product.value.imageUrl ||
+      (product.value as any).image_url ||
+      (product.value as any).thumbnailUrl ||
+      (product.value as any).images?.[0] ||
+      ''
 
   upsertCartItem({
     productId: String((product.value as any).product_id ?? product.value.id),
@@ -281,11 +271,11 @@ onBeforeUnmount(() => {
               :class="{ active: idx === selectedImageIndex }"
               @click="selectedImageIndex = idx"
           >
-            <img :src="img" :alt="`${product.name} 썸네일 ${idx + 1}`" @error="handleImageError" />
+            <img :src="img" :alt="`${product.name} 썸네일 ${idx + 1}`" />
           </button>
         </div>
         <div class="main-image">
-          <img :src="selectedImage" :alt="product.name" @error="handleImageError" />
+          <img :src="selectedImage" :alt="product.name" />
         </div>
       </div>
 

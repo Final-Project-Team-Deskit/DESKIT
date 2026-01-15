@@ -11,7 +11,6 @@ import { parseLiveDate } from '../lib/live/utils'
 import { useNow } from '../lib/live/useNow'
 import { getAuthUser, hydrateSessionUser } from '../lib/auth'
 import { resolveViewerId } from '../lib/live/viewer'
-import { createImageErrorHandler, resolvePrimaryImage } from '../lib/images/productImages'
 import {
   fetchBroadcastLikeStatus,
   fetchBroadcastProducts,
@@ -171,8 +170,6 @@ const handleImageError = (event: Event) => {
   target.dataset.fallbackApplied = 'true'
   target.src = FALLBACK_IMAGE
 }
-
-const { handleImageError: handleProductImageError } = createImageErrorHandler()
 
 const scheduledLabel = computed(() => {
   if (!liveItem.value) {
@@ -1606,12 +1603,7 @@ onBeforeUnmount(() => {
             @click="handleProductClick(product.id)"
           >
             <span v-if="product.isPinned" class="product-card__pin">PIN</span>
-            <img
-              class="product-card__thumb"
-              :src="resolvePrimaryImage(product)"
-              :alt="product.name"
-              @error="handleProductImageError"
-            />
+            <img class="product-card__thumb" :src="product.imageUrl" :alt="product.name" @error="handleImageError" />
             <div class="product-card__info">
               <p class="product-card__name">{{ product.name }}</p>
               <p class="product-card__price">
@@ -2248,3 +2240,4 @@ onBeforeUnmount(() => {
   }
 }
 </style>
+
