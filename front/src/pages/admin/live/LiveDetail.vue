@@ -19,13 +19,13 @@ import { useNow } from '../../../lib/live/useNow'
 import { computeLifecycleStatus, getBroadcastStatusLabel, getScheduledEndMs, normalizeBroadcastStatus } from '../../../lib/broadcastStatus'
 import { getAuthUser } from '../../../lib/auth'
 import { createImageErrorHandler } from '../../../lib/images/productImages'
-import { resolveWsBase } from '../../../lib/ws'
+// import { resolveWsBase } from '../../../lib/ws'
 import { resolveViewerId } from '../../../lib/live/viewer'
 
 const route = useRoute()
 const router = useRouter()
 const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080'
-const wsBase = resolveWsBase(apiBase)
+// const wsBase = resolveWsBase(apiBase)
 
 // --- Types ---
 type AdminDetail = {
@@ -301,7 +301,8 @@ const handleIncomingMessage = (payload: LiveChatMessageDTO) => {
 const fetchRecentMessages = async () => {
   if (!broadcastId.value) return
   try {
-    const response = await fetch(`${wsBase}/livechats/${broadcastId.value}/recent?seconds=300`)
+    // const response = await fetch(`${wsBase}/livechats/${broadcastId.value}/recent?seconds=300`)
+    const response = await fetch(`/livechats/${broadcastId.value}/recent?seconds=300`)
     if (!response.ok) return
     const recent = (await response.json()) as LiveChatMessageDTO[]
     if (!Array.isArray(recent)) return
@@ -339,7 +340,8 @@ const fetchRecentMessages = async () => {
 const connectChat = () => {
   if (!broadcastId.value || stompClient.value?.active) return
   const client = new Client({
-    webSocketFactory: () => new SockJS(`${wsBase}/ws`, undefined, { withCredentials: true }),
+    // webSocketFactory: () => new SockJS(`${wsBase}/ws`, undefined, { withCredentials: true }),
+    webSocketFactory: () => new SockJS(`/ws`, undefined, { withCredentials: true }),
     reconnectDelay: 5000,
   })
 

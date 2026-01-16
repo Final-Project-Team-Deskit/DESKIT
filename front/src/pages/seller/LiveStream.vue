@@ -34,7 +34,7 @@ import { getAuthUser } from '../../lib/auth'
 import { resolveViewerId } from '../../lib/live/viewer'
 import { computeLifecycleStatus, getScheduledEndMs, normalizeBroadcastStatus, type BroadcastStatus } from '../../lib/broadcastStatus'
 import { createImageErrorHandler } from '../../lib/images/productImages'
-import { resolveWsBase } from '../../lib/ws'
+// import { resolveWsBase } from '../../lib/ws'
 
 type StreamProduct = {
   id: string
@@ -174,7 +174,7 @@ const recordingStartRequested = ref(false)
 const endRequested = ref(false)
 const endRequestTimer = ref<number | null>(null)
 const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080'
-const wsBase = resolveWsBase(apiBase)
+// const wsBase = resolveWsBase(apiBase)
 const viewerId = ref<string | null>(resolveViewerId(getAuthUser()))
 const joinedBroadcastId = ref<number | null>(null)
 const joinedViewerId = ref<string | null>(null)
@@ -357,7 +357,8 @@ const connectChat = () => {
 
   const client = new Client({
     webSocketFactory: () =>
-        new SockJS(`${wsBase}/ws`, undefined, {
+        // new SockJS(`${wsBase}/ws`, undefined, {
+          new SockJS(`/ws`, undefined, {
         withCredentials: true,
       }),
     reconnectDelay: 5000,
