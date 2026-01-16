@@ -1836,8 +1836,8 @@ const toggleFullscreen = async () => {
             :class="{ 'is-pinned': pinnedProductId === item.id, 'is-soldout': item.status === '품절' }"
           >
             <span v-if="pinnedProductId === item.id" class="pin-badge">PIN</span>
-            <div class="panel-thumb">
-              <img :src="item.thumb" :alt="item.title" loading="lazy" @error="handleImageError" />
+            <div class="panel-thumb ds-thumb-frame ds-thumb-square">
+              <img class="ds-thumb-img" :src="item.thumb" :alt="item.title" loading="lazy" @error="handleImageError" />
             </div>
             <div class="panel-meta">
               <p class="panel-title">{{ item.title }}</p>

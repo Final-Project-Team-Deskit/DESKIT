@@ -228,8 +228,8 @@ onMounted(() => {
             class="product-card"
             :to="`/products/${item.product_id}`"
           >
-            <div class="thumb">
-              <img :src="item.imageUrl" :alt="item.name" />
+            <div class="thumb ds-thumb-frame ds-thumb-square">
+              <img class="ds-thumb-img" :src="item.imageUrl" :alt="item.name" />
             </div>
             <div class="product-body">
               <p class="product-name">{{ item.name }}</p>

@@ -281,7 +281,7 @@ onBeforeUnmount(() => {
               :class="{ active: idx === selectedImageIndex }"
               @click="selectedImageIndex = idx"
           >
-            <img :src="img || placeholderImage" :alt="`${product.name} 썸네일 ${idx + 1}`" @error="handleImageError" />
+            <img class="ds-thumb-img" :src="img || placeholderImage" :alt="`${product.name} 썸네일 ${idx + 1}`" @error="handleImageError" />
           </button>
         </div>
         <div class="main-image">

@@ -21,8 +21,8 @@ const discountRate = computed(() => {
 
 <template>
   <RouterLink :to="`/products/${props.id}`" class="card">
-    <div class="thumb">
-      <img :src="props.imageUrl" :alt="props.name" />
+    <div class="thumb ds-thumb-frame ds-thumb-square">
+      <img class="ds-thumb-img" :src="props.imageUrl" :alt="props.name" />
       <span v-if="discountRate > 0" class="badge">-{{ discountRate }}%</span>
     </div>
     <div class="body">
@@ -56,16 +56,19 @@ const discountRate = computed(() => {
 }
 
 .thumb {
-  aspect-ratio: 16 / 10;
+  aspect-ratio: 1 / 1;
   background: var(--surface-weak);
   position: relative;
+  width: 100%;
+  overflow: hidden;
 }
 
 .thumb img {
+  display: block;
   width: 100%;
   height: 100%;
   object-fit: cover;
-  display: block;
+  object-position: center;
 }
 
 .body {

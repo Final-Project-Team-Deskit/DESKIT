@@ -1597,7 +1597,9 @@ onBeforeUnmount(() => {
             @click="handleProductClick(product.id)"
           >
             <span v-if="product.isPinned" class="product-card__pin">PIN</span>
-            <img class="product-card__thumb" :src="product.imageUrl" :alt="product.name" @error="handleImageError" />
+            <div class="product-card__thumb ds-thumb-frame ds-thumb-square">
+              <img class="ds-thumb-img" :src="product.imageUrl" :alt="product.name" @error="handleImageError" />
+            </div>
             <div class="product-card__info">
               <p class="product-card__name">{{ product.name }}</p>
               <p class="product-card__price">
@@ -1735,7 +1737,6 @@ onBeforeUnmount(() => {
   width: 64px;
   height: 64px;
   border-radius: 10px;
-  object-fit: cover;
 }
 
 .product-card__info {
