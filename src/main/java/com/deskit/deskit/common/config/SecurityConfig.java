@@ -13,16 +13,25 @@ import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
+import org.springframework.http.HttpStatus;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.web.AuthenticationEntryPoint;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.authentication.DelegatingAuthenticationEntryPoint;
+import org.springframework.security.web.authentication.HttpStatusEntryPoint;
+import org.springframework.security.web.authentication.LoginUrlAuthenticationEntryPoint;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.security.web.authentication.logout.LogoutFilter;
 import org.springframework.security.web.util.matcher.AntPathRequestMatcher;
+import org.springframework.security.web.util.matcher.RequestMatcher;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.Map;
+
 import org.springframework.security.config.annotation.web.configuration.WebSecurityCustomizer;
 
 @Configuration
@@ -46,6 +55,26 @@ public class SecurityConfig {
         this.customOAuth2FailureHandler = customOAuth2FailureHandler;
         this.jwtUtil = jwtUtil;
         this.refreshRepository = refreshRepository;
+    }
+
+    @Bean
+    public AuthenticationEntryPoint authenticationEntryPoint() {
+        Map<RequestMatcher, AuthenticationEntryPoint> map = new LinkedHashMap<>();
+
+        // API는 무조건 401(JSON)
+        map.put(new AntPathRequestMatcher("/api/**"), (request, response, ex) -> {
+            response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+            response.setContentType("application/json;charset=UTF-8");
+            response.getWriter().write("{\"message\":\"unauthorized\"}");
+        });
+
+        // SockJS / WebSocket은 리다이렉트 절대 금지 -> 401
+        map.put(new AntPathRequestMatcher("/ws/**"), new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED));
+
+        // 기본은 웹 앱 동작: /login으로 리다이렉트 (oauth2Login이 이 경로를 사용)
+        DelegatingAuthenticationEntryPoint delegating = new DelegatingAuthenticationEntryPoint((LinkedHashMap<RequestMatcher, AuthenticationEntryPoint>) map);
+        delegating.setDefaultEntryPoint(new LoginUrlAuthenticationEntryPoint("/login"));
+        return delegating;
     }
 
     @Bean
@@ -85,14 +114,6 @@ public class SecurityConfig {
         http
                 .httpBasic((auth) -> auth.disable());
 
-        http.exceptionHandling(exception -> exception
-                .authenticationEntryPoint((request, response, authException) -> {
-                    response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
-                    response.setContentType("application/json;charset=UTF-8");
-                    response.getWriter().write("{\"message\":\"unauthorized\"}");
-                })
-        );
-
         //JWTFilter 추가
         http
                 .addFilterBefore(new JWTFilter(jwtUtil), UsernamePasswordAuthenticationFilter.class)
@@ -109,6 +130,16 @@ public class SecurityConfig {
                         .successHandler(customSuccessHandler)
                         .failureHandler(customOAuth2FailureHandler)
                 );
+
+        http.exceptionHandling(ex -> ex.authenticationEntryPoint(authenticationEntryPoint()));
+
+        http.exceptionHandling(exception -> exception
+                .authenticationEntryPoint((request, response, authException) -> {
+                    response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+                    response.setContentType("application/json;charset=UTF-8");
+                    response.getWriter().write("{\"message\":\"unauthorized\"}");
+                })
+        );
 
         //경로별 인가 작업
         http
