@@ -1,6 +1,7 @@
 package com.deskit.deskit.account.service;
 
 import com.deskit.deskit.account.dto.SellerManagerResponse;
+import com.deskit.deskit.account.entity.CompanyRegistered;
 import com.deskit.deskit.account.entity.Invitation;
 import com.deskit.deskit.account.entity.Member;
 import com.deskit.deskit.account.entity.Seller;
@@ -10,6 +11,7 @@ import com.deskit.deskit.account.oauth.CustomOAuth2User;
 import com.deskit.deskit.account.repository.InvitationRepository;
 import com.deskit.deskit.account.repository.MemberRepository;
 import com.deskit.deskit.account.repository.SellerRepository;
+import com.deskit.deskit.account.repository.CompanyRegisteredRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -36,6 +38,7 @@ public class InvitationService {
     private final InvitationRepository invitationRepository;
     private final SellerRepository sellerRepository;
     private final MemberRepository memberRepository;
+    private final CompanyRegisteredRepository companyRegisteredRepository;
     private final InviteEmailService inviteEmailService;
     private final InvitationQueryService invitationQueryService;
 
@@ -100,7 +103,8 @@ public class InvitationService {
                 URLEncoder.encode(token, StandardCharsets.UTF_8);
 
         String recipientName = extractNameFromEmail(email);
-        String businessName = ownerSeller.getName();
+        CompanyRegistered companyRegistered = companyRegisteredRepository.findBySellerId(ownerSeller.getSellerId());
+        String businessName = companyRegistered == null ? "" : companyRegistered.getCompanyName();
         String inviterName = user.getName() == null || user.getName().isBlank()
                 ? ownerSeller.getName()
                 : user.getName();
