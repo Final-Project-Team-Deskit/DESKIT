@@ -494,7 +494,9 @@ const submitSignup = async () => {
   const completionMessage =
     successText ||
     (form.memberType === 'SELLER'
-      ? '판매자 가입이 접수되었습니다. 관리자 승인을 기다려 주세요.'
+      ? isInviteSignup.value
+        ? '판매자 가입이 완료되었습니다.'
+        : '판매자 가입이 접수되었습니다. 관리자 승인을 기다려 주세요.'
       : '회원가입이 완료되었습니다.')
 
   sessionStorage.setItem(
