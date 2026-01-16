@@ -85,17 +85,17 @@ public class SecurityConfig {
         http
                 .httpBasic((auth) -> auth.disable());
 
-        http
-                .exceptionHandling(exception -> exception
-                        .defaultAuthenticationEntryPointFor(
-                                (request, response, authException) -> {
-                                    response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
-                                    response.setContentType("application/json;charset=UTF-8");
-                                    response.getWriter().write("{\"message\":\"인증이 필요합니다\"}");
-                                },
-                                new AntPathRequestMatcher("/api/**") // API만
-                        )
-                );
+//        http
+//                .exceptionHandling(exception -> exception
+//                        .defaultAuthenticationEntryPointFor(
+//                                (request, response, authException) -> {
+//                                    response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+//                                    response.setContentType("application/json;charset=UTF-8");
+//                                    response.getWriter().write("{\"message\":\"인증이 필요합니다\"}");
+//                                },
+//                                new AntPathRequestMatcher("/api/**") // API만
+//                        )
+//                );
 
         //JWTFilter 추가
         http
@@ -150,8 +150,7 @@ public class SecurityConfig {
                                 "/login/**",
                                 "/login/oauth2/**",
                                 "/ws/**",
-                                "/api/signup/**",
-                                "/api/ws/**"
+                                "/api/signup/**"
                         ).permitAll()
                         .requestMatchers("/api/admin/**").hasAuthority("ROLE_ADMIN")
                         .requestMatchers("/api/quit").hasAnyAuthority(
@@ -176,10 +175,5 @@ public class SecurityConfig {
                         .sessionCreationPolicy(SessionCreationPolicy.IF_REQUIRED));
 
         return http.build();
-    }
-
-    @Bean
-    public WebSecurityCustomizer webSecurityCustomizer() {
-        return (web) -> web.ignoring().requestMatchers("/ws/**","/api/ws/**");
     }
 }
