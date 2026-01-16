@@ -372,7 +372,9 @@ onBeforeUnmount(() => {
         <h3>회원 탈퇴</h3>
         <p>매니저 계정 탈퇴는 되돌릴 수 없습니다.</p>
       </div>
-      <button type="button" class="btn danger" @click="openWithdrawModal">회원 탈퇴</button>
+      <button type="button" class="btn danger withdraw-action" @click="openWithdrawModal">
+        회원 탈퇴
+      </button>
     </section>
 
     <div v-if="showManagerModal" class="manager-modal" role="dialog" aria-modal="true" aria-label="매니저 등록">
@@ -618,6 +620,13 @@ onBeforeUnmount(() => {
   margin: 0;
   color: var(--text-muted);
   font-weight: 700;
+}
+
+.withdraw-action {
+  align-self: center;
+  width: 33%;
+  min-width: 160px;
+  max-width: 240px;
 }
 
 .withdraw-body p {
