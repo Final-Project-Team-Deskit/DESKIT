@@ -85,17 +85,22 @@ public class SecurityConfig {
         http
                 .httpBasic((auth) -> auth.disable());
 
-//        http
-//                .exceptionHandling(exception -> exception
-//                        .defaultAuthenticationEntryPointFor(
-//                                (request, response, authException) -> {
-//                                    response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
-//                                    response.setContentType("application/json;charset=UTF-8");
-//                                    response.getWriter().write("{\"message\":\"인증이 필요합니다\"}");
-//                                },
-//                                new AntPathRequestMatcher("/api/**") // API만
-//                        )
-//                );
+        http.exceptionHandling(exception -> exception
+                .defaultAuthenticationEntryPointFor(
+                        (request, response, authException) -> {
+                            response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+                            response.setContentType("application/json;charset=UTF-8");
+                            response.getWriter().write("{\"message\":\"unauthorized\"}");
+                        },
+                        new AntPathRequestMatcher("/api/**")
+                )
+                .defaultAuthenticationEntryPointFor(
+                        (request, response, authException) -> {
+                            response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+                        },
+                        new AntPathRequestMatcher("/ws/**")
+                )
+        );
 
         //JWTFilter 추가
         http
@@ -117,6 +122,7 @@ public class SecurityConfig {
         //경로별 인가 작업
         http
                 .authorizeHttpRequests((auth) -> auth
+                        .requestMatchers("/ws/info/**", "/ws/**").permitAll()
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                         .requestMatchers(HttpMethod.PATCH, "/api/orders/**").hasAuthority("ROLE_MEMBER")
                         .requestMatchers("/api/addresses/**").hasAuthority("ROLE_MEMBER")
@@ -177,8 +183,4 @@ public class SecurityConfig {
         return http.build();
     }
 
-    @Bean
-    public WebSecurityCustomizer webSecurityCustomizer() {
-        return (web) -> web.ignoring().requestMatchers("/ws/**");
-    }
 }
