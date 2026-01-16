@@ -50,6 +50,29 @@
   box-shadow: var(--shadow-card);
 }
 
+.ds-thumb-frame {
+  width: 100%;
+  overflow: hidden;
+  background: var(--surface-weak);
+  position: relative;
+}
+
+.ds-thumb-square {
+  aspect-ratio: 1 / 1;
+}
+
+.ds-thumb-16x10 {
+  aspect-ratio: 16 / 10;
+}
+
+.ds-thumb-img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center;
+}
+
 @media (max-width: 640px) {
   .ds-container {
     padding: 0 16px;

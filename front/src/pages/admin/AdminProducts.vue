@@ -211,9 +211,10 @@ onBeforeUnmount(() => {
     <section v-else class="product-list">
       <article v-for="item in keyedProducts" :key="item.key">
         <div class="product-card ds-surface">
-          <div class="thumb">
+          <div class="thumb ds-thumb-frame">
             <img
               v-if="item.product.imageUrl"
+              class="ds-thumb-img"
               :src="item.product.imageUrl"
               :alt="item.product.name"
             />

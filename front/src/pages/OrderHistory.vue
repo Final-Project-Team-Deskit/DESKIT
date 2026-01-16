@@ -370,8 +370,8 @@ onMounted(() => {
         <div class="card-grid">
           <div class="info">
             <div class="info__row header">
-              <div class="thumb" :class="{ 'thumb--empty': !thumbOf(order) }">
-                <img v-if="thumbOf(order)" :src="thumbOf(order)" :alt="order.items[0]?.name || '상품'" />
+              <div class="thumb ds-thumb-frame ds-thumb-square" :class="{ 'thumb--empty': !thumbOf(order) }">
+                <img v-if="thumbOf(order)" class="ds-thumb-img" :src="thumbOf(order)" :alt="order.items[0]?.name || '상품'" />
                 <span v-else class="thumb__ph">DESKIT</span>
               </div>
               <div class="header-block">
