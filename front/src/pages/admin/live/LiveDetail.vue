@@ -341,7 +341,10 @@ const connectChat = () => {
   if (!broadcastId.value || stompClient.value?.active) return
   const client = new Client({
     // webSocketFactory: () => new SockJS(`${wsBase}/ws`, undefined, { withCredentials: true }),
-    webSocketFactory: () => new SockJS(`/ws`, undefined, { withCredentials: true }),
+    webSocketFactory: () => new SockJS(`/ws`, null, {
+      transports: ["websocket"],
+      withCredentials: true,
+    }),
     reconnectDelay: 5000,
   })
 

@@ -358,9 +358,10 @@ const connectChat = () => {
   const client = new Client({
     webSocketFactory: () =>
         // new SockJS(`${wsBase}/ws`, undefined, {
-          new SockJS(`/ws`, undefined, {
-        withCredentials: true,
-      }),
+        new SockJS(`/ws`, null, {
+          transports: ["websocket"],
+          withCredentials: true,
+        }),
     reconnectDelay: 5000,
     debug: () => {},
   })
