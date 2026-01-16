@@ -22,9 +22,7 @@ const isSeller = computed(() => {
 
 const headline = computed(() => (isSeller.value ? '판매자 가입 신청 완료' : '회원가입 완료'))
 const description = computed(() =>
-  isSeller.value
-    ? '관리자 승인 후에 서비스 이용이 가능합니다.'
-    : 'DESKIT의 다양한 서비스를 이용해 보세요.',
+  isSeller.value ? '로그인 후 사용해주세요.' : 'DESKIT의 다양한 서비스를 이용해 보세요.',
 )
 
 const hydrateMessage = () => {
@@ -46,7 +44,7 @@ const hydrateMessage = () => {
     message.value = route.query.message
   }
 
-  if (isSeller.value && !message.value.includes('관리자')) {
+  if (isSeller.value && !message.value.trim()) {
     message.value = '판매자 가입이 접수되었습니다. 관리자 승인을 기다려 주세요.'
   }
 }
