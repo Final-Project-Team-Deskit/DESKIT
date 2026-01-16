@@ -36,6 +36,7 @@ const priceSyncTimer = ref<number | null>(null)
 const priceSyncInFlight = ref(false)
 const priceChangePending = ref(false)
 const priceChangeModalOpen = ref(false)
+const priceChangeMessage = ref('')
 let inflight: Promise<void> | null = null
 const addresses = ref<AddressResponse[]>([])
 const addressesLoading = ref(false)
@@ -147,27 +148,45 @@ const syncPrices = async () => {
       discountRate: number
       stock: number
     }> = []
+    let priceChanged = false
+    let quantityAdjusted = false
     results.forEach(({ item, detail }) => {
       if (!detail) return
       const pricing = resolvePricing(detail)
-      if (
+      const needsUpdate =
         item.price !== pricing.price ||
         item.originalPrice !== pricing.originalPrice ||
         item.discountRate !== pricing.discountRate ||
         item.stock !== pricing.stock
-      ) {
+      if (needsUpdate) {
         patches.push({ productId: item.productId, ...pricing })
+      }
+      if (item.price !== pricing.price) {
+        priceChanged = true
+      }
+      if (item.quantity > pricing.stock) {
+        quantityAdjusted = true
       }
     })
     if (patches.length > 0) {
       draft.value = updateCheckoutItemsPricing(patches)
-      priceNotice.value = '가격이 변경된 상품이 있어 결제 금액을 업데이트했습니다.'
-      priceChangePending.value = true
-      priceChangeModalOpen.value = true
-      if (step.value === 'payment') {
-        goShipping()
+      const noticeMessage = priceChanged
+        ? '가격이 변경된 상품이 있어 결제 금액을 업데이트했습니다.'
+        : quantityAdjusted
+          ? '재고가 변경되어 수량을 조정했습니다.'
+          : ''
+      if (noticeMessage) {
+        priceNotice.value = noticeMessage
+        priceChangeMessage.value = priceChanged
+          ? '상품 가격이 변경되어 결제 금액을 갱신했습니다. 확인 후 계속 진행해주세요.'
+          : '재고가 변경되어 수량을 조정했습니다. 확인 후 계속 진행해주세요.'
+        priceChangePending.value = true
+        priceChangeModalOpen.value = true
+        if (step.value === 'payment') {
+          goShipping()
+        }
+        return true
       }
-      return true
     }
     return false
   } finally {
@@ -362,6 +381,7 @@ const goShipping = () => {
 const confirmPriceChange = () => {
   priceChangePending.value = false
   priceChangeModalOpen.value = false
+  priceChangeMessage.value = ''
 }
 
 const loadTossScript = () => {
@@ -861,8 +881,13 @@ onBeforeUnmount(() => {
 
     <div v-if="priceChangeModalOpen" class="modal-overlay" role="dialog" aria-modal="true">
       <div class="modal-card">
-        <h3>가격 변경 안내</h3>
-        <p>상품 가격이 변경되어 결제 금액을 갱신했습니다. 확인 후 계속 진행해주세요.</p>
+        <h3>변경 안내</h3>
+        <p>
+          {{
+            priceChangeMessage ||
+              '상품 가격이 변경되어 결제 금액을 갱신했습니다. 확인 후 계속 진행해주세요.'
+          }}
+        </p>
         <div class="modal-actions">
           <button type="button" class="btn primary" @click="confirmPriceChange">확인</button>
         </div>

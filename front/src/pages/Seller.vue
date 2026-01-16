@@ -1,8 +1,9 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 import { computed, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import PageContainer from '../components/PageContainer.vue'
 import PageHeader from '../components/PageHeader.vue'
+import { exportSellerDashboardExcel } from '../utils/exportExcel'
 
 const periodSales = ref<'daily' | 'monthly' | 'yearly'>('daily')
 const periodRevenue = ref<'daily' | 'monthly' | 'yearly'>('daily')
@@ -75,6 +76,17 @@ const kpis = [
 
 const maxSales = computed(() => Math.max(...salesChart.value.map((item) => item.value)))
 const maxRevenue = computed(() => Math.max(...revenueChart.value.map((item) => item.value)))
+
+const handleExport = () => {
+  exportSellerDashboardExcel({
+    periodSales: periodSales.value,
+    periodRevenue: periodRevenue.value,
+    salesChart: salesChart.value.map((item) => ({ ...item })),
+    revenueChart: revenueChart.value.map((item) => ({ ...item })),
+    top5Items,
+    kpis,
+  })
+}
 </script>
 
 <template>
@@ -86,7 +98,7 @@ const maxRevenue = computed(() => Math.max(...revenueChart.value.map((item) => i
           <h2 class="section-title">판매자 대시보드</h2>
           <p class="ds-section-sub">판매 현황과 운영 지표를 한눈에 확인하세요.</p>
         </div>
-        <button type="button" class="excel-btn">Excel 추출</button>
+        <button type="button" class="excel-btn" @click="handleExport">Excel 추출</button>
       </header>
 
       <section class="dashboard-grid">
@@ -99,43 +111,43 @@ const maxRevenue = computed(() => Math.max(...revenueChart.value.map((item) => i
               </div>
               <div class="segmented" role="tablist" aria-label="기간 선택">
                 <button
-                  type="button"
-                  class="segmented__btn"
-                  :class="{ 'segmented__btn--active': periodSales === 'daily' }"
-                  @click="periodSales = 'daily'"
+                    type="button"
+                    class="segmented__btn"
+                    :class="{ 'segmented__btn--active': periodSales === 'daily' }"
+                    @click="periodSales = 'daily'"
                 >
                   일별
                 </button>
                 <button
-                  type="button"
-                  class="segmented__btn"
-                  :class="{ 'segmented__btn--active': periodSales === 'monthly' }"
-                  @click="periodSales = 'monthly'"
+                    type="button"
+                    class="segmented__btn"
+                    :class="{ 'segmented__btn--active': periodSales === 'monthly' }"
+                    @click="periodSales = 'monthly'"
                 >
                   월별
                 </button>
                 <button
-                  type="button"
-                  class="segmented__btn"
-                  :class="{ 'segmented__btn--active': periodSales === 'yearly' }"
-                  @click="periodSales = 'yearly'"
+                    type="button"
+                    class="segmented__btn"
+                    :class="{ 'segmented__btn--active': periodSales === 'yearly' }"
+                    @click="periodSales = 'yearly'"
                 >
                   연도별
                 </button>
               </div>
-          </header>
-          <div class="chart-placeholder">
-            <div class="bar-chart" role="img" aria-label="상품 종류별 판매 현황">
-              <div v-for="item in salesChart" :key="item.label" class="bar-item">
-                <div class="bar-value">{{ item.value }}개</div>
-                <div class="bar-area">
-                  <div class="bar" :style="{ height: `${(item.value / maxSales) * 100}%` }"></div>
+            </header>
+            <div class="chart-placeholder">
+              <div class="bar-chart" role="img" aria-label="상품 종류별 판매 현황">
+                <div v-for="item in salesChart" :key="item.label" class="bar-item">
+                  <div class="bar-value">{{ item.value }}개</div>
+                  <div class="bar-area">
+                    <div class="bar" :style="{ height: `${(item.value / maxSales) * 100}%` }"></div>
+                  </div>
+                  <div class="bar-label">{{ item.label }}</div>
                 </div>
-                <div class="bar-label">{{ item.label }}</div>
               </div>
             </div>
-          </div>
-        </article>
+          </article>
 
           <article class="card card--top5 ds-surface">
             <header class="card-head">
@@ -143,15 +155,15 @@ const maxRevenue = computed(() => Math.max(...revenueChart.value.map((item) => i
                 <h3>가장 많이 판매된 상품 TOP5</h3>
                 <p class="card-sub">최근 판매 기준</p>
               </div>
-          </header>
-          <ol class="top-list">
-            <li v-for="(item, index) in top5Items" :key="item.name" class="top-item">
-              <span class="rank">{{ String(index + 1).padStart(2, '0') }}</span>
-              <span class="label">{{ item.name }}</span>
-              <span class="value">{{ item.value }}</span>
-            </li>
-          </ol>
-        </article>
+            </header>
+            <ol class="top-list">
+              <li v-for="(item, index) in top5Items" :key="item.name" class="top-item">
+                <span class="rank">{{ String(index + 1).padStart(2, '0') }}</span>
+                <span class="label">{{ item.name }}</span>
+                <span class="value">{{ item.value }}</span>
+              </li>
+            </ol>
+          </article>
 
           <div class="dashboard-divider" aria-hidden="true"></div>
 
@@ -163,53 +175,53 @@ const maxRevenue = computed(() => Math.max(...revenueChart.value.map((item) => i
               </div>
               <div class="segmented" role="tablist" aria-label="기간 선택">
                 <button
-                  type="button"
-                  class="segmented__btn"
-                  :class="{ 'segmented__btn--active': periodRevenue === 'daily' }"
-                  @click="periodRevenue = 'daily'"
+                    type="button"
+                    class="segmented__btn"
+                    :class="{ 'segmented__btn--active': periodRevenue === 'daily' }"
+                    @click="periodRevenue = 'daily'"
                 >
                   일별
                 </button>
                 <button
-                  type="button"
-                  class="segmented__btn"
-                  :class="{ 'segmented__btn--active': periodRevenue === 'monthly' }"
-                  @click="periodRevenue = 'monthly'"
+                    type="button"
+                    class="segmented__btn"
+                    :class="{ 'segmented__btn--active': periodRevenue === 'monthly' }"
+                    @click="periodRevenue = 'monthly'"
                 >
                   월별
                 </button>
                 <button
-                  type="button"
-                  class="segmented__btn"
-                  :class="{ 'segmented__btn--active': periodRevenue === 'yearly' }"
-                  @click="periodRevenue = 'yearly'"
+                    type="button"
+                    class="segmented__btn"
+                    :class="{ 'segmented__btn--active': periodRevenue === 'yearly' }"
+                    @click="periodRevenue = 'yearly'"
                 >
                   연도별
                 </button>
               </div>
-          </header>
-          <div class="chart-placeholder">
-            <div class="bar-chart" role="img" aria-label="상품 종류별 매출 현황">
-              <div v-for="item in revenueChart" :key="item.label" class="bar-item">
-                <div class="bar-value">₩{{ item.value.toLocaleString('ko-KR') }}</div>
-                <div class="bar-area">
-                  <div class="bar" :style="{ height: `${(item.value / maxRevenue) * 100}%` }"></div>
+            </header>
+            <div class="chart-placeholder">
+              <div class="bar-chart" role="img" aria-label="상품 종류별 매출 현황">
+                <div v-for="item in revenueChart" :key="item.label" class="bar-item">
+                  <div class="bar-value">₩{{ item.value.toLocaleString('ko-KR') }}</div>
+                  <div class="bar-area">
+                    <div class="bar" :style="{ height: `${(item.value / maxRevenue) * 100}%` }"></div>
+                  </div>
+                  <div class="bar-label">{{ item.label }}</div>
                 </div>
-                <div class="bar-label">{{ item.label }}</div>
               </div>
             </div>
-          </div>
-        </article>
-
-        <div class="kpi-grid">
-          <article v-for="kpi in kpis" :key="kpi.label" class="kpi-card ds-surface">
-            <p class="kpi-label">{{ kpi.label }}</p>
-            <p class="kpi-value">{{ kpi.value }}</p>
-            <p class="kpi-sub">{{ kpi.sub }}</p>
           </article>
+
+          <div class="kpi-grid">
+            <article v-for="kpi in kpis" :key="kpi.label" class="kpi-card ds-surface">
+              <p class="kpi-label">{{ kpi.label }}</p>
+              <p class="kpi-value">{{ kpi.value }}</p>
+              <p class="kpi-sub">{{ kpi.sub }}</p>
+            </article>
+          </div>
         </div>
-      </div>
-    </section>
+      </section>
     </template>
     <router-view v-else />
   </PageContainer>

@@ -9,13 +9,14 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
 
 @RestController
 @RequiredArgsConstructor
-@RequestMapping("/admin/direct-chats")
+@RequestMapping({"/admin/direct-chats", "/api/admin/direct-chats"})
 public class AdminDirectChatController {
 
     private final DirectChatService directChatService;
@@ -23,6 +24,11 @@ public class AdminDirectChatController {
     @GetMapping("/escalated")
     public List<DirectChatSummaryResponse> getEscalatedChats() {
         return directChatService.getEscalatedChats();
+    }
+
+    @GetMapping("/active")
+    public List<DirectChatSummaryResponse> getActiveChats(@RequestParam Long adminId) {
+        return directChatService.getActiveChats(adminId);
     }
 
     @PostMapping("/{chatId}/accept")

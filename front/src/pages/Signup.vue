@@ -57,6 +57,44 @@ const form = reactive({
   isVerified: false,
 })
 
+const normalizePhoneDigits = (value: string) => value.replace(/\D/g, '').slice(0, 11)
+const normalizeBusinessDigits = (value: string) => value.replace(/\D/g, '').slice(0, 10)
+
+const formatPhoneNumber = (digits: string) => {
+  if (digits.length <= 3) {
+    return digits
+  }
+  if (digits.length <= 7) {
+    return `${digits.slice(0, 3)}-${digits.slice(3)}`
+  }
+  return `${digits.slice(0, 3)}-${digits.slice(3, 7)}-${digits.slice(7)}`
+}
+
+const phoneDigits = computed(() => normalizePhoneDigits(form.phoneNumber))
+const businessDigits = computed(() => normalizeBusinessDigits(form.businessNumber))
+
+const handlePhoneInput = (event: Event) => {
+  const input = event.target as HTMLInputElement
+  const digits = normalizePhoneDigits(input.value)
+  form.phoneNumber = formatPhoneNumber(digits)
+}
+
+const formatBusinessNumber = (digits: string) => {
+  if (digits.length <= 3) {
+    return digits
+  }
+  if (digits.length <= 5) {
+    return `${digits.slice(0, 3)}-${digits.slice(3)}`
+  }
+  return `${digits.slice(0, 3)}-${digits.slice(3, 5)}-${digits.slice(5)}`
+}
+
+const handleBusinessInput = (event: Event) => {
+  const input = event.target as HTMLInputElement
+  const digits = normalizeBusinessDigits(input.value)
+  form.businessNumber = formatBusinessNumber(digits)
+}
+
 const agreements = reactive<Record<AgreementKey, boolean>>({
   serviceTerms: false,
   privacyPolicy: false,
@@ -337,6 +375,12 @@ const sendCode = async () => {
     return
   }
 
+  const digits = phoneDigits.value
+  if (digits.length !== 11) {
+    form.message = '전화번호를 11자리로 입력해주세요.'
+    return
+  }
+
   const response = await fetch(`${apiBase}/signup/social/phone/send`, {
     method: 'POST',
     headers: {
@@ -344,7 +388,7 @@ const sendCode = async () => {
       Authorization: `Bearer ${signupToken.value}`,
     },
     credentials: 'include',
-    body: JSON.stringify({ phoneNumber: form.phoneNumber }),
+    body: JSON.stringify({ phoneNumber: digits }),
   })
 
   if (!response.ok) {
@@ -362,6 +406,12 @@ const verifyCode = async () => {
     return
   }
 
+  const digits = phoneDigits.value
+  if (digits.length !== 11) {
+    form.message = '전화번호를 11자리로 입력해주세요.'
+    return
+  }
+
   const response = await fetch(`${apiBase}/signup/social/phone/verify`, {
     method: 'POST',
     headers: {
@@ -370,7 +420,7 @@ const verifyCode = async () => {
     },
     credentials: 'include',
     body: JSON.stringify({
-      phoneNumber: form.phoneNumber,
+      phoneNumber: digits,
       code: form.verificationCode,
     }),
   })
@@ -396,6 +446,23 @@ const submitSignup = async () => {
     return
   }
 
+  const digits = phoneDigits.value
+  if (digits.length !== 11) {
+    form.message = '전화번호를 11자리로 입력해주세요.'
+    return
+  }
+
+  if (form.memberType === 'SELLER') {
+    if (businessDigits.value.length !== 10) {
+      form.message = '사업자등록번호를 10자리로 입력해주세요.'
+      return
+    }
+    if (form.companyName.trim().length === 0) {
+      form.message = '사업자명을 입력해주세요.'
+      return
+    }
+  }
+
   const response = await fetch(`${apiBase}/signup/social/complete`, {
     method: 'POST',
     headers: {
@@ -405,10 +472,10 @@ const submitSignup = async () => {
     credentials: 'include',
     body: JSON.stringify({
       memberType: form.memberType,
-      phoneNumber: form.phoneNumber,
+      phoneNumber: digits,
       mbti: form.mbti,
       jobCategory: form.jobCategory,
-      businessNumber: form.businessNumber,
+      businessNumber: form.memberType === 'SELLER' ? businessDigits.value : form.businessNumber,
       companyName: form.companyName,
       description: form.description,
       planFileBase64: form.planFileBase64,
@@ -427,7 +494,9 @@ const submitSignup = async () => {
   const completionMessage =
     successText ||
     (form.memberType === 'SELLER'
-      ? '판매자 가입이 접수되었습니다. 관리자 승인을 기다려 주세요.'
+      ? isInviteSignup.value
+        ? '판매자 가입이 완료되었습니다.'
+        : '판매자 가입이 접수되었습니다. 관리자 승인을 기다려 주세요.'
       : '회원가입이 완료되었습니다.')
 
   sessionStorage.setItem(
@@ -548,7 +617,15 @@ onMounted(() => {
           <div class="section">
             <h3>전화번호 인증</h3>
             <div class="field-row">
-              <input v-model="form.phoneNumber" type="text" placeholder="전화번호" />
+              <input
+                v-model="form.phoneNumber"
+                type="text"
+                inputmode="numeric"
+                autocomplete="tel"
+                maxlength="13"
+                placeholder="전화번호"
+                @input="handlePhoneInput"
+              />
               <button type="button" class="btn" @click="sendCode">인증번호 받기</button>
             </div>
             <div class="field-row">
@@ -591,7 +668,14 @@ onMounted(() => {
             <h3>판매자 정보</h3>
             <label class="field">
               <span>사업자등록번호</span>
-              <input v-model="form.businessNumber" type="text" placeholder="사업자등록번호" />
+              <input
+                v-model="form.businessNumber"
+                type="text"
+                inputmode="numeric"
+                maxlength="12"
+                placeholder="사업자등록번호"
+                @input="handleBusinessInput"
+              />
             </label>
             <label class="field">
               <span>사업자명</span>

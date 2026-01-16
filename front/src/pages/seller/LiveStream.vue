@@ -33,6 +33,8 @@ import { useNow } from '../../lib/live/useNow'
 import { getAuthUser } from '../../lib/auth'
 import { resolveViewerId } from '../../lib/live/viewer'
 import { computeLifecycleStatus, getScheduledEndMs, normalizeBroadcastStatus, type BroadcastStatus } from '../../lib/broadcastStatus'
+import { createImageErrorHandler } from '../../lib/images/productImages'
+import { resolveWsBase } from '../../lib/ws'
 
 type StreamProduct = {
   id: string
@@ -78,7 +80,7 @@ type EditableBroadcastInfo = {
 }
 
 const defaultNotice = ''
-const FALLBACK_IMAGE = 'data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs='
+const { handleImageError } = createImageErrorHandler()
 
 const route = useRoute()
 const router = useRouter()
@@ -172,6 +174,7 @@ const recordingStartRequested = ref(false)
 const endRequested = ref(false)
 const endRequestTimer = ref<number | null>(null)
 const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080'
+const wsBase = resolveWsBase(apiBase)
 const viewerId = ref<string | null>(resolveViewerId(getAuthUser()))
 const joinedBroadcastId = ref<number | null>(null)
 const joinedViewerId = ref<string | null>(null)
@@ -354,7 +357,7 @@ const connectChat = () => {
 
   const client = new Client({
     webSocketFactory: () =>
-      new SockJS(`${apiBase}/ws`, undefined, {
+        new SockJS(`${wsBase}/ws`, undefined, {
         withCredentials: true,
       }),
     reconnectDelay: 5000,
@@ -413,13 +416,6 @@ const disconnectChat = () => {
 const formatPrice = (value?: number) => {
   if (!value || Number.isNaN(value)) return '₩0'
   return `₩${value.toLocaleString('ko-KR')}`
-}
-
-const handleImageError = (event: Event) => {
-  const target = event.target as HTMLImageElement | null
-  if (!target || target.dataset.fallbackApplied) return
-  target.dataset.fallbackApplied = 'true'
-  target.src = FALLBACK_IMAGE
 }
 
 const mapStreamProduct = (product: NonNullable<BroadcastDetailResponse['products']>[number]) => {

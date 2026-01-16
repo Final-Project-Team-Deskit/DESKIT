@@ -251,7 +251,7 @@ const goNext = async () => {
     }
     const imageUrls = images.value.map((slot) => slot.preview ?? '')
     const normalizedKeys = Array.from({ length: 5 }, (_, idx) => imageKeys.value[idx] ?? '')
-    const imageResponse = await fetch(`${apiBase}/api/seller/products/${payload.product_id}`, {
+    const imageResponse = await fetch(`${apiBase}/seller/products/${payload.product_id}`, {
       method: 'PUT',
       headers: {
         'Content-Type': 'application/json',

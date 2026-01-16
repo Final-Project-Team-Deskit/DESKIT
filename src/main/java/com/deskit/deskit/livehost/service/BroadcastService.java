@@ -49,6 +49,9 @@ import com.deskit.deskit.livechat.repository.LiveChatRepository;
 import com.deskit.deskit.order.enums.OrderStatus;
 import com.deskit.deskit.product.entity.Product;
 import com.deskit.deskit.product.entity.Product.Status;
+import com.deskit.deskit.product.entity.ProductImage;
+import com.deskit.deskit.product.entity.ProductImage.ImageType;
+import com.deskit.deskit.product.repository.ProductImageRepository;
 import com.deskit.deskit.product.repository.ProductRepository;
 import com.deskit.deskit.tag.entity.TagCategory;
 import com.deskit.deskit.tag.repository.TagCategoryRepository;
@@ -78,6 +81,7 @@ import java.io.InputStream;
 import java.math.BigDecimal;
 import java.net.HttpURLConnection;
 import java.net.URL;
+import java.util.Collections;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -112,6 +116,7 @@ public class BroadcastService {
 
     private final BroadcastRepository broadcastRepository;
     private final BroadcastProductRepository broadcastProductRepository;
+    private final ProductImageRepository productImageRepository;
     private final com.deskit.deskit.livehost.repository.QcardRepository qcardRepository;
     private final BroadcastResultRepository broadcastResultRepository;
     private final VodRepository vodRepository;
@@ -320,8 +325,9 @@ public class BroadcastService {
                 .asTable("reserved");
         var reservedProductId = field(name("reserved", "product_id"), Long.class);
         var reservedQty = field(name("reserved", "reserved_qty"), Integer.class);
-        var availableQty = stockQty.sub(safetyStock).sub(org.jooq.impl.DSL.coalesce(reservedQty, 0));
-
+        var availableQty = stockQty.cast(org.jooq.impl.SQLDataType.BIGINT)
+                .sub(safetyStock.cast(org.jooq.impl.SQLDataType.BIGINT))
+                .sub(org.jooq.impl.DSL.coalesce(reservedQty, 0).cast(org.jooq.impl.SQLDataType.BIGINT));
         var liveSubquery = dsl.select(
                         bpProductId.as("product_id"),
                         org.jooq.impl.DSL.max(broadcastId).as("broadcast_id")
@@ -336,7 +342,7 @@ public class BroadcastService {
 
         var condition = sellerField.eq(sellerId)
                 .and(statusField.in(statuses))
-                .and(availableQty.gt(0))
+                .and(availableQty.gt(0L))
                 .and(deletedAt.isNull());
         if (keyword != null && !keyword.isBlank()) {
             condition = condition.and(productName.containsIgnoreCase(keyword));
@@ -557,8 +563,18 @@ public class BroadcastService {
                 }
             }
 
+            String sessionId;
+            try {
+                sessionId = openViduService.createSession(broadcastId);
+            } catch (OpenViduJavaClientException | OpenViduHttpException e) {
+                log.error("OpenVidu session creation failed: broadcastId={}, message={}", broadcastId, e.getMessage());
+                throw new BusinessException(ErrorCode.OPENVIDU_ERROR);
+            } catch (Exception e) {
+                throw new BusinessException(ErrorCode.OPENVIDU_ERROR);
+            }
+
             validateTransition(broadcast.getStatus(), BroadcastStatus.ON_AIR);
-            broadcast.startBroadcast("session-" + broadcastId);
+            broadcast.startBroadcast(sessionId);
             applyLiveProductPrice(broadcast);
             sseService.notifyBroadcastUpdate(broadcastId, "BROADCAST_STARTED", "started");
 
@@ -791,7 +807,11 @@ public class BroadcastService {
         String bId = accessor.getFirstNativeHeader("broadcastId");
         String vId = accessor.getFirstNativeHeader("X-Viewer-Id");
         if (bId != null && vId != null) {
-            Long broadcastId = Long.parseLong(bId);
+            Long broadcastId = parseBroadcastId(bId);
+            if (broadcastId == null) {
+                log.warn("Invalid broadcastId on connect: {}", bId);
+                return;
+            }
             redisService.enterLiveRoom(broadcastId, vId);
             broadcastRepository.findById(broadcastId)
                     .filter(broadcast -> broadcast.getStatus() == BroadcastStatus.ON_AIR)
@@ -812,7 +832,11 @@ public class BroadcastService {
         StompHeaderAccessor accessor = StompHeaderAccessor.wrap(event.getMessage());
         Map<String, Object> attrs = accessor.getSessionAttributes();
         if (attrs != null && attrs.containsKey("broadcastId")) {
-            Long broadcastId = Long.parseLong((String) attrs.get("broadcastId"));
+            Long broadcastId = parseBroadcastId(String.valueOf(attrs.get("broadcastId")));
+            if (broadcastId == null) {
+                log.warn("Invalid broadcastId on disconnect: {}", attrs.get("broadcastId"));
+                return;
+            }
             String viewerId = (String) attrs.get("viewerId");
             redisService.exitLiveRoom(broadcastId, viewerId);
             broadcastRepository.findById(broadcastId)
@@ -872,7 +896,11 @@ public class BroadcastService {
 
     @Transactional
     public void processVod(OpenViduRecordingWebhook payload) {
-        Long broadcastId = Long.parseLong(payload.getSessionId().replace("broadcast-", ""));
+        Long broadcastId = parseBroadcastIdFromSession(payload.getSessionId());
+        if (broadcastId == null) {
+            log.warn("Invalid OpenVidu sessionId for VOD processing: {}", payload.getSessionId());
+            return;
+        }
         Broadcast broadcast = broadcastRepository.findById(broadcastId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.BROADCAST_NOT_FOUND));
 
@@ -1080,11 +1108,28 @@ public class BroadcastService {
             sseService.notifyBroadcastUpdate(broadcastId, "PRODUCT_UNPINNED", "soldout");
         }
 
+        List<Long> productIds = products.stream()
+                .map(bp -> bp.getProduct().getId())
+                .distinct()
+                .collect(Collectors.toList());
+        Map<Long, String> thumbnailUrls = productIds.isEmpty()
+                ? Collections.emptyMap()
+                : productImageRepository
+                .findAllByProductIdInAndImageTypeAndSlotIndexAndDeletedAtIsNullOrderByProductIdAscIdAsc(
+                        productIds, ImageType.THUMBNAIL, 0
+                ).stream()
+                .collect(Collectors.toMap(
+                        ProductImage::getProductId,
+                        ProductImage::getProductImageUrl,
+                        (left, right) -> left
+                ));
+
         return products.stream()
-                .map(bp -> BroadcastProductResponse.fromEntity(
+                .map(bp -> BroadcastProductResponse.fromEntityWithImageUrl(
                         bp,
                         remainingQuantities.getOrDefault(bp.getProduct().getId(), bp.getBpQuantity()),
-                        resolveOriginalPrice(broadcast, bp)
+                        resolveOriginalPrice(broadcast, bp),
+                        thumbnailUrls.get(bp.getProduct().getId())
                 ))
                 .collect(Collectors.toList());
     }
@@ -1988,6 +2033,28 @@ public class BroadcastService {
         } catch (NumberFormatException e) {
             return null;
         }
+    }
+
+    private Long parseBroadcastId(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        try {
+            return Long.parseLong(value);
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    private Long parseBroadcastIdFromSession(String sessionId) {
+        if (sessionId == null || sessionId.isBlank()) {
+            return null;
+        }
+        String numeric = sessionId.replaceAll("\\D+", "");
+        if (numeric.isBlank()) {
+            return null;
+        }
+        return parseBroadcastId(numeric);
     }
 
     private Long resolveMemberId(String viewerId) {

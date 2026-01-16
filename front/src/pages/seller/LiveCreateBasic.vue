@@ -254,7 +254,8 @@ const syncDraft = () => {
 const restoreDraft = async () => {
   let baseDraft = createEmptyDraft()
   const workingDraft = loadWorkingDraft()
-  if (workingDraft) {
+  const hasMatchingWorkingDraft = !!workingDraft && (!isEditMode.value || workingDraft.reservationId === reservationId.value)
+  if (hasMatchingWorkingDraft) {
     baseDraft = { ...createEmptyDraft(), ...workingDraft }
   } else {
     const savedDraft = loadDraft()
@@ -280,7 +281,7 @@ const restoreDraft = async () => {
   const reservationDraft = isEditMode.value
       ? {
         ...baseDraft,
-        ...(await buildDraftFromReservation(reservationId.value)),
+        ...(hasMatchingWorkingDraft ? {} : await buildDraftFromReservation(reservationId.value)),
         reservationId: reservationId.value,
       }
       : baseDraft
@@ -454,6 +455,11 @@ const submit = () => {
 
   if (!draft.value.products.length) {
     error.value = '최소 1개의 판매 상품을 등록해주세요.'
+    return
+  }
+
+  if (!draft.value.thumb) {
+    error.value = '썸네일을 등록 해주세요'
     return
   }
 
@@ -797,7 +803,7 @@ watch(
                     <img :src="product.thumb" :alt="product.name" />
                   </div>
                   <div class="product-text">
-                    <strong>{{ product.name }}</strong>
+<!--                    <strong>{{ product.name }}</strong>-->
                     <span class="product-option__meta">{{ product.option }}</span>
                   </div>
                 </div>

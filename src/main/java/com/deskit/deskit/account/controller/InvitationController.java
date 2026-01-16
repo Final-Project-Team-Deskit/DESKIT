@@ -1,205 +1,36 @@
 package com.deskit.deskit.account.controller;
 
-import com.deskit.deskit.account.dto.SellerManagerResponse;
-import com.deskit.deskit.account.entity.Invitation;
-import com.deskit.deskit.account.entity.Member;
-import com.deskit.deskit.account.entity.Seller;
-import com.deskit.deskit.account.enums.InvitationStatus;
-import com.deskit.deskit.account.enums.SellerRole;
 import com.deskit.deskit.account.oauth.CustomOAuth2User;
-import com.deskit.deskit.account.repository.InvitationRepository;
-import com.deskit.deskit.account.repository.MemberRepository;
-import com.deskit.deskit.account.repository.SellerRepository;
-import com.deskit.deskit.account.service.InviteEmailService;
-import com.deskit.deskit.account.service.InvitationQueryService;
+import com.deskit.deskit.account.service.InvitationService;
 import lombok.RequiredArgsConstructor;
-import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
-import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 
-import java.io.IOException;
-import java.net.URLEncoder;
-import java.nio.charset.StandardCharsets;
-import java.time.LocalDateTime;
-import java.time.ZoneOffset;
-import java.util.List;
 import java.util.Map;
-import java.util.UUID;
 
 @RestController
 @RequiredArgsConstructor
 @RequestMapping("/api/invitations")
 public class InvitationController {
 
-    // Maximum number of invitations allowed per owner.
-    private static final int INVITATION_LIMIT = 2;
+    private final InvitationService invitationService;
 
-    // Invitation expiration window in hours.
-    private static final long INVITATION_EXPIRY_HOURS = 24L;
-
-    private final InvitationRepository invitationRepository;
-    private final SellerRepository sellerRepository;
-    private final MemberRepository memberRepository;
-    private final InviteEmailService inviteEmailService;
-    private final InvitationQueryService invitationQueryService;
-
-    // Create a new seller invitation and email the link.
     @PostMapping
-    @Transactional
     public ResponseEntity<?> inviteSeller(
             @AuthenticationPrincipal CustomOAuth2User user,
             @RequestBody Map<String, String> payload
     ) {
-        // Reject if unauthenticated.
-        if (user == null) {
-            return new ResponseEntity<>("unauthorized", HttpStatus.UNAUTHORIZED);
-        }
-
-        // Extract current user role for authorization.
-        String role = user.getAuthorities().iterator().next().getAuthority();
-        if (!SellerRole.ROLE_SELLER_OWNER.name().equals(role)) {
-            return new ResponseEntity<>("owner role required", HttpStatus.FORBIDDEN);
-        }
-
-        // Extract and validate invite email.
-        String email = trimToNull(payload.get("email"));
-        if (email == null) {
-            return new ResponseEntity<>("email required", HttpStatus.BAD_REQUEST);
-        }
-
-        // Reject duplicate invitations for the same email.
-        if (invitationRepository.existsByEmailAndStatusIn(
-                email,
-                List.of(InvitationStatus.PENDING.name(), InvitationStatus.ACCEPTED.name()))
-        ) {
-            return new ResponseEntity<>("duplicate invitation", HttpStatus.CONFLICT);
-        }
-
-        // Reject if the email already belongs to a registered user.
-        Member existingUser = memberRepository.findByLoginId(email);
-        if (existingUser != null) {
-            return new ResponseEntity<>("email already registered", HttpStatus.CONFLICT);
-        }
-
-        // Lookup owner seller record for invitation linkage.
-        Seller ownerSeller = sellerRepository.findByLoginId(user.getUsername());
-        if (ownerSeller == null) {
-            return new ResponseEntity<>("owner seller not found", HttpStatus.NOT_FOUND);
-        }
-
-        // Enforce invitation limit per owner seller.
-        long inviteCount = invitationRepository.countBySellerIdAndStatusIn(
-                ownerSeller.getSellerId(),
-                List.of(InvitationStatus.PENDING.name(), InvitationStatus.ACCEPTED.name())
-        );
-        if (inviteCount >= INVITATION_LIMIT) {
-            return new ResponseEntity<>("invitation limit reached", HttpStatus.CONFLICT);
-        }
-
-        // Timestamp for invitation creation.
-        LocalDateTime now = LocalDateTime.now();
-
-        // Compute invitation expiry.
-        LocalDateTime expiresAt = now.plusHours(INVITATION_EXPIRY_HOURS);
-
-        // Token format includes UUID and expiry epoch seconds.
-        String token = UUID.randomUUID() + "-" + expiresAt.toEpochSecond(ZoneOffset.UTC);
-
-        // Invitation record for persistence.
-        Invitation invitation = Invitation.builder()
-                .email(email)
-                .createdAt(now)
-                .updatedAt(now)
-                .expiredAt(expiresAt)
-                .status(InvitationStatus.valueOf(InvitationStatus.PENDING.name()))
-                .token(token)
-                .sellerId(ownerSeller.getSellerId())
-                .build();
-
-        invitationRepository.save(invitation);
-
-        // Build invite URL for the signup page.
-        String inviteUrl = "https://ssg.deskit.o-r.kr/signup?invite=" +
-                URLEncoder.encode(token, StandardCharsets.UTF_8);
-
-        try {
-            inviteEmailService.sendInviteMail(email, inviteUrl);
-        } catch (IOException ex) {
-            throw new IllegalStateException("invite email send failed", ex);
-        }
-
-        return new ResponseEntity<>("invitation sent", HttpStatus.OK);
+        return invitationService.inviteSeller(user, payload);
     }
 
-    // Get accepted manager list for the owner seller.
     @GetMapping("/managers")
     public ResponseEntity<?> listManagers(@AuthenticationPrincipal CustomOAuth2User user) {
-        if (user == null) {
-            return new ResponseEntity<>("unauthorized", HttpStatus.UNAUTHORIZED);
-        }
-
-        String role = user.getAuthorities().iterator().next().getAuthority();
-        if (!SellerRole.ROLE_SELLER_OWNER.name().equals(role)) {
-            return new ResponseEntity<>("owner role required", HttpStatus.FORBIDDEN);
-        }
-
-        Seller ownerSeller = sellerRepository.findByLoginId(user.getUsername());
-        if (ownerSeller == null) {
-            return new ResponseEntity<>("owner seller not found", HttpStatus.NOT_FOUND);
-        }
-
-        List<SellerManagerResponse> managers = invitationQueryService.findManagersForOwner(ownerSeller.getSellerId());
-        return new ResponseEntity<>(managers, HttpStatus.OK);
+        return invitationService.listManagers(user);
     }
 
-    // Validate an invitation token before signup.
     @GetMapping("/validate")
-    @Transactional
     public ResponseEntity<?> validateInvitation(@RequestParam("token") String token) {
-        // Normalize and validate token input.
-        String normalizedToken = trimToNull(token);
-        if (normalizedToken == null) {
-            return new ResponseEntity<>("token required", HttpStatus.BAD_REQUEST);
-        }
-
-        // Lookup invitation by token.
-        Invitation invitation = invitationRepository.findByToken(normalizedToken);
-        if (invitation == null) {
-            return new ResponseEntity<>("invitation not found", HttpStatus.NOT_FOUND);
-        }
-
-        // Return conflict for already used invitations.
-        if (!InvitationStatus.PENDING.name().equalsIgnoreCase(String.valueOf(invitation.getStatus()))) {
-            return new ResponseEntity<>("invitation already used", HttpStatus.CONFLICT);
-        }
-
-        // Mark expired invitations and report error.
-        LocalDateTime now = LocalDateTime.now();
-        if (invitation.getExpiredAt() != null && invitation.getExpiredAt().isBefore(now)) {
-            invitation.setStatus(InvitationStatus.valueOf(InvitationStatus.EXPIRED.name()));
-            invitation.setUpdatedAt(now);
-            invitationRepository.save(invitation);
-            return new ResponseEntity<>("invitation expired", HttpStatus.GONE);
-        }
-
-        // Response payload for valid invitation.
-        Map<String, String> payload = Map.of(
-                "email", invitation.getEmail(),
-                "expiresAt", invitation.getExpiredAt().toString()
-        );
-
-        return new ResponseEntity<>(payload, HttpStatus.OK);
-    }
-
-    // Normalize optional text input to null when blank.
-    private String trimToNull(String value) {
-        // Trimmed value from optional input.
-        String trimmed = value == null ? null : value.trim();
-        if (trimmed == null || trimmed.isEmpty()) {
-            return null;
-        }
-        return trimmed;
+        return invitationService.validateInvitation(token);
     }
 }

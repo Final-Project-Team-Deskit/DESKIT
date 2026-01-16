@@ -1,6 +1,7 @@
 export type BroadcastStatus = 'READY' | 'ON_AIR' | 'ENDED' | 'STOPPED' | 'RESERVED' | 'CANCELED' | 'VOD'
 
-export const READY_WINDOW_MS = 3 * 60 * 1000
+export const READY_PREVIEW_MS = 3 * 60 * 1000
+export const READY_GRACE_MS = 10 * 60 * 1000
 export const BROADCAST_DURATION_MS = 30 * 60 * 1000
 
 export const normalizeBroadcastStatus = (status?: string | null): BroadcastStatus => {
@@ -56,12 +57,12 @@ export const computeLifecycleStatus = (input: {
     return 'ON_AIR'
   }
   if (base === 'READY') {
-    if (startAtMs && now >= startAtMs + READY_WINDOW_MS) return 'CANCELED'
+    if (startAtMs && now >= startAtMs + READY_GRACE_MS) return 'CANCELED'
     return 'READY'
   }
   if (!startAtMs) return base
-  if (now >= startAtMs + READY_WINDOW_MS) return 'CANCELED'
-  if (now >= startAtMs - READY_WINDOW_MS) return 'READY'
+  if (now >= startAtMs + READY_GRACE_MS) return 'CANCELED'
+  if (now >= startAtMs - READY_PREVIEW_MS) return 'READY'
   return 'RESERVED'
 }
 

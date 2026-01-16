@@ -126,6 +126,7 @@ public class JWTFilter extends OncePerRequestFilter {
         String uri = request.getRequestURI();
         return uri.startsWith("/oauth2/")
                 || uri.startsWith("/login/oauth2/")
-                || uri.startsWith("/login");
+                || uri.startsWith("/login")
+                || uri.startsWith("/ws/");
     }
 }

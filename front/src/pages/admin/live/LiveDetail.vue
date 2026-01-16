@@ -18,11 +18,14 @@ import { parseLiveDate } from '../../../lib/live/utils'
 import { useNow } from '../../../lib/live/useNow'
 import { computeLifecycleStatus, getBroadcastStatusLabel, getScheduledEndMs, normalizeBroadcastStatus } from '../../../lib/broadcastStatus'
 import { getAuthUser } from '../../../lib/auth'
+import { createImageErrorHandler } from '../../../lib/images/productImages'
+import { resolveWsBase } from '../../../lib/ws'
 import { resolveViewerId } from '../../../lib/live/viewer'
 
 const route = useRoute()
 const router = useRouter()
 const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080'
+const wsBase = resolveWsBase(apiBase)
 
 // --- Types ---
 type AdminDetail = {
@@ -146,7 +149,7 @@ const openviduInstance = ref<OpenVidu | null>(null)
 const openviduSession = ref<Session | null>(null)
 const openviduSubscriber = shallowRef<Subscriber | null>(null)
 const openviduConnected = ref(false)
-const FALLBACK_IMAGE = 'data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs='
+const { handleImageError } = createImageErrorHandler()
 
 const reasonOptions = [
   '음란물',
@@ -202,13 +205,6 @@ const formatElapsed = (startAt?: string) => {
   const minutes = Math.floor((totalSeconds % 3600) / 60)
   const seconds = totalSeconds % 60
   return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`
-}
-
-const handleImageError = (event: Event) => {
-  const target = event.target as HTMLImageElement | null
-  if (!target || target.dataset.fallbackApplied) return
-  target.dataset.fallbackApplied = 'true'
-  target.src = FALLBACK_IMAGE
 }
 
 // 채팅 사용자 표시 포맷팅 (판매자/관리자 구분)
@@ -305,7 +301,7 @@ const handleIncomingMessage = (payload: LiveChatMessageDTO) => {
 const fetchRecentMessages = async () => {
   if (!broadcastId.value) return
   try {
-    const response = await fetch(`${apiBase}/livechats/${broadcastId.value}/recent?seconds=300`)
+    const response = await fetch(`${wsBase}/livechats/${broadcastId.value}/recent?seconds=300`)
     if (!response.ok) return
     const recent = (await response.json()) as LiveChatMessageDTO[]
     if (!Array.isArray(recent)) return
@@ -343,7 +339,7 @@ const fetchRecentMessages = async () => {
 const connectChat = () => {
   if (!broadcastId.value || stompClient.value?.active) return
   const client = new Client({
-    webSocketFactory: () => new SockJS(`${apiBase}/ws`, undefined, { withCredentials: true }),
+    webSocketFactory: () => new SockJS(`${wsBase}/ws`, undefined, { withCredentials: true }),
     reconnectDelay: 5000,
   })
 
