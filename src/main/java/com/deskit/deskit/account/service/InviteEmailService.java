@@ -11,6 +11,10 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
+import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 
 @Log4j2
 @Service
@@ -22,16 +26,39 @@ public class InviteEmailService {
         this.sendGrid = new SendGrid(apiKey);
     }
 
-    public void sendInviteMail(String email, String inviteUrl) throws IOException {
+    public void sendInviteMail(
+            String email,
+            String inviteUrl,
+            String recipientName,
+            String businessName,
+            String inviterName,
+            LocalDateTime expiresAt
+    ) throws IOException {
         Email from = new Email("dyniiyeyo@naver.com");
         Email to = new Email(email);
-        String subject = "[Deskterior] 판매자 동업자 초대 안내";
+        String subject = "[DESKIT] 판매자 동업자 초대 안내";
 
-        Content content = new Content("text/html",
-                "<h2>판매자 동업자 초대</h2>" +
-                        "<p>아래 버튼을 눌러 회원가입을 완료해주세요.</p>" +
-                        "<a href='" + inviteUrl + "'>회원가입 하러 가기</a>"
-        );
+        String htmlTemplate;
+        try (InputStream inputStream = getClass().getClassLoader()
+                .getResourceAsStream("email/doc/invite_template.html")) {
+            if (inputStream == null) {
+                throw new IOException("Invite email template not found: email/doc/invite_template.html");
+            }
+            htmlTemplate = new String(inputStream.readAllBytes(), StandardCharsets.UTF_8);
+        }
+
+        String expiryText = "";
+        if (expiresAt != null) {
+            expiryText = expiresAt.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"));
+        }
+
+        String html = htmlTemplate
+                .replace("{{수신자명}}", safeValue(recipientName))
+                .replace("{{사업자명}}", safeValue(businessName))
+                .replace("{{초대한사람명}}", safeValue(inviterName))
+                .replace("{{초대링크}}", inviteUrl)
+                .replace("{{만료일}}", expiryText);
+        Content content = new Content("text/html", html);
 
         Mail mail = new Mail(from, subject, to, content);
 
@@ -41,5 +68,9 @@ public class InviteEmailService {
         request.setBody(mail.build());
 
         sendGrid.api(request);
+    }
+
+    private String safeValue(String value) {
+        return value == null ? "" : value;
     }
 }
