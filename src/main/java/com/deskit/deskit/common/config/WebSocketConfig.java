@@ -34,14 +34,17 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
 
     @Override
     public void registerStompEndpoints(StompEndpointRegistry registry) {
-        log.error("### registerStompEndpoints CALLED ###");
+        registry.addEndpoint("/ws-public")
+                .setAllowedOriginPatterns("*")
+                .withSockJS();
 
         registry.addEndpoint("/ws")
-                .setAllowedOriginPatterns("https://ssg.deskit.o-r.kr", "http://localhost:3000", "*")
+                .setAllowedOriginPatterns("*")
                 .addInterceptors(new WebSocketAuthHandshakeInterceptor(jwtUtil))
-                .setHandshakeHandler(new WebSocketAuthHandshakeHandler())
-                .withSockJS();
+                .setHandshakeHandler(new WebSocketAuthHandshakeHandler());
+        // 여긴 withSockJS() 붙이지 말고 "진짜 websocket"만
     }
+
 
     @Override
     public void configureClientInboundChannel(ChannelRegistration registration) {
