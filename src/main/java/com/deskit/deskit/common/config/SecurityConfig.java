@@ -86,20 +86,11 @@ public class SecurityConfig {
                 .httpBasic((auth) -> auth.disable());
 
         http.exceptionHandling(exception -> exception
-                .defaultAuthenticationEntryPointFor(
-                        (request, response, authException) -> {
-                            response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
-                            response.setContentType("application/json;charset=UTF-8");
-                            response.getWriter().write("{\"message\":\"unauthorized\"}");
-                        },
-                        new AntPathRequestMatcher("/api/**")
-                )
-                .defaultAuthenticationEntryPointFor(
-                        (request, response, authException) -> {
-                            response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
-                        },
-                        new AntPathRequestMatcher("/ws/**")
-                )
+                .authenticationEntryPoint((request, response, authException) -> {
+                    response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+                    response.setContentType("application/json;charset=UTF-8");
+                    response.getWriter().write("{\"message\":\"unauthorized\"}");
+                })
         );
 
         //JWTFilter 추가
