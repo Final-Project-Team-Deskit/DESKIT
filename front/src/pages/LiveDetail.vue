@@ -12,7 +12,7 @@ import { useNow } from '../lib/live/useNow'
 import { getAuthUser, hydrateSessionUser } from '../lib/auth'
 import { resolveViewerId } from '../lib/live/viewer'
 import { createImageErrorHandler } from '../lib/images/productImages'
-import { resolveWsBase } from '../lib/ws'
+// import { resolveWsBase } from '../lib/ws'
 import {
   fetchBroadcastLikeStatus,
   fetchBroadcastProducts,
@@ -32,7 +32,7 @@ const route = useRoute()
 const router = useRouter()
 const { now } = useNow(1000)
 const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080'
-const wsBase = resolveWsBase(apiBase)
+// const wsBase = resolveWsBase(apiBase)
 const sseSource = ref<EventSource | null>(null)
 const sseConnected = ref(false)
 const sseRetryCount = ref(0)
@@ -957,7 +957,8 @@ const fetchRecentMessages = async () => {
     return
   }
   try {
-    const response = await fetch(`${wsBase}/livechats/${broadcastId.value}/recent?seconds=60`)
+    // const response = await fetch(`${wsBase}/livechats/${broadcastId.value}/recent?seconds=60`)
+    const response = await fetch(`/livechats/${broadcastId.value}/recent?seconds=60`)
     if (!response.ok) {
       return
     }
@@ -987,7 +988,8 @@ const connectChat = () => {
   }
   const client = new Client({
     webSocketFactory: () =>
-        new SockJS(`${wsBase}/ws`, undefined, {
+        // new SockJS(`${wsBase}/ws`, undefined, {
+        new SockJS(`/ws`, undefined, {
         withCredentials: true,
       }),
     reconnectDelay: 5000,
