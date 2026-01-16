@@ -34,6 +34,8 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
 
     @Override
     public void registerStompEndpoints(StompEndpointRegistry registry) {
+        log.error("### registerStompEndpoints CALLED ###");
+
         registry.addEndpoint("/ws")
                 .setAllowedOriginPatterns("https://ssg.deskit.o-r.kr", "http://localhost:3000", "*")
                 .addInterceptors(new WebSocketAuthHandshakeInterceptor(jwtUtil))
