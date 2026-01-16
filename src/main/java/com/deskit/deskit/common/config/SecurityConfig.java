@@ -68,9 +68,6 @@ public class SecurityConfig {
             response.getWriter().write("{\"message\":\"unauthorized\"}");
         });
 
-        // SockJS / WebSocket은 리다이렉트 절대 금지 -> 401
-        map.put(new AntPathRequestMatcher("/ws/**"), new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED));
-
         // 기본은 웹 앱 동작: /login으로 리다이렉트 (oauth2Login이 이 경로를 사용)
         DelegatingAuthenticationEntryPoint delegating = new DelegatingAuthenticationEntryPoint((LinkedHashMap<RequestMatcher, AuthenticationEntryPoint>) map);
         delegating.setDefaultEntryPoint(new LoginUrlAuthenticationEntryPoint("/login"));
