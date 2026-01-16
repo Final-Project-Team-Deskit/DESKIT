@@ -144,6 +144,20 @@ public class SecurityConfig {
         //경로별 인가 작업
         http
                 .authorizeHttpRequests((auth) -> auth
+                        .requestMatchers(
+                                "/",
+                                "/index.html",
+                                "/favicon.ico",
+                                "/assets/**",
+                                "/css/**",
+                                "/js/**",
+                                "/images/**",
+                                "/*.js",
+                                "/*.css",
+                                "/*.png",
+                                "/*.jpg",
+                                "/*.svg"
+                        ).permitAll()
                         .requestMatchers("/ws/info/**", "/ws/**").permitAll()
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                         .requestMatchers(HttpMethod.PATCH, "/api/orders/**").hasAuthority("ROLE_MEMBER")
