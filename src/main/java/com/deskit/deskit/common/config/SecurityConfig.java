@@ -150,7 +150,8 @@ public class SecurityConfig {
                                 "/login/**",
                                 "/login/oauth2/**",
                                 "/ws/**",
-                                "/api/signup/**"
+                                "/api/signup/**",
+                                "/api/ws/"
                         ).permitAll()
                         .requestMatchers("/api/admin/**").hasAuthority("ROLE_ADMIN")
                         .requestMatchers("/api/quit").hasAnyAuthority(
@@ -179,6 +180,6 @@ public class SecurityConfig {
 
     @Bean
     public WebSecurityCustomizer webSecurityCustomizer() {
-        return (web) -> web.ignoring().requestMatchers("/ws/**");
+        return (web) -> web.ignoring().requestMatchers("/ws/**","/api/ws/");
     }
 }

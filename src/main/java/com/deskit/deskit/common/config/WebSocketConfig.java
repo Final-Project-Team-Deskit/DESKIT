@@ -37,7 +37,8 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
         registry.addEndpoint("/ws")
                 .setAllowedOriginPatterns("https://ssg.deskit.o-r.kr", "http://localhost:3000", "*")
                 .addInterceptors(new WebSocketAuthHandshakeInterceptor(jwtUtil))
-                .setHandshakeHandler(new WebSocketAuthHandshakeHandler());
+                .setHandshakeHandler(new WebSocketAuthHandshakeHandler())
+                .withSockJS();
     }
 
     @Override
