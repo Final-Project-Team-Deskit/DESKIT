@@ -575,6 +575,17 @@ const connectSse = () => {
   sseSource.value = source
 }
 
+const handleSseVisibilityChange = () => {
+  if (document.visibilityState !== 'visible') {
+    return
+  }
+  if (!sseConnected.value) {
+    connectSse()
+    return
+  }
+  scheduleRefresh()
+}
+
 const loadCategories = async () => {
   try {
     categories.value = await fetchCategories()
@@ -1075,12 +1086,16 @@ onMounted(() => {
     handleResize()
   })
   window.addEventListener('resize', handleResize)
+  window.addEventListener('visibilitychange', handleSseVisibilityChange)
+  window.addEventListener('focus', handleSseVisibilityChange)
 })
 
 onBeforeUnmount(() => {
   stopAutoLoop('scheduled')
   stopAutoLoop('vod')
   window.removeEventListener('resize', handleResize)
+  window.removeEventListener('visibilitychange', handleSseVisibilityChange)
+  window.removeEventListener('focus', handleSseVisibilityChange)
   if (sseRetryTimer.value) window.clearTimeout(sseRetryTimer.value)
   sseRetryTimer.value = null
   if (refreshTimer.value) window.clearTimeout(refreshTimer.value)
@@ -2381,4 +2396,3 @@ onBeforeUnmount(() => {
   }
 }
 </style>
-
