@@ -466,6 +466,17 @@ const connectSse = () => {
   sseSource.value = source
 }
 
+const handleSseVisibilityChange = () => {
+  if (document.visibilityState !== 'visible') {
+    return
+  }
+  if (!sseConnected.value) {
+    connectSse()
+    return
+  }
+  scheduleRefresh()
+}
+
 const isStatsTarget = (item: LiveItem) => {
   const status = normalizeBroadcastStatus(item.status)
   if (status === 'ON_AIR' || status === 'READY' || status === 'ENDED' || status === 'STOPPED') return true
@@ -533,6 +544,8 @@ onBeforeUnmount(() => {
   refreshTimer.value = null
   if (statsTimer.value) window.clearInterval(statsTimer.value)
   statsTimer.value = null
+  window.removeEventListener('visibilitychange', handleSseVisibilityChange)
+  window.removeEventListener('focus', handleSseVisibilityChange)
   sseSource.value?.close()
 })
 
@@ -540,6 +553,8 @@ onMounted(() => {
   void loadBroadcasts()
   connectSse()
   startStatsPolling()
+  window.addEventListener('visibilitychange', handleSseVisibilityChange)
+  window.addEventListener('focus', handleSseVisibilityChange)
 })
 </script>
 

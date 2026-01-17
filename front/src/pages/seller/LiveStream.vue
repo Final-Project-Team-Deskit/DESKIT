@@ -35,7 +35,8 @@ import { resolveViewerId } from '../../lib/live/viewer'
 import { computeLifecycleStatus, getScheduledEndMs, normalizeBroadcastStatus, type BroadcastStatus } from '../../lib/broadcastStatus'
 import { createImageErrorHandler } from '../../lib/images/productImages'
 // import { resolveWsBase } from '../../lib/ws'
-import { resolveWsUrl } from '../../lib/ws'
+import SockJS from 'sockjs-client/dist/sockjs'
+import { resolveSockJsUrl } from '../../lib/ws'
 
 type StreamProduct = {
   id: string
@@ -176,7 +177,7 @@ const endRequested = ref(false)
 const endRequestTimer = ref<number | null>(null)
 const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080'
 // const wsBase = resolveWsBase(apiBase)
-const wsUrl = resolveWsUrl(apiBase)
+const sockJsUrl = resolveSockJsUrl(apiBase)
 const viewerId = ref<string | null>(resolveViewerId(getAuthUser()))
 const joinedBroadcastId = ref<number | null>(null)
 const joinedViewerId = ref<string | null>(null)
@@ -391,8 +392,11 @@ const connectChat = () => {
   // const brokerURL = `${protocol}//${window.location.host}/ws`
 
   const client = new Client({
-    // brokerURL,
-    webSocketFactory: () => new WebSocket(wsUrl),
+    webSocketFactory: () =>
+      new SockJS(sockJsUrl, null, {
+        transports: ['websocket', 'xhr-streaming', 'xhr-polling'],
+        withCredentials: true,
+      }),
     reconnectDelay: 5000,
     debug: (msg) => console.log('[stomp]', msg),
     // connectHeaders는 일단 빼도 됨 (쿠키로 갈 거라 handshake엔 필요 없음)
@@ -1401,6 +1405,20 @@ const connectSse = (broadcastId: number) => {
   sseSource.value = source
 }
 
+const handleSseVisibilityChange = () => {
+  if (document.visibilityState !== 'visible') {
+    return
+  }
+  if (!broadcastId.value) {
+    return
+  }
+  if (!sseConnected.value) {
+    connectSse(broadcastId.value)
+    return
+  }
+  scheduleRefresh(broadcastId.value)
+}
+
 const startStatsPolling = (broadcastId: number) => {
   if (statsTimer.value) window.clearInterval(statsTimer.value)
   statsTimer.value = window.setInterval(() => {
@@ -1470,20 +1488,22 @@ const handleKeydown = (event: KeyboardEvent) => {
   }
 }
 
-  onMounted(() => {
-    window.addEventListener('keydown', handleKeydown)
-    document.addEventListener('fullscreenchange', handleFullscreenChange)
-    window.addEventListener('resize', handleResize)
-    window.addEventListener('pagehide', handlePageHide)
-    window.addEventListener('beforeunload', handleBeforeUnload)
-    window.addEventListener('deskit-user-updated', handleAuthUpdate)
-    viewerId.value = resolveViewerId(getAuthUser())
-    refreshAuth()
-    monitorRef.value = streamGridRef.value ?? streamCenterRef.value
-    updateGridWidth()
-    void loadMediaDevices()
-    if (navigator.mediaDevices?.addEventListener) {
-      navigator.mediaDevices.addEventListener('devicechange', loadMediaDevices)
+onMounted(() => {
+  window.addEventListener('keydown', handleKeydown)
+  document.addEventListener('fullscreenchange', handleFullscreenChange)
+  window.addEventListener('resize', handleResize)
+  window.addEventListener('pagehide', handlePageHide)
+  window.addEventListener('beforeunload', handleBeforeUnload)
+  window.addEventListener('deskit-user-updated', handleAuthUpdate)
+  window.addEventListener('visibilitychange', handleSseVisibilityChange)
+  window.addEventListener('focus', handleSseVisibilityChange)
+  viewerId.value = resolveViewerId(getAuthUser())
+  refreshAuth()
+  monitorRef.value = streamGridRef.value ?? streamCenterRef.value
+  updateGridWidth()
+  void loadMediaDevices()
+  if (navigator.mediaDevices?.addEventListener) {
+    navigator.mediaDevices.addEventListener('devicechange', loadMediaDevices)
   }
   if (streamGridRef.value) {
     gridObserver = new ResizeObserver((entries) => {
@@ -1496,18 +1516,20 @@ const handleKeydown = (event: KeyboardEvent) => {
   }
 })
 
-  onBeforeUnmount(() => {
-    window.removeEventListener('keydown', handleKeydown)
-    document.removeEventListener('fullscreenchange', handleFullscreenChange)
-    window.removeEventListener('resize', handleResize)
-    window.removeEventListener('pagehide', handlePageHide)
-    window.removeEventListener('beforeunload', handleBeforeUnload)
-    window.removeEventListener('deskit-user-updated', handleAuthUpdate)
-    void sendLeaveSignal()
-    disconnectChat()
-    if (navigator.mediaDevices?.removeEventListener) {
-      navigator.mediaDevices.removeEventListener('devicechange', loadMediaDevices)
-    }
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', handleKeydown)
+  document.removeEventListener('fullscreenchange', handleFullscreenChange)
+  window.removeEventListener('resize', handleResize)
+  window.removeEventListener('pagehide', handlePageHide)
+  window.removeEventListener('beforeunload', handleBeforeUnload)
+  window.removeEventListener('deskit-user-updated', handleAuthUpdate)
+  window.removeEventListener('visibilitychange', handleSseVisibilityChange)
+  window.removeEventListener('focus', handleSseVisibilityChange)
+  void sendLeaveSignal()
+  disconnectChat()
+  if (navigator.mediaDevices?.removeEventListener) {
+    navigator.mediaDevices.removeEventListener('devicechange', loadMediaDevices)
+  }
   if (mediaSaveTimer) {
     window.clearTimeout(mediaSaveTimer)
     mediaSaveTimer = null
