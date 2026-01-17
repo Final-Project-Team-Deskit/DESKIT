@@ -3,7 +3,8 @@ import { OpenVidu, type Session, type StreamEvent, type Subscriber } from 'openv
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Client, type StompSubscription } from '@stomp/stompjs'
-import { resolveWsUrl } from '../lib/ws'
+import SockJS from 'sockjs-client/dist/sockjs'
+import { resolveSockJsUrl } from '../lib/ws'
 import PageContainer from '../components/PageContainer.vue'
 import PageHeader from '../components/PageHeader.vue'
 import ConfirmModal from '../components/ConfirmModal.vue'
@@ -33,7 +34,7 @@ const router = useRouter()
 const { now } = useNow(1000)
 const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080'
 // const wsBase = resolveWsBase(apiBase)
-const wsUrl = resolveWsUrl(apiBase)
+const sockJsUrl = resolveSockJsUrl(apiBase)
 const sseSource = ref<EventSource | null>(null)
 const sseConnected = ref(false)
 const sseRetryCount = ref(0)
@@ -849,6 +850,20 @@ const connectSse = (id: number) => {
   sseSource.value = source
 }
 
+const handleSseVisibilityChange = () => {
+  if (document.visibilityState !== 'visible') {
+    return
+  }
+  if (!broadcastId.value) {
+    return
+  }
+  if (!sseConnected.value) {
+    connectSse(broadcastId.value)
+    return
+  }
+  scheduleRefresh()
+}
+
 const startStatsPolling = () => {
   if (statsTimer.value) window.clearInterval(statsTimer.value)
   statsTimer.value = window.setInterval(() => {
@@ -988,7 +1003,11 @@ const connectChat = () => {
     return
   }
   const client = new Client({
-    webSocketFactory: () => new WebSocket(wsUrl),
+    webSocketFactory: () =>
+      new SockJS(sockJsUrl, null, {
+        transports: ['websocket', 'xhr-streaming', 'xhr-polling'],
+        withCredentials: true,
+      }),
     reconnectDelay: 5000,
   })
   const access = getAccessToken()
@@ -1190,6 +1209,11 @@ onMounted(() => {
   window.addEventListener('pagehide', handlePageHide)
 })
 
+onMounted(() => {
+  window.addEventListener('visibilitychange', handleSseVisibilityChange)
+  window.addEventListener('focus', handleSseVisibilityChange)
+})
+
 const reconnectSseIfNeeded = (nextViewerId: string | null, previousViewerId: string | null) => {
   if (!broadcastId.value || !nextViewerId || nextViewerId === previousViewerId) {
     return
@@ -1336,6 +1360,8 @@ onBeforeUnmount(() => {
   document.removeEventListener('fullscreenchange', handleFullscreenChange)
   window.removeEventListener('deskit-user-updated', handleAuthUpdate)
   window.removeEventListener('pagehide', handlePageHide)
+  window.removeEventListener('visibilitychange', handleSseVisibilityChange)
+  window.removeEventListener('focus', handleSseVisibilityChange)
   disconnectOpenVidu()
   qualityObserver.value?.disconnect()
   qualityObserver.value = null
