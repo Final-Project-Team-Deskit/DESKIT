@@ -3,7 +3,7 @@ import { OpenVidu, type Session, type StreamEvent, type Subscriber } from 'openv
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Client, type StompSubscription } from '@stomp/stompjs'
-import SockJS from 'sockjs-client/dist/sockjs'
+import { resolveWsUrl } from '../../../lib/ws'
 
 import {
   fetchAdminBroadcastDetail,
@@ -26,6 +26,7 @@ const route = useRoute()
 const router = useRouter()
 const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080'
 // const wsBase = resolveWsBase(apiBase)
+const wsUrl = resolveWsUrl(apiBase)
 
 // --- Types ---
 type AdminDetail = {
@@ -341,11 +342,7 @@ const connectChat = () => {
   if (!broadcastId.value || stompClient.value?.active) return
   const client = new Client({
     // webSocketFactory: () => new SockJS(`${wsBase}/ws`, undefined, { withCredentials: true }),
-    webSocketFactory: () =>
-        new SockJS(`/ws`, null, {
-          transports: ['websocket'],
-          withCredentials: true,
-        }),
+    webSocketFactory: () => new WebSocket(wsUrl),
     reconnectDelay: 5000,
   })
 

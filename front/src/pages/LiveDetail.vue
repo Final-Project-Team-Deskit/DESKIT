@@ -3,7 +3,7 @@ import { OpenVidu, type Session, type StreamEvent, type Subscriber } from 'openv
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Client, type StompSubscription } from '@stomp/stompjs'
-import SockJS from 'sockjs-client/dist/sockjs'
+import { resolveWsUrl } from '../lib/ws'
 import PageContainer from '../components/PageContainer.vue'
 import PageHeader from '../components/PageHeader.vue'
 import ConfirmModal from '../components/ConfirmModal.vue'
@@ -33,6 +33,7 @@ const router = useRouter()
 const { now } = useNow(1000)
 const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080'
 // const wsBase = resolveWsBase(apiBase)
+const wsUrl = resolveWsUrl(apiBase)
 const sseSource = ref<EventSource | null>(null)
 const sseConnected = ref(false)
 const sseRetryCount = ref(0)
@@ -987,11 +988,7 @@ const connectChat = () => {
     return
   }
   const client = new Client({
-    webSocketFactory: () =>
-        new SockJS(`/ws`, null, {
-          transports: ['websocket'],
-          withCredentials: true,
-        }),
+    webSocketFactory: () => new WebSocket(wsUrl),
     reconnectDelay: 5000,
   })
   const access = getAccessToken()
