@@ -3,7 +3,7 @@ import { OpenVidu, type Publisher, type Session, type StreamEvent } from 'openvi
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
 import { Client, type StompSubscription } from '@stomp/stompjs'
-import SockJS from 'sockjs-client/dist/sockjs'
+// import SockJS from 'sockjs-client/dist/sockjs'
 import BasicInfoEditModal from '../../components/BasicInfoEditModal.vue'
 import ChatSanctionModal from '../../components/ChatSanctionModal.vue'
 import ConfirmModal from '../../components/ConfirmModal.vue'
@@ -355,15 +355,35 @@ const sendSocketMessage = (type: LiveMessageType, content: string) => {
 const connectChat = () => {
   if (!broadcastId.value || stompClient.value?.active) return
 
+  // [추가] 현재 프로토콜(http/https)에 따라 ws/wss 결정 및 주소 생성
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+  const host = window.location.host // 예: ssg.deskit.o-r.kr
+  const brokerURL = `${protocol}//${host}/ws`
+
+  // const client = new Client({
+  //   webSocketFactory: () =>
+  //       new SockJS(`/ws`, null, {
+  //         transports: ['websocket'],
+  //         withCredentials: true,
+  //       }),
+  //   reconnectDelay: 5000,
+  //   debug: () => {},
+  // })
+
   const client = new Client({
-    webSocketFactory: () =>
-        new SockJS(`/ws`, null, {
-          transports: ['websocket'],
-          withCredentials: true,
-        }),
+    // [수정] SockJS Factory 대신 표준 WebSocket URL 사용
+    brokerURL: brokerURL,
+
+    // [설정] 순수 WebSocket 사용 시 헤더 설정 (일부 브라우저 제한 있을 수 있음)
+    connectHeaders: {
+      access: getAccessToken() || '',
+      Authorization: `Bearer ${getAccessToken() || ''}`,
+    },
+
     reconnectDelay: 5000,
     debug: () => {},
   })
+
   const access = getAccessToken()
   if (access) {
     client.connectHeaders = {
