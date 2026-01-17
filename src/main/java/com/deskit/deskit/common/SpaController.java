@@ -32,13 +32,17 @@ public class SpaController {
 //        return "forward:/index.html";
 //    }
 
-    @RequestMapping(value = {
-            "/",
-            "/{path:^(?!api|ws|openvidu|oauth|login|oauth2)[^\\.]*}",
-            "/**/{path:^(?!api|ws|openvidu|oauth|login|oauth2)[^\\.]*}"
-    })
+    // [수정된 정규식]
+    // 1. /api, /ws, /openvidu, /oauth, /login, /oauth2 로 시작하지 않음 ((?!...))
+    // 2. 파일 확장자(.js, .css 등)가 없음 ([^\\.]*)
+    @RequestMapping(value = "/{path:^(?!api|ws|openvidu|oauth|login|oauth2)[^\\.]*}/**")
     public String redirect() {
-        // 위 정규식에 매칭되는(SPA 페이지) 요청만 index.html로 포워딩
+        return "forward:/index.html";
+    }
+
+    // 루트 경로(/)는 별도로 매핑
+    @RequestMapping("/")
+    public String root() {
         return "forward:/index.html";
     }
 }
