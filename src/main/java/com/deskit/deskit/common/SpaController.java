@@ -32,17 +32,18 @@ public class SpaController {
 //        return "forward:/index.html";
 //    }
 
-    // [수정된 정규식]
-    // 1. /api, /ws, /openvidu, /oauth, /login, /oauth2 로 시작하지 않음 ((?!...))
-    // 2. 파일 확장자(.js, .css 등)가 없음 ([^\\.]*)
-    @RequestMapping(value = "/{path:^(?!api|ws|openvidu|oauth|login|oauth2)[^\\.]*}/**")
-    public String redirect() {
-        return "forward:/index.html";
-    }
-
-    // 루트 경로(/)는 별도로 매핑
-    @RequestMapping("/")
-    public String root() {
-        return "forward:/index.html";
-    }
+//    // [수정된 정규식]
+//    // 1. /api, /ws, /openvidu, /oauth, /login, /oauth2 로 시작하지 않음 ((?!...))
+//    // 2. 파일 확장자(.js, .css 등)가 없음 ([^\\.]*)
+//    @RequestMapping(value = "/{path:^(?!api|ws|openvidu|oauth|login|oauth2)[^\\.]*}/**")
+//    public String redirect() {
+//        return "forward:/index.html";
+//    }
+//
+//    // 루트 경로(/)는 별도로 매핑
+//    @RequestMapping("/")
+//    public String root() {
+//        return "forward:/index.html";
+//    }
+    // gemini : spacontroller 불필요
 }
