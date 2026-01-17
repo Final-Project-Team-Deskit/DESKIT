@@ -356,9 +356,9 @@ const connectChat = () => {
   if (!broadcastId.value || stompClient.value?.active) return
 
   // [추가] 현재 프로토콜(http/https)에 따라 ws/wss 결정 및 주소 생성
-  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-  const host = window.location.host // 예: ssg.deskit.o-r.kr
-  const brokerURL = `${protocol}//${host}/ws`
+  // const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+  // const host = window.location.host // 예: ssg.deskit.o-r.kr
+  const brokerURL = `wss://ssg.deskit.o-r.kr/ws`
 
   // const client = new Client({
   //   webSocketFactory: () =>
