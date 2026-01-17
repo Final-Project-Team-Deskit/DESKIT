@@ -1,9 +1,16 @@
+const joinBasePath = (basePath: string, path: string): string => {
+    const normalizedBase = basePath.replace(/\/+$/, '')
+    const normalizedPath = path.startsWith('/') ? path : `/${path}`
+    return `${normalizedBase}${normalizedPath}`
+}
+
 export const resolveWsUrl = (apiBase?: string, path = '/ws'): string => {
     if (apiBase) {
         try {
             const url = new URL(apiBase)
             const protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
-            return `${protocol}//${url.host}${path}`
+            const basePath = url.pathname && url.pathname !== '/' ? url.pathname : ''
+            return `${protocol}//${url.host}${joinBasePath(basePath, path)}`
         } catch (error) {
             console.warn('[ws] invalid apiBase, fallback to location', error)
         }
@@ -22,7 +29,8 @@ export const resolveSockJsUrl = (apiBase?: string, path = '/ws-public'): string 
         try {
             const url = new URL(apiBase)
             const protocol = url.protocol === 'https:' ? 'https:' : 'http:'
-            return `${protocol}//${url.host}${path}`
+            const basePath = url.pathname && url.pathname !== '/' ? url.pathname : ''
+            return `${protocol}//${url.host}${joinBasePath(basePath, path)}`
         } catch (error) {
             console.warn('[ws] invalid apiBase, fallback to location', error)
         }
