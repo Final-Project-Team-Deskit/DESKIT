@@ -35,6 +35,7 @@ import { resolveViewerId } from '../../lib/live/viewer'
 import { computeLifecycleStatus, getScheduledEndMs, normalizeBroadcastStatus, type BroadcastStatus } from '../../lib/broadcastStatus'
 import { createImageErrorHandler } from '../../lib/images/productImages'
 // import { resolveWsBase } from '../../lib/ws'
+import { resolveWsUrl } from '../../lib/ws'
 
 type StreamProduct = {
   id: string
@@ -175,6 +176,7 @@ const endRequested = ref(false)
 const endRequestTimer = ref<number | null>(null)
 const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080'
 // const wsBase = resolveWsBase(apiBase)
+const wsUrl = resolveWsUrl(apiBase)
 const viewerId = ref<string | null>(resolveViewerId(getAuthUser()))
 const joinedBroadcastId = ref<number | null>(null)
 const joinedViewerId = ref<string | null>(null)
@@ -385,18 +387,19 @@ const connectChat = () => {
   // })
 
 
-  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-  const brokerURL = `${protocol}//${window.location.host}/ws`
+  // const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+  // const brokerURL = `${protocol}//${window.location.host}/ws`
 
   const client = new Client({
-    brokerURL,
+    // brokerURL,
+    webSocketFactory: () => new WebSocket(wsUrl),
     reconnectDelay: 5000,
     debug: (msg) => console.log('[stomp]', msg),
     // connectHeaders는 일단 빼도 됨 (쿠키로 갈 거라 handshake엔 필요 없음)
   })
 
-  console.log('[ws] broadcastId=', broadcastId.value)
-  console.log('[ws] brokerURL=', brokerURL)
+  // console.log('[ws] broadcastId=', broadcastId.value)
+  // console.log('[ws] brokerURL=', brokerURL)
 
   // const access = getAccessToken()
   // if (access) {
