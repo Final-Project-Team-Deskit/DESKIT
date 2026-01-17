@@ -59,22 +59,33 @@ public class WebSocketAuthHandshakeInterceptor implements HandshakeInterceptor {
 
         try {
             if (jwtUtil.isExpired(token)) return true;
+
+            String category = jwtUtil.getCategory(token);
+            if (!"access".equals(category)) return true;
+
+            String username = jwtUtil.getUsername(token);
+            String role = jwtUtil.getRole(token);
+
+            attributes.put("principal", new WebSocketPrincipal(username));
+            attributes.put("role", role);
         } catch (Exception e) {
-            return true;
+            // 예외 발생 시 로그만 찍고 연결은 허용(또는 거부)하여 500 에러 방지
+            log.error("WebSocket Token Error: {}", e.getMessage());
+            return true; // 혹은 false로 리턴하여 연결 거부
         }
 
-        String category = jwtUtil.getCategory(token);
-        if (!"access".equals(category)) return true;
-
-        String username = jwtUtil.getUsername(token);
-        String role = jwtUtil.getRole(token);
-
-        attributes.put("principal", new WebSocketPrincipal(username));
-        attributes.put("role", role);
-
-        if (log.isDebugEnabled()) {
-            log.debug("ws.handshake principal set username={} role={}", username, role);
-        }
+//        String category = jwtUtil.getCategory(token);
+//        if (!"access".equals(category)) return true;
+//
+//        String username = jwtUtil.getUsername(token);
+//        String role = jwtUtil.getRole(token);
+//
+//        attributes.put("principal", new WebSocketPrincipal(username));
+//        attributes.put("role", role);
+//
+//        if (log.isDebugEnabled()) {
+//            log.debug("ws.handshake principal set username={} role={}", username, role);
+//        }
 
         return true;
     }
