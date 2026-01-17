@@ -663,7 +663,7 @@ const ensureSubscriberConnected = async () => {
 
 const requestJoinToken = async () => {
   if (!detail.value) return
-  if (lifecycleStatus.value !== 'ON_AIR') return
+  if (!['READY', 'ON_AIR'].includes(lifecycleStatus.value)) return
   if (joinInFlight.value) return
   if (joinedBroadcastId.value === Number(detail.value.id)) return
   if (!viewerId.value) {

@@ -965,7 +965,7 @@ const requestStartBroadcast = async (broadcastId: number) => {
 }
 
 const scheduleStartRetry = (broadcastId: number, message?: string) => {
-  if (lifecycleStatus.value !== 'ON_AIR') return
+  if (!['READY', 'ON_AIR'].includes(lifecycleStatus.value)) return
   if (startRetryCount.value >= MAX_START_RETRIES) {
     if (message) {
       alert(message)
@@ -990,7 +990,7 @@ const requestStartRecording = async (broadcastId: number) => {
 }
 
 const requestJoinToken = async (broadcastId: number) => {
-  if (lifecycleStatus.value !== 'ON_AIR') return
+  if (!['READY', 'ON_AIR'].includes(lifecycleStatus.value)) return
   if (joinInFlight.value) return
   if (joinedBroadcastId.value === broadcastId) return
   if (!viewerId.value) {

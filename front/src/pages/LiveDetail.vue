@@ -867,7 +867,7 @@ const startStatsPolling = () => {
 
 const requestJoinToken = async () => {
   if (!broadcastId.value) return
-  if (lifecycleStatus.value !== 'ON_AIR') return
+  if (!['READY', 'ON_AIR'].includes(lifecycleStatus.value)) return
   if (joinInFlight.value) return
   if (joinedBroadcastId.value === broadcastId.value) return
   joinInFlight.value = true
