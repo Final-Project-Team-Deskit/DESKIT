@@ -239,7 +239,7 @@ const nickname = ref('판매자')
 const memberEmail = ref('seller@deskit.com')
 const ENTER_SENT_KEY_PREFIX = 'deskit_live_enter_sent_v1'
 
-const getAccessToken = () => localStorage.getItem('access') || sessionStorage.getItem('access')
+// const getAccessToken = () => localStorage.getItem('access') || sessionStorage.getItem('access')
 
 const refreshAuth = () => {
   const user = getAuthUser()
@@ -356,9 +356,9 @@ const connectChat = () => {
   if (!broadcastId.value || stompClient.value?.active) return
 
   // [추가] 현재 프로토콜(http/https)에 따라 ws/wss 결정 및 주소 생성
-  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-  const host = window.location.host // 예: ssg.deskit.o-r.kr
-  const brokerURL = `${protocol}//${host}/ws`
+  // const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+  // const host = window.location.host // 예: ssg.deskit.o-r.kr
+  // const brokerURL = `wss://ssg.deskit.o-r.kr/ws`
 
   // const client = new Client({
   //   webSocketFactory: () =>
@@ -370,27 +370,41 @@ const connectChat = () => {
   //   debug: () => {},
   // })
 
+  // const client = new Client({
+  //   // [수정] SockJS Factory 대신 표준 WebSocket URL 사용
+  //   brokerURL: brokerURL,
+  //
+  //   // [설정] 순수 WebSocket 사용 시 헤더 설정 (일부 브라우저 제한 있을 수 있음)
+  //   connectHeaders: {
+  //     access: getAccessToken() || '',
+  //     Authorization: `Bearer ${getAccessToken() || ''}`,
+  //   },
+  //
+  //   reconnectDelay: 5000,
+  //   debug: (msg) => console.log('[stomp]', msg),
+  // })
+
+
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+  const brokerURL = `${protocol}//${window.location.host}/ws`
+
   const client = new Client({
-    // [수정] SockJS Factory 대신 표준 WebSocket URL 사용
-    brokerURL: brokerURL,
-
-    // [설정] 순수 WebSocket 사용 시 헤더 설정 (일부 브라우저 제한 있을 수 있음)
-    connectHeaders: {
-      access: getAccessToken() || '',
-      Authorization: `Bearer ${getAccessToken() || ''}`,
-    },
-
+    brokerURL,
     reconnectDelay: 5000,
-    debug: () => {},
+    debug: (msg) => console.log('[stomp]', msg),
+    // connectHeaders는 일단 빼도 됨 (쿠키로 갈 거라 handshake엔 필요 없음)
   })
 
-  const access = getAccessToken()
-  if (access) {
-    client.connectHeaders = {
-      access,
-      Authorization: `Bearer ${access}`,
-    }
-  }
+  console.log('[ws] broadcastId=', broadcastId.value)
+  console.log('[ws] brokerURL=', brokerURL)
+
+  // const access = getAccessToken()
+  // if (access) {
+  //   client.connectHeaders = {
+  //     access,
+  //     Authorization: `Bearer ${access}`,
+  //   }
+  // }
 
   client.onConnect = () => {
     isChatConnected.value = true
@@ -413,9 +427,14 @@ const connectChat = () => {
     console.error('[livechat] stomp error', frame.headers, frame.body)
   }
 
-  client.onWebSocketClose = () => {
+  client.onWebSocketClose = (evt) => {
     isChatConnected.value = false
+    console.warn('[ws close]', evt?.code, evt?.reason)
   }
+  client.onWebSocketError = (evt) => {
+    console.error('[ws error]', evt)
+  }
+
   client.onDisconnect = () => {
     isChatConnected.value = false
   }
