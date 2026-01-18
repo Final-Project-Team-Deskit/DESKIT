@@ -176,7 +176,17 @@ export const requestWithdraw = async (): Promise<{ ok: boolean; message?: string
 
 export const hydrateSessionUser = async (): Promise<boolean> => {
   try {
-    let response = await fetch(`/api/my`, { credentials: 'include' })
+    const access =
+      localStorage.getItem('access') ||
+      sessionStorage.getItem('access') ||
+      localStorage.getItem('access_token') ||
+      sessionStorage.getItem('access_token')
+    const headers: Record<string, string> = {}
+    if (access) {
+      headers.Authorization = `Bearer ${access}`
+      headers.access = access
+    }
+    let response = await fetch(`/api/my`, { credentials: 'include', headers })
     if (!response.ok) {
       if (response.status === 401) {
         const reissue = await fetch(`${webBase}/reissue`, {
@@ -184,7 +194,7 @@ export const hydrateSessionUser = async (): Promise<boolean> => {
           credentials: 'include',
         })
         if (!reissue.ok) return false
-        response = await fetch(`/api/my`, { credentials: 'include' })
+        response = await fetch(`/api/my`, { credentials: 'include', headers })
       }
       if (!response.ok) return false
     }
