@@ -730,10 +730,10 @@ const notifyViewerSanction = (type: 'MUTE' | 'OUT', actorLabel?: string) => {
   router.push({ name: 'live' }).catch(() => {})
 }
 
-watch(hasChatPermission, (next, prev) => {
-  if (!next) {
+watch([hasChatPermission, lifecycleStatus], ([nextPermission, nextStatus], [prevPermission]) => {
+  if (!nextPermission) {
     input.value = ''
-    if (prev && viewerSanctionType.value !== 'MUTE') {
+    if (prevPermission && viewerSanctionType.value !== 'MUTE' && nextStatus === 'ON_AIR') {
       notifyViewerSanction('MUTE')
     }
   }
