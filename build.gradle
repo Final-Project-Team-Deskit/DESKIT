@@ -90,6 +90,9 @@ dependencies {
 	// WebSocket
 	implementation 'org.springframework.boot:spring-boot-starter-websocket'
 
+	// Aho-Corasick (forbidden word matching)
+	implementation 'org.ahocorasick:ahocorasick:0.6.3'
+
 }
 
 tasks.named('test') {
