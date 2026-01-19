@@ -78,6 +78,18 @@ public class AwsS3Service {
         }
     }
 
+    public String buildPublicUrl(String key) {
+        if (key == null || key.isBlank()) {
+            return null;
+        }
+        String trimmedKey = key.startsWith("/") ? key.substring(1) : key;
+        if (endpoint != null && !endpoint.isBlank()) {
+            String base = endpoint.endsWith("/") ? endpoint.substring(0, endpoint.length() - 1) : endpoint;
+            return base + "/" + bucket + "/" + trimmedKey;
+        }
+        return amazonS3.getUrl(bucket, trimmedKey).toString();
+    }
+
     public void deleteFile(Long sellerId, String storedFileName) {
         String expectedPrefix = "seller_" + sellerId + "/";
         if (!storedFileName.startsWith(expectedPrefix)) {

@@ -1,6 +1,7 @@
 import { http } from './http'
 import { endpoints } from './endpoints'
 import { fetchListTextJsonWithRetry } from './api-text-json'
+import { resolveSetupImageUrl } from './setups'
 
 export type HomePopularProduct = {
   product_id: number
@@ -31,5 +32,8 @@ export const listPopularSetups = async (limit = 6): Promise<HomePopularSetup[]> 
     params: { limit },
     validateStatus: (status) => (status >= 200 && status < 300) || status === 304,
   })
-  return payload as HomePopularSetup[]
+  return (payload as HomePopularSetup[]).map((item) => ({
+    ...item,
+    image_url: resolveSetupImageUrl(item.image_url ?? undefined),
+  }))
 }

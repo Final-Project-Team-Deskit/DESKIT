@@ -11,6 +11,7 @@ import com.deskit.deskit.ai.chatbot.openai.service.OpenAIService;
 import com.deskit.deskit.ai.chatbot.rag.dto.ChatRequest;
 import com.deskit.deskit.ai.chatbot.rag.dto.ChatResponse;
 import com.deskit.deskit.ai.chatbot.rag.entity.RouteDecision;
+import com.deskit.deskit.ai.chatbot.rag.service.AdminEscalationService;
 import com.deskit.deskit.ai.chatbot.rag.service.ChatRoutingService;
 import com.deskit.deskit.ai.chatbot.rag.service.RagIngestService;
 import com.deskit.deskit.ai.chatbot.rag.service.RagService;
@@ -40,6 +41,9 @@ public class ChatController {
     private final ChatRoutingService chatRoutingService;
     private final ConversationService conversationService;
     private final MemberRepository memberRepository;
+    private final AdminEscalationService adminEscalationService;
+
+    private static final String ESCALATION_TRIGGER = "\uad00\ub9ac\uc790 \uc5f0\uacb0";
 
     // 채팅 페이지 접속
 //    @GetMapping("/chat")
@@ -47,7 +51,7 @@ public class ChatController {
 //        return "chat";
 //    }
 
-    // 논 스트림
+    // 스트림
     @ResponseBody
     @PostMapping("/chat")
     public ChatResponse chat(
@@ -57,19 +61,23 @@ public class ChatController {
 
         String question = request.getQuestion();
         Long memberId = resolveMemberId(user);
+        if (question == null || question.isBlank()) {
+            log.warn("Empty question received: {}", request);
+            return null;
+        }
 
         // 현재 진행 중인 대화 조회 or 생성
         ChatInfo chatInfo = conversationService.getOrCreateActiveConversation(memberId);
         if (chatInfo.getStatus() != com.deskit.deskit.ai.chatbot.openai.entity.ConversationStatus.BOT_ACTIVE) {
             return ChatResponse.builder()
-                    .answer("채팅이 관리자로 이관되었어요. 관리자가 곧 답변 드릴 예정이에요.")
+                    .answer("채팅이 관리자에게 전달되었습니다. 관리자가 곧 상담을 진행하겠습니다.")
                     .escalated(true)
                     .build();
         }
-
-        if (question == null || question.isBlank()) {
-            log.warn("Empty question received: {}", request);
-            return null;
+        String normalized = question.trim();
+        if (ESCALATION_TRIGGER.equals(normalized)) {
+            log.info("Escalation triggered");
+            return adminEscalationService.escalate(normalized, chatInfo.getChatId(), String.valueOf(memberId));
         }
 
         RouteDecision decision = chatRoutingService.decide(question);
@@ -189,3 +197,4 @@ public class ChatController {
     }
 
 }
+
