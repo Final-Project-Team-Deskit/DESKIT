@@ -1652,7 +1652,9 @@ watch(lifecycleStatus, () => {
     void ensurePublisherConnected(idValue)
     return
   }
-  disconnectOpenVidu()
+  if (['STOPPED', 'ENDED'].includes(lifecycleStatus.value)) {
+    disconnectOpenVidu()
+  }
 })
 
 watch([lifecycleStatus, publisherContainerRef], ([status, container]) => {
