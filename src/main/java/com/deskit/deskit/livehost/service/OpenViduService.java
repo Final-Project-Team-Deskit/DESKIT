@@ -88,13 +88,17 @@ public class OpenViduService {
             session = openVidu.getActiveSession(sessionId);
         }
 
-        OpenViduRole role = OpenViduRole.PUBLISHER;
+        OpenViduRole role = OpenViduRole.SUBSCRIBER;
         if (params != null && params.containsKey("role")) {
             String requestedRole = String.valueOf(params.get("role"));
             if ("HOST".equalsIgnoreCase(requestedRole)) {
                 role = OpenViduRole.PUBLISHER;
-            } else {
-                role = OpenViduRole.valueOf(requestedRole.toUpperCase());
+            } else if ("PUBLISHER".equalsIgnoreCase(requestedRole)) {
+                role = OpenViduRole.PUBLISHER;
+            } else if ("MODERATOR".equalsIgnoreCase(requestedRole)) {
+                role = OpenViduRole.MODERATOR;
+            } else if ("SUBSCRIBER".equalsIgnoreCase(requestedRole)) {
+                role = OpenViduRole.SUBSCRIBER;
             }
         }
 
@@ -129,7 +133,7 @@ public class OpenViduService {
 
     private RecordingProperties buildRecordingProperties() {
         return new RecordingProperties.Builder()
-                .outputMode(Recording.OutputMode.COMPOSED) // 방송 화면 그대로(하나의 비디오) 녹화
+                .outputMode(Recording.OutputMode.INDIVIDUAL) // 판매자(퍼블리셔) 스트림만 별도 파일로 녹화
                 .hasAudio(true)
                 .hasVideo(true)
                 .build();
