@@ -83,9 +83,27 @@ const resolveSellerRole = (value?: string, role?: string): string => {
   return ''
 }
 
-export const isSeller = (): boolean => isSellerCategory(getAuthUser()?.memberCategory ?? '')
+const isSellerRole = (role?: string): boolean => {
+  if (!role) return false
+  const normalized = normalizeRole(role)
+  return normalized === 'SELLER' || normalized.startsWith('ROLE_SELLER')
+}
 
-export const isAdmin = (): boolean => isAdminCategory(getAuthUser()?.memberCategory ?? '')
+const isAdminRole = (role?: string): boolean => {
+  if (!role) return false
+  const normalized = normalizeRole(role)
+  return normalized === 'ADMIN' || normalized === 'ROLE_ADMIN'
+}
+
+export const isSeller = (): boolean => {
+  const user = getAuthUser()
+  return isSellerCategory(user?.memberCategory ?? '') || isSellerRole(user?.role)
+}
+
+export const isAdmin = (): boolean => {
+  const user = getAuthUser()
+  return isAdminCategory(user?.memberCategory ?? '') || isAdminRole(user?.role)
+}
 
 export const loginSeller = (): void => {
   const sellerUser: AuthUser = {
