@@ -803,7 +803,7 @@ watch(
                     <img :src="product.thumb" :alt="product.name" />
                   </div>
                   <div class="product-text">
-<!--                    <strong>{{ product.name }}</strong>-->
+                    <strong>{{ product.name }}</strong>
                     <span class="product-option__meta">{{ product.option }}</span>
                   </div>
                 </div>

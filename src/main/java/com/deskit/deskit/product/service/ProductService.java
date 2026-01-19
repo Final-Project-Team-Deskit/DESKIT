@@ -170,6 +170,20 @@ public class ProductService {
       return Collections.emptyList();
     }
 
+    List<Long> productIds = products.stream()
+      .map(Product::getId)
+      .collect(Collectors.toList());
+
+    Map<Long, String> thumbnailUrls = productImageRepository
+      .findAllByProductIdInAndImageTypeAndSlotIndexAndDeletedAtIsNullOrderByProductIdAscIdAsc(
+        productIds, ImageType.THUMBNAIL, 0
+      ).stream()
+      .collect(Collectors.toMap(
+        ProductImage::getProductId,
+        ProductImage::getProductImageUrl,
+        (left, right) -> left
+      ));
+
     return products.stream()
       .sorted((left, right) -> {
         if (left.getCreatedAt() == null && right.getCreatedAt() == null) {
@@ -183,8 +197,23 @@ public class ProductService {
         }
         return right.getCreatedAt().compareTo(left.getCreatedAt());
       })
-      .map(SellerProductListResponse::from)
+      .map(product -> {
+        String rawThumbnailUrl = thumbnailUrls.get(product.getId());
+        String resolvedThumbnailUrl = resolveImageUrl(rawThumbnailUrl);
+        return SellerProductListResponse.from(product, resolvedThumbnailUrl);
+      })
       .collect(Collectors.toList());
+  }
+
+  private String resolveImageUrl(String raw) {
+    if (raw == null || raw.isBlank()) {
+      return null;
+    }
+    String value = raw.trim();
+    if (value.startsWith("http://") || value.startsWith("https://") || value.startsWith("/")) {
+      return value;
+    }
+    return awsS3Service.buildPublicUrl(value);
   }
 
   public ProductCreateResponse createProduct(Long sellerId, ProductCreateRequest request) {

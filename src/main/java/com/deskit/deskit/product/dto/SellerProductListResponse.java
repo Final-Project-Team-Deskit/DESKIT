@@ -21,11 +21,14 @@ public record SellerProductListResponse(
   Integer stockQty,
 
   @JsonProperty("created_at")
-  LocalDateTime createdAt
+  LocalDateTime createdAt,
+
+  @JsonProperty("thumbnail_url")
+  String thumbnailUrl
 ) {
-  public static SellerProductListResponse from(Product product) {
+  public static SellerProductListResponse from(Product product, String thumbnailUrl) {
     if (product == null) {
-      return new SellerProductListResponse(null, null, null, null, null, null);
+      return new SellerProductListResponse(null, null, null, null, null, null, null);
     }
     Product.Status displayStatus =
       product.isLimitedSale() ? Product.Status.LIMITED_SALE : product.getStatus();
@@ -35,7 +38,8 @@ public record SellerProductListResponse(
       product.getPrice(),
       displayStatus,
       product.getStockQty(),
-      product.getCreatedAt()
+      product.getCreatedAt(),
+      thumbnailUrl
     );
   }
 }

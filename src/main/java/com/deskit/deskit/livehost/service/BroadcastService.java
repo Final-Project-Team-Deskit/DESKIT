@@ -309,6 +309,13 @@ public class BroadcastService {
         var bpStatus = field(name("bp", "status"), String.class);
         var bpBroadcastId = field(name("bp", "broadcast_id"), Long.class);
 
+        var productImageTable = table(name("product_image")).as("pi");
+        var imageProductId = field(name("pi", "product_id"), Long.class);
+        var imageUrl = field(name("pi", "product_image_url"), String.class);
+        var imageType = field(name("pi", "image_type"), String.class);
+        var imageSlotIndex = field(name("pi", "slot_index"), Integer.class);
+        var imageDeletedAt = field(name("pi", "deleted_at"), LocalDateTime.class);
+
         List<String> statuses = List.of(Status.ON_SALE.name(), Status.READY.name(), Status.LIMITED_SALE.name());
         List<String> reservedStatuses = List.of(
                 BroadcastStatus.RESERVED.name(),
@@ -356,11 +363,18 @@ public class BroadcastService {
                         stockQty,
                         safetyStock,
                         org.jooq.impl.DSL.coalesce(reservedQty, 0).as("reserved_qty"),
-                        liveBroadcastId
+                        liveBroadcastId,
+                        imageUrl
                 )
                 .from(productTable)
                 .leftJoin(reservedSubquery).on(productId.eq(reservedProductId))
                 .leftJoin(liveSubquery).on(productId.eq(liveProductId))
+                .leftJoin(productImageTable).on(
+                        productId.eq(imageProductId)
+                                .and(imageType.eq(ProductImage.ImageType.THUMBNAIL.name()))
+                                .and(imageSlotIndex.eq(0))
+                                .and(imageDeletedAt.isNull())
+                )
                 .where(condition)
                 .orderBy(productId.asc())
                 .fetch(record -> {
@@ -379,7 +393,7 @@ public class BroadcastService {
                             .stockQty(record.get(stockQty))
                             .safetyStock(record.get(safetyStock))
                             .reservedBroadcastQty(record.get("reserved_qty", Integer.class))
-                            .imageUrl(null)
+                            .imageUrl(record.get(imageUrl))
                             .build();
                 });
     }
