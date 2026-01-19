@@ -7,6 +7,7 @@ const route = useRoute()
 const router = useRouter()
 const isScrolled = ref(false)
 const isMenuOpen = ref(false)
+const headerRef = ref<HTMLElement | null>(null)
 const panelRef = ref<HTMLElement | null>(null)
 const isLoggedIn = ref(false)
 const memberCategory = ref<string | null>(null)
@@ -83,8 +84,10 @@ const handleScroll = () => {
 }
 
 const handleDocumentClick = (event: MouseEvent) => {
-  const target = event.target as Node
-  if (isMenuOpen.value && panelRef.value && panelRef.value.contains(target)) return
+  if (!isMenuOpen.value) return
+  const path = event.composedPath()
+  if (panelRef.value && path.includes(panelRef.value)) return
+  if (headerRef.value && path.includes(headerRef.value)) return
   closeMenu()
 }
 
@@ -185,7 +188,7 @@ const handleLogout = async () => {
 </script>
 
 <template>
-  <header class="header" :class="{ 'header--scrolled': isScrolled }">
+  <header ref="headerRef" class="header" :class="{ 'header--scrolled': isScrolled }">
     <div class="container">
       <div class="left">
         <RouterLink :to="logoTo" class="brand">
