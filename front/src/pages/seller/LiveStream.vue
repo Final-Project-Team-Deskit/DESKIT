@@ -709,7 +709,11 @@ const resetOpenViduState = () => {
   }
 }
 
-const attachPublisherHandlers = (publisher: Publisher) => {
+const attachPublisherHandlers = (publisher: Publisher, broadcastId?: number) => {
+  publisher.on('streamCreated', () => {
+    if (!broadcastId) return
+    void requestStartRecording(broadcastId)
+  })
   publisher.on('streamDestroyed', (event: StreamEvent) => {
     event.preventDefault()
   })
@@ -773,7 +777,8 @@ const restartPublisher = async () => {
       buildPublisherOptions(),
     )
     openviduPublisher.value = publisher
-    attachPublisherHandlers(publisher)
+    const broadcastId = streamId.value ? Number(streamId.value) : undefined
+    attachPublisherHandlers(publisher, Number.isNaN(broadcastId) ? undefined : broadcastId)
     await openviduSession.value.publish(publisher)
     applyPublisherVolume()
   } catch {
@@ -798,7 +803,7 @@ const connectPublisher = async (broadcastId: number, token: string) => {
       buildPublisherOptions(),
     )
     openviduPublisher.value = publisher
-    attachPublisherHandlers(publisher)
+    attachPublisherHandlers(publisher, broadcastId)
     await openviduSession.value.publish(publisher)
     openviduConnected.value = true
     applyPublisherVolume()
