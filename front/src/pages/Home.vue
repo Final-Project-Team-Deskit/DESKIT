@@ -38,12 +38,15 @@ const buildProductItems = (items: Awaited<ReturnType<typeof listPopularProducts>
   }))
 
 const buildSetupItems = (items: Awaited<ReturnType<typeof listPopularSetups>>) =>
-  items.map((item) => ({
-    id: String(item.setup_id),
-    title: item.name ?? '',
-    description: item.short_desc ?? '',
-    imageUrl: item.image_url || '/placeholder-setup.jpg',
-  }))
+  items.map((item) => {
+    const raw = item as any
+    return {
+      id: String(raw.setup_id ?? raw.setupId ?? raw.id ?? ''),
+      title: raw.setup_name ?? raw.setupName ?? raw.name ?? raw.title ?? '',
+      description: raw.short_desc ?? raw.shortDesc ?? raw.description ?? '',
+      imageUrl: raw.setup_image_url ?? raw.setupImageUrl ?? raw.image_url ?? raw.imageUrl ?? '/placeholder-setup.jpg',
+    }
+  })
 
 const loadPopulars = async () => {
   popularProductsLoading.value = true
