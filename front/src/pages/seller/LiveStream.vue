@@ -1,6 +1,6 @@
 ﻿<script setup lang="ts">
 import { OpenVidu, type Publisher, type Session, type StreamEvent } from 'openvidu-browser'
-import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, shallowRef, watch } from 'vue'
 import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
 import { Client, type StompSubscription } from '@stomp/stompjs'
 // import SockJS from 'sockjs-client/dist/sockjs'
@@ -163,11 +163,13 @@ const startRetryTimer = ref<number | null>(null)
 const startRetryCount = ref(0)
 const MAX_START_RETRIES = 3
 const START_RETRY_DELAY_MS = 1500
+const PUBLISHER_READY_TIMEOUT_MS = 8000
+const PUBLISHER_READY_POLL_MS = 200
 const publisherToken = ref<string | null>(null)
 const publisherTokenInFlight = ref(false)
-const openviduInstance = ref<OpenVidu | null>(null)
-const openviduSession = ref<Session | null>(null)
-const openviduPublisher = ref<Publisher | null>(null)
+const openviduInstance = shallowRef<OpenVidu | null>(null)
+const openviduSession = shallowRef<Session | null>(null)
+const openviduPublisher = shallowRef<Publisher | null>(null)
 const openviduConnected = ref(false)
 let publisherRestartTimer: number | null = null
 const joinInFlight = ref(false)
@@ -673,6 +675,29 @@ const clearPublisherRestartTimer = () => {
   }
 }
 
+const getPublisherMediaStream = (publisher: Publisher) => {
+  const publisherStream = publisher.stream
+  if (!publisherStream) return null
+  if (typeof publisherStream.getMediaStream === 'function') {
+    return publisherStream.getMediaStream()
+  }
+  return null
+}
+
+const waitForPublisherTracks = async (publisher: Publisher) => {
+  const deadline = Date.now() + PUBLISHER_READY_TIMEOUT_MS
+  while (Date.now() < deadline) {
+    const mediaStream = getPublisherMediaStream(publisher)
+    if (mediaStream) {
+      const hasVideo = !videoEnabled.value || mediaStream.getVideoTracks().length > 0
+      const hasAudio = !micEnabled.value || mediaStream.getAudioTracks().length > 0
+      if (hasVideo && hasAudio) return true
+    }
+    await new Promise((resolve) => window.setTimeout(resolve, PUBLISHER_READY_POLL_MS))
+  }
+  return false
+}
+
 const resetOpenViduState = () => {
   openviduConnected.value = false
   publisherToken.value = null
@@ -693,8 +718,8 @@ const attachPublisherHandlers = (publisher: Publisher) => {
 const disconnectOpenVidu = () => {
   if (openviduSession.value) {
     try {
-      if (openviduPublisher.value?.stream?.streamId) {
-        openviduSession.value.unpublish(openviduPublisher.value as Publisher)
+      if (openviduPublisher.value) {
+        openviduSession.value.unpublish(openviduPublisher.value)
       }
       openviduSession.value.disconnect()
     } catch {
@@ -739,16 +764,17 @@ const waitForPublisherContainer = async () => {
 const restartPublisher = async () => {
   if (!openviduSession.value || !openviduInstance.value || !publisherContainerRef.value) return
   try {
-    if (openviduPublisher.value?.stream?.streamId) {
-      openviduSession.value.unpublish(openviduPublisher.value as Publisher)
+    if (openviduPublisher.value) {
+      openviduSession.value.unpublish(openviduPublisher.value)
     }
     publisherContainerRef.value.innerHTML = ''
-    openviduPublisher.value = openviduInstance.value.initPublisher(
+    const publisher = openviduInstance.value.initPublisher(
       publisherContainerRef.value,
       buildPublisherOptions(),
     )
-    attachPublisherHandlers(openviduPublisher.value as Publisher)
-    await openviduSession.value.publish(openviduPublisher.value as Publisher)
+    openviduPublisher.value = publisher
+    attachPublisherHandlers(publisher)
+    await openviduSession.value.publish(publisher)
     applyPublisherVolume()
   } catch {
     disconnectOpenVidu()
@@ -767,15 +793,21 @@ const connectPublisher = async (broadcastId: number, token: string) => {
     openviduInstance.value = new OpenVidu()
     openviduSession.value = openviduInstance.value.initSession()
     await openviduSession.value.connect(token)
-    openviduPublisher.value = openviduInstance.value.initPublisher(
+    const publisher = openviduInstance.value.initPublisher(
       container,
       buildPublisherOptions(),
     )
-    attachPublisherHandlers(openviduPublisher.value as Publisher)
-    await openviduSession.value.publish(openviduPublisher.value as Publisher)
+    openviduPublisher.value = publisher
+    attachPublisherHandlers(publisher)
+    await openviduSession.value.publish(publisher)
     openviduConnected.value = true
     applyPublisherVolume()
-    await requestStartRecording(broadcastId)
+    const tracksReady = await waitForPublisherTracks(publisher)
+    if (tracksReady) {
+      await requestStartRecording(broadcastId)
+    } else {
+      recordingStartRequested.value = false
+    }
     startRetryCount.value = 0
     if (startRetryTimer.value) window.clearTimeout(startRetryTimer.value)
     startRetryTimer.value = null
