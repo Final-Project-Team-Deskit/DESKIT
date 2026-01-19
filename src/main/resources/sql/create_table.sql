@@ -919,5 +919,17 @@ ALTER TABLE chat_handoff
 ALTER TABLE chat_handoff
     ADD CONSTRAINT FK_handoff_admin
         FOREIGN KEY (assigned_admin_id) REFERENCES admin (admin_id);
+ALTER TABLE forbidden_word
+    ADD CONSTRAINT uq_forbidden_word UNIQUE (word);
 
 SET FOREIGN_KEY_CHECKS = 1;
+
+ALTER TABLE forbidden_word
+    MODIFY word VARCHAR(50)
+        CHARACTER SET utf8mb4
+        COLLATE utf8mb4_bin
+        NOT NULL;
+
+ALTER TABLE forbidden_word
+    ADD CONSTRAINT chk_word_not_empty
+        CHECK (CHAR_LENGTH(word) > 0);
