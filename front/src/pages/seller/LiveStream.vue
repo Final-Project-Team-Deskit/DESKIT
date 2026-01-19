@@ -712,7 +712,6 @@ const resetOpenViduState = () => {
 const attachPublisherHandlers = (publisher: Publisher, broadcastId?: number) => {
   publisher.on('streamCreated', () => {
     if (!broadcastId) return
-    void requestStartRecording(broadcastId)
   })
   publisher.on('streamDestroyed', (event: StreamEvent) => {
     event.preventDefault()
