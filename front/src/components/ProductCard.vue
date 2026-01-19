@@ -67,17 +67,8 @@ const discountRate = computed(() => {
 
 .thumb {
   position: relative;
-  aspect-ratio: 16 / 10;
-  background: var(--surface-weak);
   width: 100%;
   overflow: hidden;
-}
-
-.thumb img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  display: block;
 }
 
 .badge {

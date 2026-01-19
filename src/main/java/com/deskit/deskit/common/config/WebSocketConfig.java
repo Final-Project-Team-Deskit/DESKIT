@@ -42,6 +42,10 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
                 .setAllowedOriginPatterns("*")
                 .addInterceptors(new WebSocketAuthHandshakeInterceptor(jwtUtil))
                 .setHandshakeHandler(new WebSocketAuthHandshakeHandler());
+
+        registry.addEndpoint("/api/ws-public")
+                .setAllowedOriginPatterns("*")
+                .withSockJS();
         // 여긴 withSockJS() 붙이지 말고 "진짜 websocket"만
     }
 
