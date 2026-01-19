@@ -60,7 +60,8 @@ const refreshAuth = () => {
 }
 
 const sellerMode = computed(() => isLoggedIn.value && isSeller())
-const adminMode = computed(() => isLoggedIn.value && isAdmin() && route.path.startsWith('/admin'))
+const adminLoggedIn = computed(() => isLoggedIn.value && isAdmin())
+const adminMode = computed(() => adminLoggedIn.value && route.path.startsWith('/admin'))
 const showCart = computed(
   () => isLoggedIn.value && !!memberCategory.value && memberCategory.value !== 'ROLE_GUEST',
 )
@@ -269,7 +270,7 @@ const handleLogout = async () => {
           <input v-model="searchQuery" class="search__input" type="search" placeholder="검색어를 입력하세요"/>
         </form>
         <div class="actions">
-          <template v-if="adminMode">
+          <template v-if="adminLoggedIn">
             <RouterLink to="/admin/my" class="action-link">
               <span>마이페이지</span>
             </RouterLink>
@@ -279,7 +280,7 @@ const handleLogout = async () => {
               :key="action.to"
               :to="action.to"
               class="action-link"
-              v-if="!adminMode"
+              v-if="!adminLoggedIn"
           >
             <svg v-if="action.icon === 'cart'" width="18" height="18" viewBox="0 0 24 24" fill="none">
               <path
@@ -422,15 +423,15 @@ const handleLogout = async () => {
               :key="action.to"
               :to="action.to"
               class="mobile-menu__link"
-              v-if="!adminMode"
+              v-if="!adminLoggedIn"
               @click="closeMenu"
           >
             {{ action.label }}
           </RouterLink>
-          <RouterLink v-if="adminMode" to="/admin/my" class="mobile-menu__link" @click="closeMenu">
+          <RouterLink v-if="adminLoggedIn" to="/admin/my" class="mobile-menu__link" @click="closeMenu">
             마이페이지
           </RouterLink>
-          <RouterLink v-if="isLoggedIn && !sellerMode && !adminMode" to="/my/orders" class="mobile-menu__link" @click="closeMenu">
+          <RouterLink v-if="isLoggedIn && !sellerMode && !adminLoggedIn" to="/my/orders" class="mobile-menu__link" @click="closeMenu">
             주문내역
           </RouterLink>
           <button

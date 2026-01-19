@@ -279,10 +279,11 @@ router.beforeEach(async (to) => {
   const isAdminVerify = to.path === '/admin/verify'
   const shouldHydrateSession =
     !loggedIn &&
+    (to.path === '/' ||
     (to.path.startsWith('/my') ||
       isSellerPath ||
       (isAdminPath && !isAdminVerify) ||
-      to.path === '/login')
+      to.path === '/login'))
 
   if (shouldHydrateSession) {
     const sessionOk = await hydrateSessionUser()
@@ -313,6 +314,9 @@ router.beforeEach(async (to) => {
   }
   if (loggedIn && isSeller() && to.path === '/') {
     return { path: '/seller' }
+  }
+  if (loggedIn && isAdmin() && to.path === '/') {
+    return { path: '/admin' }
   }
   return true
 })
