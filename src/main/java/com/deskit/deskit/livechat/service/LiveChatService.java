@@ -3,7 +3,6 @@ package com.deskit.deskit.livechat.service;
 import com.deskit.deskit.livechat.dto.LiveChatCacheEntry;
 import com.deskit.deskit.livechat.dto.LiveChatMessageDTO;
 import com.deskit.deskit.livechat.dto.LiveMessageType;
-import com.deskit.deskit.livechat.entity.ForbiddenWord;
 import com.deskit.deskit.livechat.entity.LiveChat;
 import com.deskit.deskit.livechat.repository.ForbiddenWordRepository;
 import com.deskit.deskit.livechat.repository.LiveChatRepository;
@@ -11,15 +10,15 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.ahocorasick.trie.Emit;
+import org.ahocorasick.trie.Trie;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.List;
-import java.util.Set;
+import java.util.*;
+import java.util.stream.Collectors;
 
 @Service
 @Slf4j
@@ -33,23 +32,56 @@ public class LiveChatService {
     private final ObjectMapper objectMapper;
     @Qualifier("chatRedisTemplate")
     private final RedisTemplate<String, Object> chatRedisTemplate;
-    private List<ForbiddenWord> cachedWords;
+    private Trie forbiddenTrie;
 
     @PostConstruct
     public void init() {
-        this.cachedWords = forbiddenWordRepository.findAll();
+        List<String> words = forbiddenWordRepository.findAll()
+                .stream()
+                .map(word -> word.getWord())
+                .filter(word -> word != null && !word.isBlank())
+                .distinct()
+                .collect(Collectors.toList());
+        if (words.isEmpty()) {
+            this.forbiddenTrie = null;
+            return;
+        }
+        this.forbiddenTrie = Trie.builder()
+                .addKeywords(words)
+                .build();
     }
 
     public String filterContent(String content) {
-        if (content == null || cachedWords == null) {
+        if (content == null || forbiddenTrie == null) {
             return content;
         }
-        for (ForbiddenWord fw : cachedWords) {
-            if (content.contains(fw.getWord())) {
-                content = content.replace(fw.getWord(), "***");
-            }
+        Collection<Emit> rawEmits = forbiddenTrie.parseText(content);
+        if (rawEmits == null || rawEmits.isEmpty()) {
+            return content;
         }
-        return content;
+        List<Emit> emits = new ArrayList<>(rawEmits);
+        emits.sort(Comparator.comparingInt(Emit::getStart)
+                .thenComparing(Comparator.comparingInt(Emit::getEnd).reversed()));
+        StringBuilder result = new StringBuilder(content.length());
+        int cursor = 0;
+        int lastEnd = -1;
+        for (Emit emit : emits) {
+            int start = emit.getStart();
+            int end = emit.getEnd();
+            if (start <= lastEnd) {
+                continue;
+            }
+            if (start > cursor) {
+                result.append(content, cursor, start);
+            }
+            result.append("***");
+            cursor = end + 1;
+            lastEnd = end;
+        }
+        if (cursor < content.length()) {
+            result.append(content.substring(cursor));
+        }
+        return result.toString();
     }
 
     @Async("chatSaveExecutor")
