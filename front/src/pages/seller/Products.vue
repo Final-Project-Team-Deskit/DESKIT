@@ -2,6 +2,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import PageHeader from '../../components/PageHeader.vue'
+import { createImageErrorHandler, PLACEHOLDER_IMAGE, resolveProductImageUrlFromRaw } from '../../lib/images/productImages'
 
 type ProductStatus = 'DRAFT' | 'READY' | 'ON_SALE' | 'LIMITED_SALE' | 'SOLD_OUT' | 'PAUSED' | 'HIDDEN'
 
@@ -16,6 +17,7 @@ type SellerProduct = {
   status: ProductStatus
   stock_qty: number
   created_at: string
+  imageUrl?: string
 }
 
 const router = useRouter()
@@ -24,6 +26,7 @@ const sortOption = ref<SortOption>('name')
 const searchQuery = ref('')
 const baseProducts = ref<SellerProduct[]>([])
 const updatingStatus = ref<Record<number, boolean>>({})
+const { handleImageError } = createImageErrorHandler()
 
 const statusLabelMap: Record<ProductStatus, string> = {
   DRAFT: '작성중',
@@ -111,8 +114,13 @@ const fetchProducts = async () => {
       return items.map((item) => {
         if (!item || typeof item !== 'object') return item
         const record = item as Record<string, unknown>
-        if (record.product_name || !record.name) return record
-        return { ...record, product_name: record.name }
+        const normalized = record.product_name || !record.name
+          ? record
+          : { ...record, product_name: record.name }
+        return {
+          ...normalized,
+          imageUrl: resolveProductImageUrlFromRaw(normalized),
+        }
       }) as SellerProduct[]
     }
 
@@ -214,7 +222,7 @@ onMounted(() => {
     <section v-else class="product-list">
       <article v-for="product in filteredProducts" :key="product.product_id" class="product-card ds-surface">
         <div class="thumb">
-          <div class="thumb__placeholder"></div>
+          <img :src="product.imageUrl || PLACEHOLDER_IMAGE" :alt="product.product_name" @error="handleImageError" />
         </div>
         <div class="product-main">
           <div class="product-title">
