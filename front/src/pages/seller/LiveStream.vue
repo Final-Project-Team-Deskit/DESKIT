@@ -3,7 +3,7 @@ import { OpenVidu, type Publisher, type Session, type StreamEvent } from 'openvi
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
 import { Client, type StompSubscription } from '@stomp/stompjs'
-import SockJS from 'sockjs-client/dist/sockjs'
+// import SockJS from 'sockjs-client/dist/sockjs'
 import BasicInfoEditModal from '../../components/BasicInfoEditModal.vue'
 import ChatSanctionModal from '../../components/ChatSanctionModal.vue'
 import ConfirmModal from '../../components/ConfirmModal.vue'
@@ -34,7 +34,9 @@ import { getAuthUser } from '../../lib/auth'
 import { resolveViewerId } from '../../lib/live/viewer'
 import { computeLifecycleStatus, getScheduledEndMs, normalizeBroadcastStatus, type BroadcastStatus } from '../../lib/broadcastStatus'
 import { createImageErrorHandler } from '../../lib/images/productImages'
-import { resolveWsBase } from '../../lib/ws'
+// import { resolveWsBase } from '../../lib/ws'
+import SockJS from 'sockjs-client/dist/sockjs'
+import { resolveSockJsUrl } from '../../lib/ws'
 
 type StreamProduct = {
   id: string
@@ -174,7 +176,8 @@ const recordingStartRequested = ref(false)
 const endRequested = ref(false)
 const endRequestTimer = ref<number | null>(null)
 const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080'
-const wsBase = resolveWsBase(apiBase)
+// const wsBase = resolveWsBase(apiBase)
+const sockJsUrl = resolveSockJsUrl(apiBase)
 const viewerId = ref<string | null>(resolveViewerId(getAuthUser()))
 const joinedBroadcastId = ref<number | null>(null)
 const joinedViewerId = ref<string | null>(null)
@@ -239,7 +242,7 @@ const nickname = ref('판매자')
 const memberEmail = ref('seller@deskit.com')
 const ENTER_SENT_KEY_PREFIX = 'deskit_live_enter_sent_v1'
 
-const getAccessToken = () => localStorage.getItem('access') || sessionStorage.getItem('access')
+// const getAccessToken = () => localStorage.getItem('access') || sessionStorage.getItem('access')
 
 const refreshAuth = () => {
   const user = getAuthUser()
@@ -355,21 +358,60 @@ const sendSocketMessage = (type: LiveMessageType, content: string) => {
 const connectChat = () => {
   if (!broadcastId.value || stompClient.value?.active) return
 
+  // [추가] 현재 프로토콜(http/https)에 따라 ws/wss 결정 및 주소 생성
+  // const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+  // const host = window.location.host // 예: ssg.deskit.o-r.kr
+  // const brokerURL = `wss://ssg.deskit.o-r.kr/ws`
+
+  // const client = new Client({
+  //   webSocketFactory: () =>
+  //       new SockJS(`/ws`, null, {
+  //         transports: ['websocket'],
+  //         withCredentials: true,
+  //       }),
+  //   reconnectDelay: 5000,
+  //   debug: () => {},
+  // })
+
+  // const client = new Client({
+  //   // [수정] SockJS Factory 대신 표준 WebSocket URL 사용
+  //   brokerURL: brokerURL,
+  //
+  //   // [설정] 순수 WebSocket 사용 시 헤더 설정 (일부 브라우저 제한 있을 수 있음)
+  //   connectHeaders: {
+  //     access: getAccessToken() || '',
+  //     Authorization: `Bearer ${getAccessToken() || ''}`,
+  //   },
+  //
+  //   reconnectDelay: 5000,
+  //   debug: (msg) => console.log('[stomp]', msg),
+  // })
+
+
+  // const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+  // const brokerURL = `${protocol}//${window.location.host}/ws`
+
   const client = new Client({
     webSocketFactory: () =>
-        new SockJS(`${wsBase}/ws`, undefined, {
+      new SockJS(sockJsUrl, null, {
+        transports: ['websocket', 'xhr-streaming', 'xhr-polling'],
         withCredentials: true,
       }),
     reconnectDelay: 5000,
-    debug: () => {},
+    debug: (msg) => console.log('[stomp]', msg),
+    // connectHeaders는 일단 빼도 됨 (쿠키로 갈 거라 handshake엔 필요 없음)
   })
-  const access = getAccessToken()
-  if (access) {
-    client.connectHeaders = {
-      access,
-      Authorization: `Bearer ${access}`,
-    }
-  }
+
+  // console.log('[ws] broadcastId=', broadcastId.value)
+  // console.log('[ws] brokerURL=', brokerURL)
+
+  // const access = getAccessToken()
+  // if (access) {
+  //   client.connectHeaders = {
+  //     access,
+  //     Authorization: `Bearer ${access}`,
+  //   }
+  // }
 
   client.onConnect = () => {
     isChatConnected.value = true
@@ -392,9 +434,14 @@ const connectChat = () => {
     console.error('[livechat] stomp error', frame.headers, frame.body)
   }
 
-  client.onWebSocketClose = () => {
+  client.onWebSocketClose = (evt) => {
     isChatConnected.value = false
+    console.warn('[ws close]', evt?.code, evt?.reason)
   }
+  client.onWebSocketError = (evt) => {
+    console.error('[ws error]', evt)
+  }
+
   client.onDisconnect = () => {
     isChatConnected.value = false
   }
@@ -922,7 +969,7 @@ const requestStartBroadcast = async (broadcastId: number) => {
 }
 
 const scheduleStartRetry = (broadcastId: number, message?: string) => {
-  if (!['READY', 'ON_AIR'].includes(lifecycleStatus.value)) return
+  if (lifecycleStatus.value !== 'ON_AIR') return
   if (startRetryCount.value >= MAX_START_RETRIES) {
     if (message) {
       alert(message)
@@ -947,7 +994,7 @@ const requestStartRecording = async (broadcastId: number) => {
 }
 
 const requestJoinToken = async (broadcastId: number) => {
-  if (!['READY', 'ON_AIR'].includes(lifecycleStatus.value)) return
+  if (lifecycleStatus.value !== 'ON_AIR') return
   if (joinInFlight.value) return
   if (joinedBroadcastId.value === broadcastId) return
   if (!viewerId.value) {
@@ -1358,6 +1405,20 @@ const connectSse = (broadcastId: number) => {
   sseSource.value = source
 }
 
+const handleSseVisibilityChange = () => {
+  if (document.visibilityState !== 'visible') {
+    return
+  }
+  if (!broadcastId.value) {
+    return
+  }
+  if (!sseConnected.value) {
+    connectSse(broadcastId.value)
+    return
+  }
+  scheduleRefresh(broadcastId.value)
+}
+
 const startStatsPolling = (broadcastId: number) => {
   if (statsTimer.value) window.clearInterval(statsTimer.value)
   statsTimer.value = window.setInterval(() => {
@@ -1427,20 +1488,22 @@ const handleKeydown = (event: KeyboardEvent) => {
   }
 }
 
-  onMounted(() => {
-    window.addEventListener('keydown', handleKeydown)
-    document.addEventListener('fullscreenchange', handleFullscreenChange)
-    window.addEventListener('resize', handleResize)
-    window.addEventListener('pagehide', handlePageHide)
-    window.addEventListener('beforeunload', handleBeforeUnload)
-    window.addEventListener('deskit-user-updated', handleAuthUpdate)
-    viewerId.value = resolveViewerId(getAuthUser())
-    refreshAuth()
-    monitorRef.value = streamGridRef.value ?? streamCenterRef.value
-    updateGridWidth()
-    void loadMediaDevices()
-    if (navigator.mediaDevices?.addEventListener) {
-      navigator.mediaDevices.addEventListener('devicechange', loadMediaDevices)
+onMounted(() => {
+  window.addEventListener('keydown', handleKeydown)
+  document.addEventListener('fullscreenchange', handleFullscreenChange)
+  window.addEventListener('resize', handleResize)
+  window.addEventListener('pagehide', handlePageHide)
+  window.addEventListener('beforeunload', handleBeforeUnload)
+  window.addEventListener('deskit-user-updated', handleAuthUpdate)
+  window.addEventListener('visibilitychange', handleSseVisibilityChange)
+  window.addEventListener('focus', handleSseVisibilityChange)
+  viewerId.value = resolveViewerId(getAuthUser())
+  refreshAuth()
+  monitorRef.value = streamGridRef.value ?? streamCenterRef.value
+  updateGridWidth()
+  void loadMediaDevices()
+  if (navigator.mediaDevices?.addEventListener) {
+    navigator.mediaDevices.addEventListener('devicechange', loadMediaDevices)
   }
   if (streamGridRef.value) {
     gridObserver = new ResizeObserver((entries) => {
@@ -1453,18 +1516,20 @@ const handleKeydown = (event: KeyboardEvent) => {
   }
 })
 
-  onBeforeUnmount(() => {
-    window.removeEventListener('keydown', handleKeydown)
-    document.removeEventListener('fullscreenchange', handleFullscreenChange)
-    window.removeEventListener('resize', handleResize)
-    window.removeEventListener('pagehide', handlePageHide)
-    window.removeEventListener('beforeunload', handleBeforeUnload)
-    window.removeEventListener('deskit-user-updated', handleAuthUpdate)
-    void sendLeaveSignal()
-    disconnectChat()
-    if (navigator.mediaDevices?.removeEventListener) {
-      navigator.mediaDevices.removeEventListener('devicechange', loadMediaDevices)
-    }
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', handleKeydown)
+  document.removeEventListener('fullscreenchange', handleFullscreenChange)
+  window.removeEventListener('resize', handleResize)
+  window.removeEventListener('pagehide', handlePageHide)
+  window.removeEventListener('beforeunload', handleBeforeUnload)
+  window.removeEventListener('deskit-user-updated', handleAuthUpdate)
+  window.removeEventListener('visibilitychange', handleSseVisibilityChange)
+  window.removeEventListener('focus', handleSseVisibilityChange)
+  void sendLeaveSignal()
+  disconnectChat()
+  if (navigator.mediaDevices?.removeEventListener) {
+    navigator.mediaDevices.removeEventListener('devicechange', loadMediaDevices)
+  }
   if (mediaSaveTimer) {
     window.clearTimeout(mediaSaveTimer)
     mediaSaveTimer = null
@@ -1609,7 +1674,9 @@ watch(lifecycleStatus, () => {
     void ensurePublisherConnected(idValue)
     return
   }
-  disconnectOpenVidu()
+  if (['STOPPED', 'ENDED'].includes(lifecycleStatus.value)) {
+    disconnectOpenVidu()
+  }
 })
 
 watch([lifecycleStatus, publisherContainerRef], ([status, container]) => {
@@ -1838,8 +1905,8 @@ const toggleFullscreen = async () => {
             :class="{ 'is-pinned': pinnedProductId === item.id, 'is-soldout': item.status === '품절' }"
           >
             <span v-if="pinnedProductId === item.id" class="pin-badge">PIN</span>
-            <div class="panel-thumb">
-              <img :src="item.thumb" :alt="item.title" loading="lazy" @error="handleImageError" />
+            <div class="panel-thumb ds-thumb-frame ds-thumb-square">
+              <img class="ds-thumb-img" :src="item.thumb" :alt="item.title" loading="lazy" @error="handleImageError" />
             </div>
             <div class="panel-meta">
               <p class="panel-title">{{ item.title }}</p>
@@ -2288,14 +2355,7 @@ const toggleFullscreen = async () => {
   height: 64px;
   border-radius: 12px;
   overflow: hidden;
-  background: linear-gradient(135deg, #1f2937, #0f172a);
-}
-
-.panel-thumb img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  display: block;
+  background: #fff;
 }
 
 .panel-meta {

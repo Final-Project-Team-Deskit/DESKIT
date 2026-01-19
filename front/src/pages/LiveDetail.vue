@@ -4,6 +4,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Client, type StompSubscription } from '@stomp/stompjs'
 import SockJS from 'sockjs-client/dist/sockjs'
+import { resolveSockJsUrl } from '../lib/ws'
 import PageContainer from '../components/PageContainer.vue'
 import PageHeader from '../components/PageHeader.vue'
 import ConfirmModal from '../components/ConfirmModal.vue'
@@ -12,7 +13,7 @@ import { useNow } from '../lib/live/useNow'
 import { getAuthUser, hydrateSessionUser } from '../lib/auth'
 import { resolveViewerId } from '../lib/live/viewer'
 import { createImageErrorHandler } from '../lib/images/productImages'
-import { resolveWsBase } from '../lib/ws'
+// import { resolveWsBase } from '../lib/ws'
 import {
   fetchBroadcastLikeStatus,
   fetchBroadcastProducts,
@@ -32,7 +33,8 @@ const route = useRoute()
 const router = useRouter()
 const { now } = useNow(1000)
 const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080'
-const wsBase = resolveWsBase(apiBase)
+// const wsBase = resolveWsBase(apiBase)
+const sockJsUrl = resolveSockJsUrl(apiBase)
 const sseSource = ref<EventSource | null>(null)
 const sseConnected = ref(false)
 const sseRetryCount = ref(0)
@@ -728,10 +730,10 @@ const notifyViewerSanction = (type: 'MUTE' | 'OUT', actorLabel?: string) => {
   router.push({ name: 'live' }).catch(() => {})
 }
 
-watch(hasChatPermission, (next, prev) => {
-  if (!next) {
+watch([hasChatPermission, lifecycleStatus], ([nextPermission, nextStatus], [prevPermission]) => {
+  if (!nextPermission) {
     input.value = ''
-    if (prev && viewerSanctionType.value !== 'MUTE') {
+    if (prevPermission && viewerSanctionType.value !== 'MUTE' && nextStatus === 'ON_AIR') {
       notifyViewerSanction('MUTE')
     }
   }
@@ -848,6 +850,20 @@ const connectSse = (id: number) => {
   sseSource.value = source
 }
 
+const handleSseVisibilityChange = () => {
+  if (document.visibilityState !== 'visible') {
+    return
+  }
+  if (!broadcastId.value) {
+    return
+  }
+  if (!sseConnected.value) {
+    connectSse(broadcastId.value)
+    return
+  }
+  scheduleRefresh()
+}
+
 const startStatsPolling = () => {
   if (statsTimer.value) window.clearInterval(statsTimer.value)
   statsTimer.value = window.setInterval(() => {
@@ -866,7 +882,7 @@ const startStatsPolling = () => {
 
 const requestJoinToken = async () => {
   if (!broadcastId.value) return
-  if (!['READY', 'ON_AIR'].includes(lifecycleStatus.value)) return
+  if (lifecycleStatus.value !== 'ON_AIR') return
   if (joinInFlight.value) return
   if (joinedBroadcastId.value === broadcastId.value) return
   joinInFlight.value = true
@@ -957,7 +973,8 @@ const fetchRecentMessages = async () => {
     return
   }
   try {
-    const response = await fetch(`${wsBase}/livechats/${broadcastId.value}/recent?seconds=60`)
+    // const response = await fetch(`${wsBase}/livechats/${broadcastId.value}/recent?seconds=60`)
+    const response = await fetch(`/livechats/${broadcastId.value}/recent?seconds=60`)
     if (!response.ok) {
       return
     }
@@ -987,7 +1004,8 @@ const connectChat = () => {
   }
   const client = new Client({
     webSocketFactory: () =>
-        new SockJS(`${wsBase}/ws`, undefined, {
+      new SockJS(sockJsUrl, null, {
+        transports: ['websocket', 'xhr-streaming', 'xhr-polling'],
         withCredentials: true,
       }),
     reconnectDelay: 5000,
@@ -1191,6 +1209,11 @@ onMounted(() => {
   window.addEventListener('pagehide', handlePageHide)
 })
 
+onMounted(() => {
+  window.addEventListener('visibilitychange', handleSseVisibilityChange)
+  window.addEventListener('focus', handleSseVisibilityChange)
+})
+
 const reconnectSseIfNeeded = (nextViewerId: string | null, previousViewerId: string | null) => {
   if (!broadcastId.value || !nextViewerId || nextViewerId === previousViewerId) {
     return
@@ -1337,6 +1360,8 @@ onBeforeUnmount(() => {
   document.removeEventListener('fullscreenchange', handleFullscreenChange)
   window.removeEventListener('deskit-user-updated', handleAuthUpdate)
   window.removeEventListener('pagehide', handlePageHide)
+  window.removeEventListener('visibilitychange', handleSseVisibilityChange)
+  window.removeEventListener('focus', handleSseVisibilityChange)
   disconnectOpenVidu()
   qualityObserver.value?.disconnect()
   qualityObserver.value = null
@@ -1599,7 +1624,9 @@ onBeforeUnmount(() => {
             @click="handleProductClick(product.id)"
           >
             <span v-if="product.isPinned" class="product-card__pin">PIN</span>
-            <img class="product-card__thumb" :src="product.imageUrl" :alt="product.name" @error="handleImageError" />
+            <div class="product-card__thumb ds-thumb-frame ds-thumb-square">
+              <img class="ds-thumb-img" :src="product.imageUrl" :alt="product.name" @error="handleImageError" />
+            </div>
             <div class="product-card__info">
               <p class="product-card__name">{{ product.name }}</p>
               <p class="product-card__price">
@@ -1737,7 +1764,6 @@ onBeforeUnmount(() => {
   width: 64px;
   height: 64px;
   border-radius: 10px;
-  object-fit: cover;
 }
 
 .product-card__info {

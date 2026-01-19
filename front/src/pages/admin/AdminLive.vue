@@ -450,6 +450,17 @@ const connectSse = () => {
   sseSource.value = source
 }
 
+const handleSseVisibilityChange = () => {
+  if (document.visibilityState !== 'visible') {
+    return
+  }
+  if (!sseConnected.value) {
+    connectSse()
+    return
+  }
+  scheduleRefresh()
+}
+
 const startStatsPolling = () => {
   if (statsTimer.value) window.clearInterval(statsTimer.value)
   statsTimer.value = window.setInterval(() => {
@@ -969,10 +980,14 @@ onMounted(() => {
     handleResize()
   })
   window.addEventListener('resize', handleResize)
+  window.addEventListener('visibilitychange', handleSseVisibilityChange)
+  window.addEventListener('focus', handleSseVisibilityChange)
 })
 
 onBeforeUnmount(() => {
   window.removeEventListener('resize', handleResize)
+  window.removeEventListener('visibilitychange', handleSseVisibilityChange)
+  window.removeEventListener('focus', handleSseVisibilityChange)
   stopAutoLoop('live')
   stopAutoLoop('scheduled')
   stopAutoLoop('vod')

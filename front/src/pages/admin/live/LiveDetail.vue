@@ -4,6 +4,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch 
 import { useRoute, useRouter } from 'vue-router'
 import { Client, type StompSubscription } from '@stomp/stompjs'
 import SockJS from 'sockjs-client/dist/sockjs'
+import { resolveSockJsUrl } from '../../../lib/ws'
 
 import {
   fetchAdminBroadcastDetail,
@@ -19,13 +20,14 @@ import { useNow } from '../../../lib/live/useNow'
 import { computeLifecycleStatus, getBroadcastStatusLabel, getScheduledEndMs, normalizeBroadcastStatus } from '../../../lib/broadcastStatus'
 import { getAuthUser } from '../../../lib/auth'
 import { createImageErrorHandler } from '../../../lib/images/productImages'
-import { resolveWsBase } from '../../../lib/ws'
+// import { resolveWsBase } from '../../../lib/ws'
 import { resolveViewerId } from '../../../lib/live/viewer'
 
 const route = useRoute()
 const router = useRouter()
 const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080'
-const wsBase = resolveWsBase(apiBase)
+// const wsBase = resolveWsBase(apiBase)
+const sockJsUrl = resolveSockJsUrl(apiBase)
 
 // --- Types ---
 type AdminDetail = {
@@ -301,7 +303,8 @@ const handleIncomingMessage = (payload: LiveChatMessageDTO) => {
 const fetchRecentMessages = async () => {
   if (!broadcastId.value) return
   try {
-    const response = await fetch(`${wsBase}/livechats/${broadcastId.value}/recent?seconds=300`)
+    // const response = await fetch(`${wsBase}/livechats/${broadcastId.value}/recent?seconds=300`)
+    const response = await fetch(`/livechats/${broadcastId.value}/recent?seconds=300`)
     if (!response.ok) return
     const recent = (await response.json()) as LiveChatMessageDTO[]
     if (!Array.isArray(recent)) return
@@ -339,7 +342,11 @@ const fetchRecentMessages = async () => {
 const connectChat = () => {
   if (!broadcastId.value || stompClient.value?.active) return
   const client = new Client({
-    webSocketFactory: () => new SockJS(`${wsBase}/ws`, undefined, { withCredentials: true }),
+    webSocketFactory: () =>
+      new SockJS(sockJsUrl, null, {
+        transports: ['websocket', 'xhr-streaming', 'xhr-polling'],
+        withCredentials: true,
+      }),
     reconnectDelay: 5000,
   })
 
@@ -660,7 +667,7 @@ const ensureSubscriberConnected = async () => {
 
 const requestJoinToken = async () => {
   if (!detail.value) return
-  if (!['READY', 'ON_AIR'].includes(lifecycleStatus.value)) return
+  if (lifecycleStatus.value !== 'ON_AIR') return
   if (joinInFlight.value) return
   if (joinedBroadcastId.value === Number(detail.value.id)) return
   if (!viewerId.value) {
@@ -862,6 +869,20 @@ const connectSse = (broadcastId: number) => {
   sseSource.value = source
 }
 
+const handleSseVisibilityChange = () => {
+  if (document.visibilityState !== 'visible') {
+    return
+  }
+  if (!broadcastId.value) {
+    return
+  }
+  if (!sseConnected.value) {
+    connectSse(broadcastId.value)
+    return
+  }
+  scheduleRefresh(broadcastId.value)
+}
+
 const startStatsPolling = (broadcastId: number) => {
   if (statsTimer.value) window.clearInterval(statsTimer.value)
   statsTimer.value = window.setInterval(() => {
@@ -1043,6 +1064,8 @@ onMounted(() => {
   refreshAuth()
   viewerId.value = resolveViewerId(getAuthUser())
   window.addEventListener('pagehide', handlePageHide)
+  window.addEventListener('visibilitychange', handleSseVisibilityChange)
+  window.addEventListener('focus', handleSseVisibilityChange)
   document.addEventListener('fullscreenchange', syncFullscreen)
   document.addEventListener('click', handleDocumentClick)
   document.addEventListener('keydown', handleDocumentKeydown)
@@ -1053,6 +1076,8 @@ onBeforeUnmount(() => {
   document.removeEventListener('click', handleDocumentClick)
   document.removeEventListener('keydown', handleDocumentKeydown)
   window.removeEventListener('pagehide', handlePageHide)
+  window.removeEventListener('visibilitychange', handleSseVisibilityChange)
+  window.removeEventListener('focus', handleSseVisibilityChange)
   void sendLeaveSignal()
   sseSource.value?.close()
   sseSource.value = null

@@ -34,7 +34,7 @@ jobs:
           cache: gradle
 
       - name: Build backend jar
-        run: ./gradlew bootJar
+        run: ./gradlew clean bootJar
 
       - name: Prepare backend jar
         run: |

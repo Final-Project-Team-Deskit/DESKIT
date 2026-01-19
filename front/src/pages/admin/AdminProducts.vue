@@ -211,9 +211,10 @@ onBeforeUnmount(() => {
     <section v-else class="product-list">
       <article v-for="item in keyedProducts" :key="item.key">
         <div class="product-card ds-surface">
-          <div class="thumb">
+          <div class="thumb ds-thumb-frame ds-thumb-16x10">
             <img
               v-if="item.product.imageUrl"
+              class="ds-thumb-img"
               :src="item.product.imageUrl"
               :alt="item.product.name"
             />
@@ -313,20 +314,12 @@ input[type='search'] {
   height: 110px;
   border-radius: 12px;
   overflow: hidden;
-  background: var(--surface-weak);
-}
-
-.thumb img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  display: block;
 }
 
 .thumb__placeholder {
   width: 100%;
   height: 100%;
-  background: linear-gradient(135deg, #1f2937, #0f172a);
+  background: #fff;
 }
 
 .product-main {

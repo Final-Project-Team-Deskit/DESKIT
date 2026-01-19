@@ -228,8 +228,8 @@ onMounted(() => {
             class="product-card"
             :to="`/products/${item.product_id}`"
           >
-            <div class="thumb">
-              <img :src="item.imageUrl" :alt="item.name" />
+            <div class="thumb ds-thumb-frame ds-thumb-square">
+              <img class="ds-thumb-img" :src="item.imageUrl" :alt="item.name" />
             </div>
             <div class="product-body">
               <p class="product-name">{{ item.name }}</p>
@@ -346,6 +346,7 @@ onMounted(() => {
   flex-direction: column;
   gap: 6px;
   min-width: 0;
+  max-width: 100%;
 }
 
 .name-row {
@@ -369,6 +370,13 @@ onMounted(() => {
   color: var(--text-muted);
   font-weight: 700;
   font-size: 13px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.meta {
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .dot {
@@ -379,6 +387,8 @@ onMounted(() => {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .chip {
@@ -562,17 +572,9 @@ onMounted(() => {
 
 .thumb {
   width: 100%;
-  aspect-ratio: 4 / 3;
-  background: var(--surface-weak);
   display: flex;
   align-items: center;
   justify-content: center;
-}
-
-.thumb img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
 }
 
 .product-body {
@@ -670,9 +672,6 @@ onMounted(() => {
 }
 
 @media (max-width: 640px) {
-  .recommend-grid {
-    grid-template-columns: 1fr;
-  }
   .quick-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -688,6 +687,32 @@ onMounted(() => {
   .login-alert {
     flex-direction: column;
     align-items: flex-start;
+  }
+}
+
+@media (max-width: 480px) {
+  .profile-top {
+    flex-direction: column;
+  }
+  .profile-banner {
+    padding: 20px 16px;
+  }
+  .name {
+    font-size: 20px;
+  }
+  .avatar {
+    width: 54px;
+    height: 54px;
+    font-size: 14px;
+  }
+  .quick-grid {
+    grid-template-columns: 1fr;
+  }
+  .recommend-scroll {
+    gap: 10px;
+  }
+  .product-card {
+    flex-basis: 190px;
   }
 }
 

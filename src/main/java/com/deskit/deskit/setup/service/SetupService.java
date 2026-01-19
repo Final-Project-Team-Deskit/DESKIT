@@ -1,5 +1,6 @@
 package com.deskit.deskit.setup.service;
 
+import com.deskit.deskit.livehost.service.AwsS3Service;
 import com.deskit.deskit.setup.dto.SetupResponse;
 import com.deskit.deskit.setup.dto.SetupResponse.SetupTags;
 import com.deskit.deskit.setup.entity.Setup;
@@ -22,12 +23,15 @@ public class SetupService {
 
   private final SetupRepository setupRepository; // Setup 조회용 JPA Repository
   private final SetupTagRepository setupTagRepository; // Setup-Tag 매핑 조회용 JPA Repository
+  private final AwsS3Service awsS3Service;
 
   // 생성자 주입: final 필드 + 테스트 용이
   public SetupService(SetupRepository setupRepository,
-                      SetupTagRepository setupTagRepository) {
+                      SetupTagRepository setupTagRepository,
+                      AwsS3Service awsS3Service) {
     this.setupRepository = setupRepository;
     this.setupTagRepository = setupTagRepository;
+    this.awsS3Service = awsS3Service;
   }
 
   // 셋업 목록 조회:
@@ -56,7 +60,8 @@ public class SetupService {
               TagsBundle bundle = tagsBySetupId.get(setup.getId());
               SetupTags tags = bundle == null ? SetupTags.empty() : bundle.getTags();
               List<String> tagsFlat = bundle == null ? Collections.emptyList() : bundle.getTagsFlat();
-              return SetupResponse.from(setup, tags, tagsFlat);
+              String resolvedImageUrl = resolveSetupImageUrl(setup.getSetupImageUrl());
+              return SetupResponse.from(setup, tags, tagsFlat, resolvedImageUrl);
             })
             .collect(Collectors.toList());
   }
@@ -82,7 +87,19 @@ public class SetupService {
     List<Long> productIds = productIdsRaw == null
             ? Collections.emptyList()
             : new ArrayList<>(new LinkedHashSet<>(productIdsRaw));
-    return Optional.of(SetupResponse.from(setup.get(), tags, tagsFlat, productIds));
+    String resolvedImageUrl = resolveSetupImageUrl(setup.get().getSetupImageUrl());
+    return Optional.of(SetupResponse.from(setup.get(), tags, tagsFlat, productIds, resolvedImageUrl));
+  }
+
+  private String resolveSetupImageUrl(String raw) {
+    if (raw == null || raw.isBlank()) {
+      return raw;
+    }
+    String value = raw.trim();
+    if (value.startsWith("http://") || value.startsWith("https://") || value.startsWith("/")) {
+      return value;
+    }
+    return awsS3Service.buildPublicUrl(value);
   }
 
   // DB에서 가져온 태그 row들을 setupId별로 그룹핑하고 tags/tagsFlat을 만든다

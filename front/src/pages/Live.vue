@@ -466,6 +466,17 @@ const connectSse = () => {
   sseSource.value = source
 }
 
+const handleSseVisibilityChange = () => {
+  if (document.visibilityState !== 'visible') {
+    return
+  }
+  if (!sseConnected.value) {
+    connectSse()
+    return
+  }
+  scheduleRefresh()
+}
+
 const isStatsTarget = (item: LiveItem) => {
   const status = normalizeBroadcastStatus(item.status)
   if (status === 'ON_AIR' || status === 'READY' || status === 'ENDED' || status === 'STOPPED') return true
@@ -533,6 +544,8 @@ onBeforeUnmount(() => {
   refreshTimer.value = null
   if (statsTimer.value) window.clearInterval(statsTimer.value)
   statsTimer.value = null
+  window.removeEventListener('visibilitychange', handleSseVisibilityChange)
+  window.removeEventListener('focus', handleSseVisibilityChange)
   sseSource.value?.close()
 })
 
@@ -540,6 +553,8 @@ onMounted(() => {
   void loadBroadcasts()
   connectSse()
   startStatsPolling()
+  window.addEventListener('visibilitychange', handleSseVisibilityChange)
+  window.addEventListener('focus', handleSseVisibilityChange)
 })
 </script>
 
@@ -595,7 +610,9 @@ onMounted(() => {
             @click="handleRowClick(item)"
             @keydown="(e) => handleRowKeydown(e, item)"
           >
-            <img class="thumb" :src="item.thumbnailUrl" :alt="item.title" @error="handleImageError" />
+            <div class="thumb ds-thumb-frame ds-thumb-16x10">
+              <img class="ds-thumb-img" :src="item.thumbnailUrl" :alt="item.title" @error="handleImageError" />
+            </div>
             <div class="meta">
               <div class="meta__title-row">
                 <h4 class="meta__title">{{ item.title }}</h4>
@@ -797,7 +814,6 @@ onMounted(() => {
   width: 180px;
   height: 140px;
   border-radius: 16px;
-  object-fit: cover;
 }
 
 .meta {

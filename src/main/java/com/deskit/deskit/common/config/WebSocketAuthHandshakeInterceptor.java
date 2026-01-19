@@ -17,7 +17,6 @@ import java.util.Map;
 
 public class WebSocketAuthHandshakeInterceptor implements HandshakeInterceptor {
     private static final Logger log = LoggerFactory.getLogger(WebSocketAuthHandshakeInterceptor.class);
-
     private final JWTUtil jwtUtil;
 
     public WebSocketAuthHandshakeInterceptor(JWTUtil jwtUtil) {
@@ -31,43 +30,62 @@ public class WebSocketAuthHandshakeInterceptor implements HandshakeInterceptor {
             WebSocketHandler wsHandler,
             Map<String, Object> attributes
     ) {
+        String path = request.getURI().getPath();
+
+        // ✅ SockJS 내부 엔드포인트는 무조건 패스 (폭주 + OOM 방지)
+        if (path.endsWith("/info")
+                || path.contains("/iframe")
+                || path.contains("/xhr")
+                || path.contains("/eventsource")) {
+            return true;
+        }
+
         if (!(request instanceof ServletServerHttpRequest servletRequest)) {
             return true;
         }
 
         HttpServletRequest httpRequest = servletRequest.getServletRequest();
-        if (httpRequest.getCookies() == null || httpRequest.getCookies().length == 0) {
-            log.debug("ws.handshake no cookies");
-        } else {
-            log.debug("ws.handshake cookies={}", cookieNames(httpRequest.getCookies()));
+
+        // ✅ 로그 최소화
+        if (log.isDebugEnabled()) {
+            Cookie[] cookies = httpRequest.getCookies();
+            log.debug("ws.handshake path={} cookieCount={}", path, cookies == null ? 0 : cookies.length);
         }
+
         String token = resolveToken(httpRequest);
         if (token == null || token.isBlank()) {
-            log.debug("ws.handshake no token");
             return true;
         }
 
         try {
-            if (jwtUtil.isExpired(token)) {
-                return true;
-            }
-        } catch (ExpiredJwtException ex) {
-            return true;
-        } catch (Exception ex) {
-            return true;
+            if (jwtUtil.isExpired(token)) return true;
+
+            String category = jwtUtil.getCategory(token);
+            if (!"access".equals(category)) return true;
+
+            String username = jwtUtil.getUsername(token);
+            String role = jwtUtil.getRole(token);
+
+            attributes.put("principal", new WebSocketPrincipal(username));
+            attributes.put("role", role);
+        } catch (Exception e) {
+            // 예외 발생 시 로그만 찍고 연결은 허용(또는 거부)하여 500 에러 방지
+            log.error("WebSocket Token Error: {}", e.getMessage());
+            return true; // 혹은 false로 리턴하여 연결 거부
         }
 
-        String category = jwtUtil.getCategory(token);
-        if (!"access".equals(category)) {
-            log.debug("ws.handshake invalid category={}", category);
-            return true;
-        }
-
-        String username = jwtUtil.getUsername(token);
-        String role = jwtUtil.getRole(token);
-        attributes.put("principal", new WebSocketPrincipal(username));
-        attributes.put("role", role);
-        log.debug("ws.handshake principal set username={} role={}", username, role);
+//        String category = jwtUtil.getCategory(token);
+//        if (!"access".equals(category)) return true;
+//
+//        String username = jwtUtil.getUsername(token);
+//        String role = jwtUtil.getRole(token);
+//
+//        attributes.put("principal", new WebSocketPrincipal(username));
+//        attributes.put("role", role);
+//
+//        if (log.isDebugEnabled()) {
+//            log.debug("ws.handshake principal set username={} role={}", username, role);
+//        }
 
         return true;
     }
@@ -81,37 +99,34 @@ public class WebSocketAuthHandshakeInterceptor implements HandshakeInterceptor {
     ) {
     }
 
+    // =========================
+    // 토큰 추출
+    // =========================
     private String resolveToken(HttpServletRequest request) {
+        // 1) Authorization: Bearer xxx
         String auth = request.getHeader("Authorization");
         if (auth != null && auth.startsWith("Bearer ")) {
             return auth.substring(7);
         }
 
+        // 2) legacy header
         String legacy = request.getHeader("access");
         if (legacy != null && !legacy.isBlank()) {
             return legacy;
         }
 
+        // 3) cookie
         Cookie[] cookies = request.getCookies();
-        if (cookies == null) {
-            return null;
-        }
+        if (cookies == null) return null;
+
         for (Cookie cookie : cookies) {
             if ("access".equals(cookie.getName())) {
                 return cookie.getValue();
             }
         }
+
         return null;
     }
-
-    private String cookieNames(Cookie[] cookies) {
-        StringBuilder builder = new StringBuilder();
-        for (int i = 0; i < cookies.length; i++) {
-            if (i > 0) {
-                builder.append(',');
-            }
-            builder.append(cookies[i].getName());
-        }
-        return builder.toString();
-    }
 }
+
+

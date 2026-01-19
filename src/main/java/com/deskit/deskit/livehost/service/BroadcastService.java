@@ -242,8 +242,9 @@ public class BroadcastService {
                     category, request.getTitle(), request.getNotice(),
                     request.getThumbnailUrl(), request.getWaitScreenUrl()
             );
-            sseService.notifyBroadcastUpdate(broadcastId);
         }
+
+        sseService.notifyBroadcastUpdate(broadcastId);
 
         return broadcast.getBroadcastId();
     }

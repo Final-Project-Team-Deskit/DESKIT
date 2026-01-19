@@ -13,16 +13,25 @@ import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
+import org.springframework.http.HttpStatus;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.web.AuthenticationEntryPoint;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.authentication.DelegatingAuthenticationEntryPoint;
+import org.springframework.security.web.authentication.HttpStatusEntryPoint;
+import org.springframework.security.web.authentication.LoginUrlAuthenticationEntryPoint;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.security.web.authentication.logout.LogoutFilter;
 import org.springframework.security.web.util.matcher.AntPathRequestMatcher;
+import org.springframework.security.web.util.matcher.RequestMatcher;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.Map;
+
 import org.springframework.security.config.annotation.web.configuration.WebSecurityCustomizer;
 
 @Configuration
@@ -46,6 +55,23 @@ public class SecurityConfig {
         this.customOAuth2FailureHandler = customOAuth2FailureHandler;
         this.jwtUtil = jwtUtil;
         this.refreshRepository = refreshRepository;
+    }
+
+    @Bean
+    public AuthenticationEntryPoint authenticationEntryPoint() {
+        Map<RequestMatcher, AuthenticationEntryPoint> map = new LinkedHashMap<>();
+
+        // API는 무조건 401(JSON)
+        map.put(new AntPathRequestMatcher("/api/**"), (request, response, ex) -> {
+            response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+            response.setContentType("application/json;charset=UTF-8");
+            response.getWriter().write("{\"message\":\"unauthorized\"}");
+        });
+
+        // 기본은 웹 앱 동작: /login으로 리다이렉트 (oauth2Login이 이 경로를 사용)
+        DelegatingAuthenticationEntryPoint delegating = new DelegatingAuthenticationEntryPoint((LinkedHashMap<RequestMatcher, AuthenticationEntryPoint>) map);
+        delegating.setDefaultEntryPoint(new LoginUrlAuthenticationEntryPoint("/login"));
+        return delegating;
     }
 
     @Bean
@@ -85,18 +111,6 @@ public class SecurityConfig {
         http
                 .httpBasic((auth) -> auth.disable());
 
-        http
-                .exceptionHandling(exception -> exception
-                        .defaultAuthenticationEntryPointFor(
-                                (request, response, authException) -> {
-                                    response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
-                                    response.setContentType("application/json;charset=UTF-8");
-                                    response.getWriter().write("{\"message\":\"인증이 필요합니다\"}");
-                                },
-                                new AntPathRequestMatcher("/api/**") // API만
-                        )
-                );
-
         //JWTFilter 추가
         http
                 .addFilterBefore(new JWTFilter(jwtUtil), UsernamePasswordAuthenticationFilter.class)
@@ -114,60 +128,87 @@ public class SecurityConfig {
                         .failureHandler(customOAuth2FailureHandler)
                 );
 
+        http.exceptionHandling(ex -> ex.authenticationEntryPoint(authenticationEntryPoint()));
+
+        http.exceptionHandling(exception -> exception
+                .authenticationEntryPoint((request, response, authException) -> {
+                    response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+                    response.setContentType("application/json;charset=UTF-8");
+                    response.getWriter().write("{\"message\":\"unauthorized\"}");
+                })
+        );
+
         //경로별 인가 작업
         http
                 .authorizeHttpRequests((auth) -> auth
-                        .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
-                        .requestMatchers(HttpMethod.PATCH, "/api/orders/**").hasAuthority("ROLE_MEMBER")
-                        .requestMatchers("/api/addresses/**").hasAuthority("ROLE_MEMBER")
-                        .requestMatchers(HttpMethod.PATCH, "/api/seller/products/**")
-                        .hasAnyAuthority("ROLE_SELLER", "ROLE_SELLER_OWNER", "ROLE_SELLER_MANAGER")
-                        .requestMatchers(HttpMethod.GET,
-                                "/api/products/**",
-                                "/api/setups/**",
-                                "/api/setup/**",
-                                "/api/products",
-                                "/api/setups",
-                                "/api/home/**",
-                                "/livechats/**",
-                                "/products/**",
-                                "/setups/**"
-                        ).permitAll()
-                        .requestMatchers(
-                                "/",
-                                "/chat",
-                                "/chat/**",
-                                "/reissue",
-                                "/api/home/**",
-                                "/api/broadcasts/**",
-                                "/api/categories",
-                                "/api/vods/**",
-                                "/api/webhook/**",
-                                "/api/admin/auth/**",
-                                "/api/invitations/validate",
-                                "/oauth/**",
-                                "/login",
-                                "/login/**",
-                                "/login/oauth2/**",
-                                "/ws/**",
-                                "/api/signup/**"
-                        ).permitAll()
-                        .requestMatchers("/api/admin/**").hasAuthority("ROLE_ADMIN")
-                        .requestMatchers("/api/quit").hasAnyAuthority(
-                                "ROLE_MEMBER",
-                                "ROLE_SELLER_OWNER",
-                                "ROLE_SELLER_MANAGER"
-                        )
-                        .requestMatchers("/api/my/member-id").hasAuthority("ROLE_MEMBER")
-                        .requestMatchers("/api/my/settings/**").hasAuthority("ROLE_MEMBER")
-                        .requestMatchers("/api/my").hasAnyAuthority(
-                                "ROLE_MEMBER",
-                                "ROLE_SELLER",
-                                "ROLE_SELLER_OWNER",
-                                "ROLE_SELLER_MANAGER",
-                                "ROLE_ADMIN"
-                        )
-                        .anyRequest().authenticated());
+                        .anyRequest().permitAll()
+                );
+
+//        .requestMatchers("/ws/info/**", "/ws/**").permitAll()
+//                .requestMatchers(
+//                        "/",
+//                        "/index.html",
+//                        "/favicon.ico",
+//                        "/assets/**",
+//                        "/css/**",
+//                        "/js/**",
+//                        "/images/**",
+//                        "/*.js",
+//                        "/*.css",
+//                        "/*.png",
+//                        "/*.jpg",
+//                        "/*.svg"
+//                ).permitAll()
+//                .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
+//                .requestMatchers(HttpMethod.PATCH, "/api/orders/**").hasAuthority("ROLE_MEMBER")
+//                .requestMatchers("/api/addresses/**").hasAuthority("ROLE_MEMBER")
+//                .requestMatchers(HttpMethod.PATCH, "/api/seller/products/**")
+//                .hasAnyAuthority("ROLE_SELLER", "ROLE_SELLER_OWNER", "ROLE_SELLER_MANAGER")
+//                .requestMatchers(HttpMethod.GET,
+//                        "/api/products/**",
+//                        "/api/setups/**",
+//                        "/api/setup/**",
+//                        "/api/products",
+//                        "/api/setups",
+//                        "/api/home/**",
+//                        "/livechats/**",
+//                        "/products/**",
+//                        "/setups/**"
+//                ).permitAll()
+//                .requestMatchers(
+//                        "/",
+//                        "/chat",
+//                        "/chat/**",
+//                        "/reissue",
+//                        "/api/home/**",
+//                        "/api/broadcasts/**",
+//                        "/api/categories",
+//                        "/api/vods/**",
+//                        "/api/webhook/**",
+//                        "/api/admin/auth/**",
+//                        "/api/invitations/validate",
+//                        "/oauth/**",
+//                        "/login",
+//                        "/login/**",
+//                        "/login/oauth2/**",
+//                        "/ws/**",
+//                        "/api/signup/**"
+//                ).permitAll()
+//                .requestMatchers("/api/admin/**").hasAuthority("ROLE_ADMIN")
+//                .requestMatchers("/api/quit").hasAnyAuthority(
+//                        "ROLE_MEMBER",
+//                        "ROLE_SELLER_OWNER",
+//                        "ROLE_SELLER_MANAGER"
+//                )
+//                .requestMatchers("/api/my/member-id").hasAuthority("ROLE_MEMBER")
+//                .requestMatchers("/api/my/settings/**").hasAuthority("ROLE_MEMBER")
+//                .requestMatchers("/api/my").hasAnyAuthority(
+//                        "ROLE_MEMBER",
+//                        "ROLE_SELLER",
+//                        "ROLE_SELLER_OWNER",
+//                        "ROLE_SELLER_MANAGER",
+//                        "ROLE_ADMIN"
+//                )
 
         //세션 설정 : STATELESS -> IF_REQUIRED
         http
@@ -177,8 +218,4 @@ public class SecurityConfig {
         return http.build();
     }
 
-    @Bean
-    public WebSecurityCustomizer webSecurityCustomizer() {
-        return (web) -> web.ignoring().requestMatchers("/ws/**");
-    }
 }

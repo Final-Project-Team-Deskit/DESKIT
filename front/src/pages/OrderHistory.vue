@@ -370,8 +370,8 @@ onMounted(() => {
         <div class="card-grid">
           <div class="info">
             <div class="info__row header">
-              <div class="thumb" :class="{ 'thumb--empty': !thumbOf(order) }">
-                <img v-if="thumbOf(order)" :src="thumbOf(order)" :alt="order.items[0]?.name || '상품'" />
+              <div class="thumb ds-thumb-frame ds-thumb-square" :class="{ 'thumb--empty': !thumbOf(order) }">
+                <img v-if="thumbOf(order)" class="ds-thumb-img" :src="thumbOf(order)" :alt="order.items[0]?.name || '상품'" />
                 <span v-else class="thumb__ph">DESKIT</span>
               </div>
               <div class="header-block">
@@ -710,18 +710,10 @@ onMounted(() => {
   border-radius: 14px;
   overflow: hidden;
   border: 1px solid var(--border-color);
-  background: var(--surface-weak);
   display: flex;
   align-items: center;
   justify-content: center;
   flex: 0 0 auto;
-}
-
-.thumb img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  display: block;
 }
 
 .thumb__ph {
@@ -731,9 +723,6 @@ onMounted(() => {
   letter-spacing: 0.06em;
 }
 
-.thumb--empty {
-  background: linear-gradient(135deg, var(--surface-weak), var(--surface));
-}
 
 .items-list {
   margin-top: 8px;

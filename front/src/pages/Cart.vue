@@ -254,7 +254,9 @@ onBeforeUnmount(() => {
               </label>
 
               <div class="cart-item__main">
-                <img :src="item.imageUrl" :alt="item.name" class="cart-item__thumb" />
+                <div class="cart-item__thumb ds-thumb-frame ds-thumb-square">
+                  <img class="ds-thumb-img" :src="item.imageUrl" :alt="item.name" />
+                </div>
                 <div class="cart-item__info">
                   <h3 class="cart-title">{{ item.name }}</h3>
                   <div class="cart-pricing">
@@ -472,7 +474,6 @@ onBeforeUnmount(() => {
   width: 96px;
   height: 96px;
   border-radius: 12px;
-  object-fit: cover;
 }
 
 .cart-item__info {

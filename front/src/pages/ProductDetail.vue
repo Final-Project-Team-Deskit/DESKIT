@@ -274,18 +274,18 @@ onBeforeUnmount(() => {
       <div class="media">
         <div class="thumbs" v-if="imageList.length">
           <button
-              v-for="(img, idx) in imageList"
-              :key="`${img ?? ''}-${idx}`"
-              type="button"
-              class="thumb-btn"
-              :class="{ active: idx === selectedImageIndex }"
-              @click="selectedImageIndex = idx"
+            v-for="(img, idx) in imageList"
+            :key="`${img ?? ''}-${idx}`"
+            type="button"
+            class="thumb-btn ds-thumb-frame ds-thumb-square"
+            :class="{ active: idx === selectedImageIndex }"
+            @click="selectedImageIndex = idx"
           >
-            <img :src="img || placeholderImage" :alt="`${product.name} 썸네일 ${idx + 1}`" @error="handleImageError" />
+            <img class="ds-thumb-img" :src="img || placeholderImage" :alt="`${product.name} 썸네일 ${idx + 1}`" @error="handleImageError" />
           </button>
         </div>
-        <div class="main-image">
-          <img :src="selectedImage" :alt="product.name" @error="handleImageError" />
+        <div class="main-image ds-thumb-frame">
+          <img class="ds-thumb-img" :src="selectedImage" :alt="product.name" @error="handleImageError" />
         </div>
       </div>
 
@@ -417,7 +417,7 @@ onBeforeUnmount(() => {
 .main-image {
   flex: 1;
   min-height: 260px;
-  background: var(--surface-weak);
+  background: #fff;
   border-radius: 12px;
   overflow: hidden;
   box-shadow: 0 10px 24px rgba(15, 23, 42, 0.06);
