@@ -33,7 +33,7 @@ import { useNow } from '../../lib/live/useNow'
 import { getAuthUser } from '../../lib/auth'
 import { resolveViewerId } from '../../lib/live/viewer'
 import { computeLifecycleStatus, getScheduledEndMs, normalizeBroadcastStatus, type BroadcastStatus } from '../../lib/broadcastStatus'
-import { createImageErrorHandler } from '../../lib/images/productImages'
+import { createImageErrorHandler, resolveProductImageUrlFromRaw } from '../../lib/images/productImages'
 // import { resolveWsBase } from '../../lib/ws'
 import SockJS from 'sockjs-client/dist/sockjs'
 import { resolveSockJsUrl } from '../../lib/ws'
@@ -480,7 +480,7 @@ const mapStreamProduct = (product: NonNullable<BroadcastDetailResponse['products
     sale: formatPrice(product.bpPrice),
     sold,
     stock: stockQty,
-    thumb: product.imageUrl ?? '',
+    thumb: resolveProductImageUrlFromRaw(product),
     pinned: product.pinned,
   }
 }
