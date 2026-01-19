@@ -53,7 +53,7 @@
 .ds-thumb-frame {
   width: 100%;
   overflow: hidden;
-  background: var(--surface-weak);
+  background: #fff;
   position: relative;
 }
 
