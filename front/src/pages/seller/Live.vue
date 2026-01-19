@@ -334,7 +334,7 @@ const mapBroadcastItem = (item: any, kind: 'live' | 'scheduled' | 'vod'): LiveIt
   const endAtMs = item.endAt ? parseLiveDate(item.endAt).getTime() : getScheduledEndMs(startAtMs)
   const status = normalizeBroadcastStatus(item.status)
   const rawPublic = item.isPublic ?? item.public
-  const visibility = typeof rawPublic === 'boolean' ? (rawPublic ? 'public' : 'private') : 'public'
+  const visibility = typeof rawPublic === 'boolean' ? (rawPublic ? 'public' : 'private') : 'private'
   const dateLabel = formatDateTime(startAtValue)
   const datetime = kind === 'vod' ? (dateLabel ? `업로드: ${dateLabel}` : '') : dateLabel
   const viewers = typeof item.liveViewerCount === 'number'

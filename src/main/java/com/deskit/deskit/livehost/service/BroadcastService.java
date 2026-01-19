@@ -733,6 +733,9 @@ public class BroadcastService {
         if (vod.isVodAdminLock() && nextStatus == VodStatus.PUBLIC) {
             throw new BusinessException(ErrorCode.VOD_ADMIN_LOCKED);
         }
+        if (broadcast.getStatus() == BroadcastStatus.STOPPED && nextStatus == VodStatus.PUBLIC) {
+            throw new BusinessException(ErrorCode.INVALID_INPUT_VALUE);
+        }
         vod.changeStatus(nextStatus);
         return nextStatus.name();
     }
@@ -1059,7 +1062,7 @@ public class BroadcastService {
         int likes = 0;
         int reports = 0;
 
-        if (isLiveGroup(broadcast.getStatus())) {
+        if (shouldUseRealtimeStats(broadcast.getStatus())) {
             views = redisService.getRealtimeViewerCount(broadcastId);
             likes = redisService.getLikeCount(broadcastId);
             reports = redisService.getReportCount(broadcastId);
@@ -1068,7 +1071,7 @@ public class BroadcastService {
             if (result != null) {
                 views = result.getTotalViews();
                 likes = result.getTotalLikes();
-                reports = sanctionRepository.countByBroadcast(broadcast);
+                reports = result.getTotalReports();
             }
         }
 

@@ -45,9 +45,7 @@ public class OpenViduService {
             return existingSession.getSessionId();
         }
 
-        RecordingProperties recordingProperties = new RecordingProperties.Builder()
-                .outputMode(Recording.OutputMode.COMPOSED)
-                .build();
+        RecordingProperties recordingProperties = buildRecordingProperties();
 
         SessionProperties properties = new SessionProperties.Builder()
                 .customSessionId(customSessionId)
@@ -126,7 +124,15 @@ public class OpenViduService {
             }
         }
 
-        openVidu.startRecording(sessionId);
+        openVidu.startRecording(sessionId, buildRecordingProperties());
+    }
+
+    private RecordingProperties buildRecordingProperties() {
+        return new RecordingProperties.Builder()
+                .outputMode(Recording.OutputMode.COMPOSED) // 방송 화면 그대로(하나의 비디오) 녹화
+                .hasAudio(true)
+                .hasVideo(true)
+                .build();
     }
 
     public void stopRecording(Long broadcastId) throws OpenViduJavaClientException, OpenViduHttpException {
