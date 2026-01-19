@@ -7,6 +7,7 @@ import PageHeader from '../components/PageHeader.vue'
 import { getAuthUser, hydrateSessionUser } from '../lib/auth'
 import { resolveViewerId } from '../lib/live/viewer'
 import { SimpleStompClient } from '../lib/stomp-client'
+import { resolveWsUrl } from '../lib/ws'
 
 type ChatRole = 'user' | 'bot' | 'system'
 
@@ -144,20 +145,7 @@ const loadDirectChatHistory = async () => {
   }
 }
 
-const wsEndpoint = computed(() => {
-  const origin = window.location.origin
-  let url: URL
-  try {
-    url = new URL(apiBase || origin, origin)
-  } catch {
-    url = new URL(origin)
-  }
-  url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
-  const normalizedPath = url.pathname.replace(/\/api\/?$/, '').replace(/\/$/, '')
-  url.pathname = normalizedPath || '/'
-  const base = url.toString().replace(/\/$/, '')
-  return `${base}/ws-live/websocket`
-})
+const wsEndpoint = computed(() => resolveWsUrl(apiBase, '/ws'))
 
 const fetchWithCredentials = (url: string, options: RequestInit = {}) =>
   fetch(url, { credentials: 'include', ...options })
