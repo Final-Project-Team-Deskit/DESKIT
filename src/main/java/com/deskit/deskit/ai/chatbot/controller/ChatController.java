@@ -1,4 +1,4 @@
-﻿package com.deskit.deskit.ai.chatbot.controller;
+package com.deskit.deskit.ai.chatbot.controller;
 
 import com.deskit.deskit.account.entity.Member;
 import com.deskit.deskit.account.oauth.CustomOAuth2User;
