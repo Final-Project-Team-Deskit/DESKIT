@@ -572,17 +572,9 @@ onMounted(() => {
 
 .thumb {
   width: 100%;
-  aspect-ratio: 4 / 3;
-  background: var(--surface-weak);
   display: flex;
   align-items: center;
   justify-content: center;
-}
-
-.thumb img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
 }
 
 .product-body {

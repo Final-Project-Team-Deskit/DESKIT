@@ -57,18 +57,9 @@ const discountRate = computed(() => {
 
 .thumb {
   aspect-ratio: 1 / 1;
-  background: var(--surface-weak);
   position: relative;
   width: 100%;
   overflow: hidden;
-}
-
-.thumb img {
-  display: block;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  object-position: center;
 }
 
 .body {

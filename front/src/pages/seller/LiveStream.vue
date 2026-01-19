@@ -2353,14 +2353,7 @@ const toggleFullscreen = async () => {
   height: 64px;
   border-radius: 12px;
   overflow: hidden;
-  background: linear-gradient(135deg, #1f2937, #0f172a);
-}
-
-.panel-thumb img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  display: block;
+  background: #fff;
 }
 
 .panel-meta {

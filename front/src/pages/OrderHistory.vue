@@ -710,18 +710,10 @@ onMounted(() => {
   border-radius: 14px;
   overflow: hidden;
   border: 1px solid var(--border-color);
-  background: var(--surface-weak);
   display: flex;
   align-items: center;
   justify-content: center;
   flex: 0 0 auto;
-}
-
-.thumb img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  display: block;
 }
 
 .thumb__ph {
@@ -731,9 +723,6 @@ onMounted(() => {
   letter-spacing: 0.06em;
 }
 
-.thumb--empty {
-  background: linear-gradient(135deg, var(--surface-weak), var(--surface));
-}
 
 .items-list {
   margin-top: 8px;
