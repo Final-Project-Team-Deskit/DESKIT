@@ -8,7 +8,7 @@ import {
 } from './api-text-json'
 
 const normalizeSetup = (raw: any): SetupWithProducts => {
-  const productIdsRaw = raw?.product_ids ?? raw?.productIds
+  const productIdsRaw = raw?.product_ids ?? raw?.productIds ?? raw?.productIdsRaw
   const setupProducts = raw?.setup_products ?? raw?.setupProducts
   const products = raw?.products
   const collectIds = (items: any[]) =>
@@ -33,10 +33,15 @@ const normalizeSetup = (raw: any): SetupWithProducts => {
   const uniqueProductIds = Array.from(new Set(product_ids))
   const tags = Array.isArray(raw?.tags) ? raw.tags : []
   return {
-    setup_id: raw?.setup_id ?? raw?.id ?? 0,
-    title: raw?.title ?? raw?.name ?? '',
-    short_desc: raw?.short_desc ?? raw?.description ?? '',
-    imageUrl: raw?.imageUrl ?? raw?.image_url ?? '/placeholder-setup.jpg',
+    setup_id: raw?.setup_id ?? raw?.setupId ?? raw?.id ?? 0,
+    title: raw?.title ?? raw?.setupName ?? raw?.setup_name ?? raw?.setup_title ?? raw?.name ?? '',
+    short_desc: raw?.short_desc ?? raw?.shortDesc ?? raw?.description ?? raw?.shortDescription ?? '',
+    imageUrl:
+      raw?.imageUrl ??
+      raw?.image_url ??
+      raw?.setupImageUrl ??
+      raw?.setup_image_url ??
+      '/placeholder-setup.jpg',
     product_ids: uniqueProductIds,
     tags,
     tip: raw?.tip_text ?? raw?.tipText ?? raw?.tip ?? '',
