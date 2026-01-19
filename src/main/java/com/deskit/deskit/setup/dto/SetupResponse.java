@@ -73,27 +73,37 @@ public class SetupResponse {
    * - 엔티티 필드명(setupName 등)과 응답 필드명(name 등)을 여기서 매핑
    */
   public static SetupResponse from(Setup setup, SetupTags tags, List<String> tagsFlat) {
+    return from(setup, tags, tagsFlat, setup.getSetupImageUrl());
+  }
+
+  public static SetupResponse from(Setup setup, SetupTags tags, List<String> tagsFlat,
+                                   List<Long> productIds) {
+    return from(setup, tags, tagsFlat, productIds, setup.getSetupImageUrl());
+  }
+
+  public static SetupResponse from(Setup setup, SetupTags tags, List<String> tagsFlat,
+                                   String setupImageUrl) {
     return new SetupResponse(
             setup.getId(),
             setup.getSellerId(),
             setup.getSetupName(),      // 엔티티 setupName -> 응답 name
             setup.getShortDesc(),
             setup.getTipText(),
-            setup.getSetupImageUrl(),
+            setupImageUrl,
             tags,
             tagsFlat
     );
   }
 
   public static SetupResponse from(Setup setup, SetupTags tags, List<String> tagsFlat,
-                                   List<Long> productIds) {
+                                   List<Long> productIds, String setupImageUrl) {
     return new SetupResponse(
             setup.getId(),
             setup.getSellerId(),
             setup.getSetupName(),      // 엔티티 setupName -> 응답 name
             setup.getShortDesc(),
             setup.getTipText(),
-            setup.getSetupImageUrl(),
+            setupImageUrl,
             productIds,
             tags,
             tagsFlat
