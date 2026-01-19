@@ -143,8 +143,9 @@ const updateStatus = async (product: SellerProduct, nextStatus: ProductStatus) =
   if (updatingStatus.value[product.product_id]) return
   updatingStatus.value = { ...updatingStatus.value, [product.product_id]: true }
   const base = import.meta.env.VITE_API_BASE_URL ?? ''
+  const apiBase = base.endsWith('/api') ? base.slice(0, -4) : base
   try {
-    const response = await fetch(`${base}/api/seller/products/${product.product_id}/status`, {
+    const response = await fetch(`${apiBase}/api/seller/products/${product.product_id}/status`, {
       method: 'PATCH',
       credentials: 'include',
       headers: {
