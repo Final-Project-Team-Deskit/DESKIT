@@ -1059,7 +1059,7 @@ public class BroadcastService {
         int likes = 0;
         int reports = 0;
 
-        if (isLiveGroup(broadcast.getStatus())) {
+        if (shouldUseRealtimeStats(broadcast.getStatus())) {
             views = redisService.getRealtimeViewerCount(broadcastId);
             likes = redisService.getLikeCount(broadcastId);
             reports = redisService.getReportCount(broadcastId);
@@ -1068,7 +1068,7 @@ public class BroadcastService {
             if (result != null) {
                 views = result.getTotalViews();
                 likes = result.getTotalLikes();
-                reports = sanctionRepository.countByBroadcast(broadcast);
+                reports = result.getTotalReports();
             }
         }
 
