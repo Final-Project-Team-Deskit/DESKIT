@@ -919,6 +919,11 @@ public class BroadcastService {
             log.warn("Invalid OpenVidu sessionId for VOD processing: {}", payload.getSessionId());
             return;
         }
+
+        if (payload.getId() == null || payload.getId().isBlank()) {
+            log.warn("Missing recording id for VOD processing: sessionId={}", payload.getSessionId());
+            return;
+        }
         Broadcast broadcast = broadcastRepository.findById(broadcastId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.BROADCAST_NOT_FOUND));
 
