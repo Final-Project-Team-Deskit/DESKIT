@@ -33,7 +33,7 @@ import { useNow } from '../../lib/live/useNow'
 import { getAuthUser } from '../../lib/auth'
 import { resolveViewerId } from '../../lib/live/viewer'
 import { computeLifecycleStatus, getScheduledEndMs, normalizeBroadcastStatus, type BroadcastStatus } from '../../lib/broadcastStatus'
-import { createImageErrorHandler } from '../../lib/images/productImages'
+import { createImageErrorHandler, resolveProductImageUrlFromRaw } from '../../lib/images/productImages'
 // import { resolveWsBase } from '../../lib/ws'
 import SockJS from 'sockjs-client/dist/sockjs'
 import { resolveSockJsUrl } from '../../lib/ws'
@@ -480,7 +480,7 @@ const mapStreamProduct = (product: NonNullable<BroadcastDetailResponse['products
     sale: formatPrice(product.bpPrice),
     sold,
     stock: stockQty,
-    thumb: product.imageUrl ?? '',
+    thumb: resolveProductImageUrlFromRaw(product),
     pinned: product.pinned,
   }
 }
@@ -709,7 +709,11 @@ const resetOpenViduState = () => {
   }
 }
 
-const attachPublisherHandlers = (publisher: Publisher) => {
+const attachPublisherHandlers = (publisher: Publisher, broadcastId?: number) => {
+  publisher.on('streamCreated', () => {
+    if (!broadcastId) return
+    void requestStartRecording(broadcastId)
+  })
   publisher.on('streamDestroyed', (event: StreamEvent) => {
     event.preventDefault()
   })
@@ -773,7 +777,8 @@ const restartPublisher = async () => {
       buildPublisherOptions(),
     )
     openviduPublisher.value = publisher
-    attachPublisherHandlers(publisher)
+    const broadcastId = streamId.value ? Number(streamId.value) : undefined
+    attachPublisherHandlers(publisher, Number.isNaN(broadcastId) ? undefined : broadcastId)
     await openviduSession.value.publish(publisher)
     applyPublisherVolume()
   } catch {
@@ -798,7 +803,7 @@ const connectPublisher = async (broadcastId: number, token: string) => {
       buildPublisherOptions(),
     )
     openviduPublisher.value = publisher
-    attachPublisherHandlers(publisher)
+    attachPublisherHandlers(publisher, broadcastId)
     await openviduSession.value.publish(publisher)
     openviduConnected.value = true
     applyPublisherVolume()

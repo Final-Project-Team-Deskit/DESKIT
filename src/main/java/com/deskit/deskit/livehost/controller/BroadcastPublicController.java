@@ -9,6 +9,7 @@ import com.deskit.deskit.livehost.dto.response.BroadcastStatsResponse;
 import com.deskit.deskit.livehost.service.BroadcastService;
 import com.deskit.deskit.livehost.service.SseService;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PageableDefault;
 import org.springframework.http.MediaType;
@@ -29,6 +30,7 @@ import java.util.List;
 @RestController
 @RequestMapping("/api")
 @RequiredArgsConstructor
+@Slf4j
 public class BroadcastPublicController {
 
     private final BroadcastService broadcastService;
@@ -131,8 +133,17 @@ public class BroadcastPublicController {
 
     @PostMapping("/webhook/openvidu")
     public ResponseEntity<Void> handleWebhook(@RequestBody OpenViduRecordingWebhook payload) {
+        if (payload == null) {
+            log.warn("OpenVidu webhook payload is null");
+            return ResponseEntity.ok().build();
+        }
+
         if ("recordingStatusChanged".equals(payload.getEvent()) && "ready".equals(payload.getStatus())) {
-            broadcastService.processVod(payload);
+            try {
+                broadcastService.processVod(payload);
+            } catch (Exception ex) {
+                log.error("OpenVidu webhook processing failed: {}", payload, ex);
+            }
         }
         return ResponseEntity.ok().build();
     }
