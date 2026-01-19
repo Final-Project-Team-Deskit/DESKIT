@@ -11,8 +11,12 @@ export const extractImageUrl = (image: any): string => {
   const direct =
     image?.product_image_url ??
     image?.productImageUrl ??
+    image?.product_thumbnail_url ??
+    image?.productThumbnailUrl ??
     image?.image_url ??
     image?.imageUrl ??
+    image?.thumb_url ??
+    image?.thumbUrl ??
     image?.thumbnail_url ??
     image?.thumbnailUrl
   if (direct) return direct
