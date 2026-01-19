@@ -733,6 +733,9 @@ public class BroadcastService {
         if (vod.isVodAdminLock() && nextStatus == VodStatus.PUBLIC) {
             throw new BusinessException(ErrorCode.VOD_ADMIN_LOCKED);
         }
+        if (broadcast.getStatus() == BroadcastStatus.STOPPED && nextStatus == VodStatus.PUBLIC) {
+            throw new BusinessException(ErrorCode.INVALID_INPUT_VALUE);
+        }
         vod.changeStatus(nextStatus);
         return nextStatus.name();
     }
