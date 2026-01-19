@@ -1955,11 +1955,27 @@ public class BroadcastService {
 
     private List<BroadcastProductResponse> getProductListResponse(Broadcast broadcast) {
         Map<Long, Integer> remainingQuantities = calculateRemainingQuantities(broadcast, broadcast.getProducts());
+        List<Long> productIds = broadcast.getProducts().stream()
+                .map(bp -> bp.getProduct().getId())
+                .distinct()
+                .toList();
+        Map<Long, String> thumbnailUrls = productIds.isEmpty()
+                ? Collections.emptyMap()
+                : productImageRepository
+                .findAllByProductIdInAndImageTypeAndSlotIndexAndDeletedAtIsNullOrderByProductIdAscIdAsc(
+                        productIds, ImageType.THUMBNAIL, 0
+                ).stream()
+                .collect(Collectors.toMap(
+                        ProductImage::getProductId,
+                        ProductImage::getProductImageUrl,
+                        (left, right) -> left
+                ));
         return broadcast.getProducts().stream()
-                .map(bp -> BroadcastProductResponse.fromEntity(
+                .map(bp -> BroadcastProductResponse.fromEntityWithImageUrl(
                         bp,
                         remainingQuantities.getOrDefault(bp.getProduct().getId(), bp.getBpQuantity()),
-                        resolveOriginalPrice(broadcast, bp)
+                        resolveOriginalPrice(broadcast, bp),
+                        thumbnailUrls.get(bp.getProduct().getId())
                 ))
                 .collect(Collectors.toList());
     }
