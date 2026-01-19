@@ -8,7 +8,6 @@ import io.openvidu.java.client.OpenViduHttpException;
 import io.openvidu.java.client.OpenViduJavaClientException;
 import io.openvidu.java.client.OpenViduRole;
 import io.openvidu.java.client.Recording;
-import io.openvidu.java.client.RecordingLayout;
 import io.openvidu.java.client.RecordingMode;
 import io.openvidu.java.client.RecordingProperties;
 import io.openvidu.java.client.Session;
@@ -134,8 +133,7 @@ public class OpenViduService {
 
     private RecordingProperties buildRecordingProperties() {
         return new RecordingProperties.Builder()
-                .outputMode(Recording.OutputMode.COMPOSED) // 판매자(퍼블리셔) 스트림만 보이도록 단일 파일로 녹화
-                .recordingLayout(RecordingLayout.BEST_FIT)
+                .outputMode(Recording.OutputMode.INDIVIDUAL) // 퍼블리셔 스트림을 개별 파일로 저장
                 .hasAudio(true)
                 .hasVideo(true)
                 .build();

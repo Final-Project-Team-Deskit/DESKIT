@@ -85,6 +85,7 @@ import java.util.Collections;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.nio.file.StandardCopyOption;
 import java.security.cert.X509Certificate;
 import java.time.Duration;
 import java.time.LocalDate;
@@ -97,6 +98,8 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipInputStream;
 
 import static org.jooq.impl.DSL.field;
 import static org.jooq.impl.DSL.name;
@@ -1025,34 +1028,24 @@ public class BroadcastService {
             attempts++;
             try {
                 disableSslVerification();
+                String baseUrl = openViduUrl.replaceAll("/$", "");
+                String zipUrl = baseUrl + "/openvidu/recordings/" + recordingId + "/" + recordingId + ".zip";
+                String mp4Url = baseUrl + "/openvidu/recordings/" + recordingId + "/" + recordingId + ".mp4";
 
-                String videoUrl = openViduUrl.replaceAll("/$", "") +
-                        "/openvidu/recordings/" + recordingId + "/" + recordingId + ".mp4";
+                String s3Url = uploadFromIndividualZip(zipUrl, s3Key);
+                if (s3Url == null) {
+                    s3Url = uploadFromSingleMp4(mp4Url, s3Key);
+                }
 
-                URL url = new URL(videoUrl);
-                HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-                conn.setRequestMethod("GET");
-
-                String auth = "OPENVIDUAPP:" + openViduSecret;
-                String encodedAuth = Base64.getEncoder().encodeToString(auth.getBytes());
-                conn.setRequestProperty("Authorization", "Basic " + encodedAuth);
-
-                int responseCode = conn.getResponseCode();
-                if (responseCode == HttpURLConnection.HTTP_OK) {
-                    try (InputStream inputStream = conn.getInputStream()) {
-                        long contentLength = conn.getContentLengthLong();
-                        String s3Url = s3Service.uploadVodStream(inputStream, s3Key, contentLength);
-                        log.info("VOD Upload Success: {}", s3Url);
-                        try {
-                            openViduService.deleteRecording(recordingId);
-                        } catch (OpenViduJavaClientException | OpenViduHttpException e) {
-                            log.warn("Failed to delete OpenVidu recording after upload: recordingId={}, reason={}",
-                                    recordingId, e.getMessage());
-                        }
-                        return s3Url;
+                if (s3Url != null && !s3Url.isBlank()) {
+                    log.info("VOD Upload Success: {}", s3Url);
+                    try {
+                        openViduService.deleteRecording(recordingId);
+                    } catch (OpenViduJavaClientException | OpenViduHttpException e) {
+                        log.warn("Failed to delete OpenVidu recording after upload: recordingId={}, reason={}",
+                                recordingId, e.getMessage());
                     }
-                } else {
-                    log.error("Failed to fetch recording from OpenVidu: {}", responseCode);
+                    return s3Url;
                 }
             } catch (Exception e) {
                 log.error("VOD Processing Error (attempt {}): {}", attempts, e.getMessage());
@@ -1066,6 +1059,103 @@ public class BroadcastService {
             }
         }
         return fallbackUrl;
+    }
+
+    private String uploadFromIndividualZip(String zipUrl, String s3Key) {
+        HttpURLConnection conn = null;
+        Path bestEntry = null;
+        long bestSize = -1L;
+        try {
+            conn = openAuthorizedConnection(zipUrl);
+            if (conn.getResponseCode() != HttpURLConnection.HTTP_OK) {
+                log.warn("Individual recording zip not found: status={}", conn.getResponseCode());
+                return null;
+            }
+
+            try (ZipInputStream zipInputStream = new ZipInputStream(conn.getInputStream())) {
+                ZipEntry entry;
+                while ((entry = zipInputStream.getNextEntry()) != null) {
+                    if (entry.isDirectory()) {
+                        zipInputStream.closeEntry();
+                        continue;
+                    }
+                    String name = entry.getName();
+                    if (!name.toLowerCase().endsWith(".mp4")) {
+                        zipInputStream.closeEntry();
+                        continue;
+                    }
+                    Path temp = Files.createTempFile("openvidu-recording-", ".mp4");
+                    Files.copy(zipInputStream, temp, StandardCopyOption.REPLACE_EXISTING);
+                    long size = Files.size(temp);
+                    if (size > bestSize) {
+                        if (bestEntry != null) {
+                            Files.deleteIfExists(bestEntry);
+                        }
+                        bestEntry = temp;
+                        bestSize = size;
+                    } else {
+                        Files.deleteIfExists(temp);
+                    }
+                    zipInputStream.closeEntry();
+                }
+            }
+
+            if (bestEntry == null || bestSize <= 0) {
+                log.warn("No mp4 entry found in individual recording zip.");
+                return null;
+            }
+
+            try (InputStream inputStream = Files.newInputStream(bestEntry)) {
+                return s3Service.uploadVodStream(inputStream, s3Key, bestSize);
+            }
+        } catch (Exception e) {
+            log.warn("Failed to upload from individual recording zip: {}", e.getMessage());
+            return null;
+        } finally {
+            if (bestEntry != null) {
+                try {
+                    Files.deleteIfExists(bestEntry);
+                } catch (Exception e) {
+                    log.debug("Failed to cleanup temp recording file: {}", e.getMessage());
+                }
+            }
+            if (conn != null) {
+                conn.disconnect();
+            }
+        }
+    }
+
+    private String uploadFromSingleMp4(String mp4Url, String s3Key) {
+        HttpURLConnection conn = null;
+        try {
+            conn = openAuthorizedConnection(mp4Url);
+            int responseCode = conn.getResponseCode();
+            if (responseCode != HttpURLConnection.HTTP_OK) {
+                log.error("Failed to fetch recording from OpenVidu: {}", responseCode);
+                return null;
+            }
+            try (InputStream inputStream = conn.getInputStream()) {
+                long contentLength = conn.getContentLengthLong();
+                return s3Service.uploadVodStream(inputStream, s3Key, contentLength);
+            }
+        } catch (Exception e) {
+            log.warn("Failed to upload from single mp4 recording: {}", e.getMessage());
+            return null;
+        } finally {
+            if (conn != null) {
+                conn.disconnect();
+            }
+        }
+    }
+
+    private HttpURLConnection openAuthorizedConnection(String urlString) throws Exception {
+        URL url = new URL(urlString);
+        HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+        conn.setRequestMethod("GET");
+        String auth = "OPENVIDUAPP:" + openViduSecret;
+        String encodedAuth = Base64.getEncoder().encodeToString(auth.getBytes());
+        conn.setRequestProperty("Authorization", "Basic " + encodedAuth);
+        return conn;
     }
 
     @Transactional(readOnly = true)
