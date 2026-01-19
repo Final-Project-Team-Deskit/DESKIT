@@ -33,6 +33,7 @@ export const normalizeProduct = (raw: any): DbProduct => {
     product_id: raw?.product_id ?? raw?.id ?? 0,
     name: raw?.name ?? raw?.product_name ?? '',
     imageUrl: resolvePrimaryImage(imageSource) || PLACEHOLDER_IMAGE,
+    detailHtml: raw?.detailHtml ?? raw?.detail_html ?? '',
     created_dt: resolveTimestamp(
       raw?.created_at ?? raw?.created_dt ?? raw?.createdAt,
       raw?.created_dt ?? raw?.createdAt

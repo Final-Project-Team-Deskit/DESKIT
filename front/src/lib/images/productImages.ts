@@ -55,6 +55,22 @@ export const resolvePrimaryImage = (raw: any): string => {
   return list[0] ?? PLACEHOLDER_IMAGE
 }
 
+export const resolveProductImageUrlFromRaw = (raw: any): string => {
+  const primary = resolvePrimaryImage(raw) || PLACEHOLDER_IMAGE
+  if (primary.startsWith('http://') || primary.startsWith('https://')) return primary
+  if (primary.startsWith('/live-commerce-bucket/')) {
+    return `${getStorageBaseUrl()}${primary.replace(/^\/+live-commerce-bucket\/+/, '')}`
+  }
+  if (primary.startsWith('live-commerce-bucket/')) {
+    return `${getStorageBaseUrl()}${primary.replace(/^live-commerce-bucket\/+/, '')}`
+  }
+  if (primary.startsWith('seller_')) {
+    return `${getStorageBaseUrl()}${primary.replace(/^\/+/, '')}`
+  }
+  if (primary.startsWith('/')) return primary
+  return primary || PLACEHOLDER_IMAGE
+}
+
 const warnedImageSources = new Set<string>()
 
 export const createImageErrorHandler = () => {
