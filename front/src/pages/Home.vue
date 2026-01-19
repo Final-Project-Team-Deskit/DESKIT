@@ -222,10 +222,19 @@ const connectSse = () => {
   sseSource.value = source
 }
 
+const handleSseVisibilityChange = () => {
+  if (document.visibilityState !== 'visible') {
+    return
+  }
+  connectSse()
+}
+
 onMounted(() => {
   loadPopulars()
   loadLiveItems()
   connectSse()
+  window.addEventListener('visibilitychange', handleSseVisibilityChange)
+  window.addEventListener('focus', handleSseVisibilityChange)
   liveRefreshTimer = window.setInterval(() => {
     if (document.visibilityState === 'visible') {
       void updateLiveViewerCounts()
@@ -238,6 +247,8 @@ onBeforeUnmount(() => {
   liveRefreshTimer = null
   sseSource.value?.close()
   sseSource.value = null
+  window.removeEventListener('visibilitychange', handleSseVisibilityChange)
+  window.removeEventListener('focus', handleSseVisibilityChange)
   if (sseRetryTimer.value) window.clearTimeout(sseRetryTimer.value)
   sseRetryTimer.value = null
   if (refreshTimer.value) window.clearTimeout(refreshTimer.value)
