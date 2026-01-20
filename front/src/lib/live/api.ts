@@ -1,5 +1,6 @@
 import {http} from '../../api/http'
 import {parseLiveDate} from './utils'
+const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080'
 
 export type BroadcastCategory = {
   id: number
@@ -526,7 +527,7 @@ export const sanctionAdminViewer = async (
 }
 
 export const fetchRecentLiveChats = async (broadcastId: number, seconds = 60): Promise<LiveChatMessage[]> => {
-  const { data } = await http.get<ApiResult<LiveChatMessage[]>>(`/livechats/${broadcastId}/recent`, { params: { seconds } })
+  const { data } = await http.get<ApiResult<LiveChatMessage[]>>(`${apiBase}/livechats/${broadcastId}/recent`, { params: { seconds } })
   return ensureSuccess(data)
 }
 
