@@ -120,8 +120,6 @@ onBeforeUnmount(() => {
 })
 
 const isLiveActive = computed(() => route.path.startsWith('/live'))
-const isSellerRoute = computed(() => route.path.startsWith('/seller'))
-const isAdminRoute = computed(() => route.path.startsWith('/admin'))
 const activeSellerPath = computed(() => {
   const match = sellerTabs.find((tab) => route.path.startsWith(tab.to))
   return match?.to ?? ''
