@@ -321,7 +321,7 @@ const fetchRecentMessages = async () => {
   if (!broadcastId.value) return
   try {
     // const response = await fetch(`${wsBase}/livechats/${broadcastId.value}/recent?seconds=300`)
-    const response = await fetch(`${apiBase}/livechats/${broadcastId.value}/recent?seconds=300`)
+    const response = await fetch(`${apiBase}/livechats/${broadcastId.value}/recent?seconds=60`)
     if (!response.ok) return
     const recent = (await response.json()) as LiveChatMessageDTO[]
     if (!Array.isArray(recent)) return
