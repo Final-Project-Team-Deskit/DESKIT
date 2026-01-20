@@ -538,6 +538,8 @@ const messages = ref<ChatMessage[]>([])
 const input = ref('')
 const isLoggedIn = ref(true)
 const chatListRef = ref<HTMLDivElement | null>(null)
+const CHAT_SCROLL_THRESHOLD_PX = 120
+const showScrollToBottom = ref(false)
 const memberEmail = ref<string>("") // [확인] memberEmail ref
 const nickname = ref(`guest_${Math.floor(Math.random() * 1000)}`)
 const stompClient = ref<Client | null>(null)
@@ -596,7 +598,19 @@ const scrollToBottom = () => {
       return
     }
     chatListRef.value.scrollTop = chatListRef.value.scrollHeight
+    updateChatScrollIndicator()
   })
+}
+
+const updateChatScrollIndicator = () => {
+  const el = chatListRef.value
+  if (!el) return
+  const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight
+  showScrollToBottom.value = distanceFromBottom > CHAT_SCROLL_THRESHOLD_PX
+}
+
+const handleChatScroll = () => {
+  updateChatScrollIndicator()
 }
 
 const parseSseData = (event: MessageEvent) => {
@@ -1572,7 +1586,7 @@ onBeforeUnmount(() => {
             </div>
             <button type="button" class="chat-close" aria-label="채팅 닫기" @click="toggleChat">×</button>
           </header>
-          <div ref="chatListRef" class="chat-messages">
+          <div ref="chatListRef" class="chat-messages" @scroll="handleChatScroll">
             <div
               v-for="message in messages"
                 :key="message.id"
@@ -1586,6 +1600,18 @@ onBeforeUnmount(() => {
               <p class="chat-text">{{ message.text }}</p>
             </div>
           </div>
+          <button
+            v-if="showScrollToBottom"
+            type="button"
+            class="chat-scroll-button"
+            aria-label="아래로 이동"
+            @click="scrollToBottom"
+          >
+            <svg class="chat-scroll-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M12 5v12" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
+              <path d="M7 12l5 5 5-5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+          </button>
           <div class="chat-input">
             <input
               v-model="input"
@@ -2048,6 +2074,9 @@ onBeforeUnmount(() => {
   background: var(--surface);
   border: 1px solid var(--border-color);
   min-height: 0;
+  max-height: min(70vh, 720px);
+  overflow: hidden;
+  position: relative;
 }
 
 .chat-head {
@@ -2097,6 +2126,28 @@ onBeforeUnmount(() => {
   flex-direction: column;
   gap: 10px;
   padding-right: 4px;
+}
+
+.chat-scroll-button {
+  position: absolute;
+  right: 16px;
+  bottom: 64px;
+  width: 36px;
+  height: 36px;
+  border-radius: 999px;
+  border: 1px solid var(--border-color);
+  background: var(--surface);
+  color: var(--text-strong);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.12);
+}
+
+.chat-scroll-icon {
+  width: 18px;
+  height: 18px;
 }
 
 .chat-message {
@@ -2258,7 +2309,9 @@ onBeforeUnmount(() => {
 
   .chat-panel {
     width: 100%;
-    height: auto !important;
+    max-height: min(70vh, 720px);
+    overflow: hidden;
+    min-height: 0;
   }
 }
 </style>
