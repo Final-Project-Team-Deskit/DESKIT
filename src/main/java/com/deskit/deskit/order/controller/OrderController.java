@@ -22,7 +22,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
-import org.springframework.web.bind.annotation.PatchMapping;
+import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.server.ResponseStatusException;
 
 @RestController
@@ -63,7 +63,7 @@ public class OrderController {
     return ResponseEntity.ok(orderService.getMyOrderDetail(memberId, orderId));
   }
 
-  @PatchMapping("/{orderId}/cancel")
+  @RequestMapping(value = "/{orderId}/cancel", method = {RequestMethod.PATCH, RequestMethod.POST})
   public ResponseEntity<OrderCancelResponse> requestCancel(
           @AuthenticationPrincipal CustomOAuth2User user,
           @PathVariable("orderId") Long orderId,
