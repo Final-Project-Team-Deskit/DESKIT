@@ -1,4 +1,4 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import PageContainer from '../components/PageContainer.vue'
@@ -20,9 +20,9 @@ const isSeller = computed(() => {
   return normalized === 'SELLER' || normalized === 'ROLE_SELLER' || normalized === '판매자'
 })
 
-const headline = computed(() => (isSeller.value ? '판매자 가입 신청 완료' : '회원가입 완료'))
+const headline = computed(() => (isSeller.value ? '판매자 가입 완료' : '회원가입 완료'))
 const description = computed(() =>
-  isSeller.value ? '로그인 후 사용해주세요.' : 'DESKIT의 다양한 서비스를 이용해 보세요.',
+  isSeller.value ? '로그인 후 서비스를 이용해주세요.' : 'DESKIT의 다양한 서비스를 이용해보세요.',
 )
 
 const hydrateMessage = () => {
@@ -45,7 +45,7 @@ const hydrateMessage = () => {
   }
 
   if (isSeller.value && !message.value.trim()) {
-    message.value = '판매자 가입이 접수되었습니다. 관리자 승인을 기다려 주세요.'
+    message.value = '회원가입이 완료되었습니다.'
   }
 }
 
@@ -63,7 +63,7 @@ onMounted(() => {
     <PageHeader eyebrow="DESKIT" :title="headline" />
 
     <section class="complete-card ds-surface">
-      <div class="complete-icon" aria-hidden="true">✅</div>
+      <div class="complete-icon" aria-hidden="true">OK</div>
       <div class="complete-body">
         <h2>{{ message }}</h2>
         <p>{{ description }}</p>
@@ -131,3 +131,4 @@ onMounted(() => {
   color: #fff;
 }
 </style>
+
