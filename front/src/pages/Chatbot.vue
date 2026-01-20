@@ -593,6 +593,7 @@ const handleVisibilityChange = () => {
   box-shadow: 0 16px 40px rgba(15, 23, 42, 0.08);
   display: flex;
   flex-direction: column;
+  height: clamp(420px, calc(100dvh - 260px), 760px);
 }
 
 .chat-head {
@@ -652,7 +653,8 @@ const handleVisibilityChange = () => {
 .chat-body {
   display: flex;
   flex-direction: column;
-  min-height: 520px;
+  flex: 1;
+  min-height: 0;
 }
 
 .chat-list {
@@ -830,7 +832,7 @@ const handleVisibilityChange = () => {
 
 @media (max-width: 720px) {
   .chat-body {
-    min-height: 420px;
+    min-height: 0;
   }
 
   .chat-message {
