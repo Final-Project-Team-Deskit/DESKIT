@@ -61,7 +61,8 @@ public class CustomLogoutFilter extends GenericFilterBean {
         //refresh null check
         if (refresh == null) {
 
-            response.setStatus(HttpServletResponse.SC_BAD_REQUEST);
+            clearSessionAndCookies(request, response);
+            response.setStatus(HttpServletResponse.SC_OK);
             return;
         }
 
@@ -71,7 +72,8 @@ public class CustomLogoutFilter extends GenericFilterBean {
         } catch (ExpiredJwtException e) {
 
             //response status code
-            response.setStatus(HttpServletResponse.SC_BAD_REQUEST);
+            clearSessionAndCookies(request, response);
+            response.setStatus(HttpServletResponse.SC_OK);
             return;
         }
 
@@ -80,7 +82,8 @@ public class CustomLogoutFilter extends GenericFilterBean {
         if (!category.equals("refresh")) {
 
             //response status code
-            response.setStatus(HttpServletResponse.SC_BAD_REQUEST);
+            clearSessionAndCookies(request, response);
+            response.setStatus(HttpServletResponse.SC_OK);
             return;
         }
 
@@ -89,7 +92,8 @@ public class CustomLogoutFilter extends GenericFilterBean {
         if (!isExist) {
 
             //response status code
-            response.setStatus(HttpServletResponse.SC_BAD_REQUEST);
+            clearSessionAndCookies(request, response);
+            response.setStatus(HttpServletResponse.SC_OK);
             return;
         }
 
@@ -97,12 +101,16 @@ public class CustomLogoutFilter extends GenericFilterBean {
         //Refresh 토큰 DB에서 제거
         refreshRepository.deleteByRefresh(refresh);
 
+        clearSessionAndCookies(request, response);
+        response.setStatus(HttpServletResponse.SC_OK);
+    }
+
+    private void clearSessionAndCookies(HttpServletRequest request, HttpServletResponse response) {
         HttpSession session = request.getSession(false);
         if (session != null) {
             session.invalidate();
         }
 
-        //Refresh 토큰 Cookie 값 0
         Cookie cookie = new Cookie("refresh", null);
         cookie.setMaxAge(0);
         cookie.setPath("/");
@@ -114,6 +122,5 @@ public class CustomLogoutFilter extends GenericFilterBean {
         response.setHeader("access", "");
         response.addCookie(cookie);
         response.addCookie(accessCookie);
-        response.setStatus(HttpServletResponse.SC_OK);
     }
 }
