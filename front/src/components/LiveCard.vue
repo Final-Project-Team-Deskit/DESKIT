@@ -236,6 +236,7 @@ const handleWatchNow = () => {
   grid-template-columns: minmax(300px, 360px) 1fr;
   column-gap: 2px;
   align-items: stretch;
+  height: clamp(240px, 32vw, 290px);
 }
 
 .card:hover {
@@ -254,6 +255,7 @@ const handleWatchNow = () => {
   background: var(--surface-weak);
   aspect-ratio: 16 / 9;
   width: 100%;
+  height: 100%;
 }
 
 .media img {
@@ -353,6 +355,7 @@ const handleWatchNow = () => {
   word-break: keep-all;
   white-space: normal;
   max-width: 560px;
+  overflow: hidden;
 }
 
 .eyebrow {
@@ -367,6 +370,10 @@ h3 {
   font-size: 1.5rem;
   font-weight: 800;
   letter-spacing: -0.3px;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 .desc {
