@@ -93,6 +93,10 @@ public class SseService {
     }
 
     public void notifyTargetUser(Long broadcastId, String userId, String eventName, Object data) {
+        if (userId == null || userId.isBlank()) {
+            log.warn("Skip target notify due to empty userId: broadcastId={}, eventName={}", broadcastId, eventName);
+            return;
+        }
         String resolvedUserId = resolveUserId(userId);
         String prefix = broadcastId + ":" + resolvedUserId + ":";
         boolean delivered = false;
