@@ -95,7 +95,6 @@ public class LiveChatService {
                 .rawContent(rawContent)
                 .sendNick(dto.getSender())
                 .isWorld(dto.isWorld())
-                .isHidden(false)
                 .vodPlayTime(dto.getVodPlayTime())
                 .build();
 
