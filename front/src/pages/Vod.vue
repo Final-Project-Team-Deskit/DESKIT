@@ -603,15 +603,14 @@ watch(isLoggedIn, (next) => {
   display: flex;
   flex-direction: column;
   gap: 4px;
+  min-width: 0;
 }
 
 .product-card__name {
   margin: 0;
   font-weight: 700;
   color: var(--text-strong);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  word-break: break-word;
 }
 
 .product-card__price {

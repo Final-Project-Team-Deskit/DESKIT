@@ -804,7 +804,7 @@ watch(
                   </div>
                   <div class="product-text">
                     <strong>{{ product.name }}</strong>
-                    <span class="product-option__meta">{{ product.option }}</span>
+<!--                    <span class="product-option__meta">{{ product.option }}</span>-->
                   </div>
                 </div>
               </td>
