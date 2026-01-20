@@ -42,9 +42,6 @@ public class LiveChat {
     @Column(nullable = false,name = "is_world")
     private boolean isWorld;
 
-    @Column(nullable = false,name = "is_hidden")
-    private boolean isHidden;
-
     @CreationTimestamp
     @Column(nullable = false, updatable = false,name = "send_lchat")
     private LocalDateTime sendLchat;

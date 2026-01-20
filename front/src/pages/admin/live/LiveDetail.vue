@@ -1870,11 +1870,12 @@ watch(
 
 .chat-scroll-button {
   position: absolute;
-  right: 16px;
   bottom: 64px;
+  left : 50%;
   width: 36px;
   height: 36px;
   border-radius: 999px;
+  transform: translateX(-50%);
   border: 1px solid var(--border-color);
   background: var(--surface);
   color: var(--text-strong);
