@@ -87,7 +87,6 @@ public class TossPaymentService {
     }
 
     Order order = findOrderForUpdate(orderIdText);
-    String tossOrderId = resolveTossOrderId(order, orderIdText);
 
     Integer orderAmount = order.getOrderAmount();
     long expectedAmount = orderAmount == null ? 0L : orderAmount;
@@ -110,10 +109,10 @@ public class TossPaymentService {
 
     Map<String, Object> body = new HashMap<>();
     body.put("paymentKey", paymentKey);
-    body.put("orderId", tossOrderId);
+    body.put("orderId", orderIdText);
     body.put("amount", amount);
 
-    String idempotencyKey = generateIdempotencyKey(paymentKey, tossOrderId, amount);
+    String idempotencyKey = generateIdempotencyKey(paymentKey, orderIdText, amount);
 
     try {
       HttpURLConnection connection = (HttpURLConnection) new URL(CONFIRM_URL).openConnection();
@@ -138,7 +137,7 @@ public class TossPaymentService {
         );
 
         if (isSuccess) {
-          TossPayment payment = toEntity(responseBody, tossOrderId);
+          TossPayment payment = toEntity(responseBody, orderIdText);
           tossPaymentRepository.save(payment);
           updateOrderPaid(order);
         }
@@ -271,17 +270,6 @@ public class TossPaymentService {
     order.requestCancel("price changed");
     order.approveCancel();
     orderRepository.save(order);
-  }
-
-  private String resolveTossOrderId(Order order, String fallbackOrderId) {
-    if (order == null) {
-      return fallbackOrderId == null ? "" : fallbackOrderId;
-    }
-    String orderNumber = order.getOrderNumber();
-    if (orderNumber != null && !orderNumber.isBlank()) {
-      return orderNumber;
-    }
-    return fallbackOrderId == null ? "" : fallbackOrderId;
   }
 
   private Order findOrderForUpdate(String orderIdText) {
