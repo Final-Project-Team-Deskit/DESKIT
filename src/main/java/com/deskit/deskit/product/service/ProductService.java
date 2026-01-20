@@ -592,6 +592,16 @@ public class ProductService {
             .map(Product::getId)
             .collect(Collectors.toList());
 
+    Map<Long, String> thumbnailUrls = productImageRepository
+      .findAllByProductIdInAndImageTypeAndSlotIndexAndDeletedAtIsNullOrderByProductIdAscIdAsc(
+        productIds, ImageType.THUMBNAIL, 0
+      ).stream()
+      .collect(Collectors.toMap(
+        ProductImage::getProductId,
+        ProductImage::getProductImageUrl,
+        (left, right) -> left
+      ));
+
     List<ProductTagRow> rows = productTagRepository.findActiveTagsByProductIds(productIds);
     Map<Long, TagsBundle> tagsByProductId = buildTagsByProductId(rows);
 
@@ -600,7 +610,10 @@ public class ProductService {
               TagsBundle bundle = tagsByProductId.get(product.getId());
               ProductTags tags = bundle == null ? ProductTags.empty() : bundle.getTags();
               List<String> tagsFlat = bundle == null ? Collections.emptyList() : bundle.getTagsFlat();
-              return ProductResponse.from(product, tags, tagsFlat);
+              String thumbnailUrl = thumbnailUrls.get(product.getId());
+              return ProductResponse.fromWithPriceAndThumbnail(
+                product, tags, tagsFlat, null, thumbnailUrl, null
+              );
             })
             .collect(Collectors.toList());
   }
