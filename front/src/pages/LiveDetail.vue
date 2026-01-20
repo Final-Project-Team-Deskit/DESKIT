@@ -988,7 +988,7 @@ const fetchRecentMessages = async () => {
   }
   try {
     // const response = await fetch(`${wsBase}/livechats/${broadcastId.value}/recent?seconds=60`)
-    const response = await fetch(`/livechats/${broadcastId.value}/recent?seconds=60`)
+    const response = await fetch(`${apiBase}/livechats/${broadcastId.value}/recent?seconds=60`)
     if (!response.ok) {
       return
     }
