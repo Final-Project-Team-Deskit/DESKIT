@@ -99,6 +99,8 @@ const stopEntryPrompted = ref(false)
 const isStopRestricted = ref(false)
 const chatText = ref('')
 const chatListRef = ref<HTMLDivElement | null>(null)
+const CHAT_SCROLL_THRESHOLD_PX = 120
+const showScrollToBottom = ref(false)
 
 // Chat State (Stomp)
 const chatMessages = ref<ChatMessageUI[]>([])
@@ -231,6 +233,24 @@ const formatChatUser = (message: ChatMessageUI) => {
   return message.user
 }
 
+const updateChatScrollIndicator = () => {
+  const el = chatListRef.value
+  if (!el) return
+  const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight
+  showScrollToBottom.value = distanceFromBottom > CHAT_SCROLL_THRESHOLD_PX
+}
+
+const handleChatScroll = () => {
+  updateChatScrollIndicator()
+}
+
+const scrollChatToBottom = () => {
+  const el = chatListRef.value
+  if (!el) return
+  el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
+  showScrollToBottom.value = false
+}
+
 const mapLiveProduct = (item: {
   id: string
   name: string
@@ -292,10 +312,7 @@ const handleIncomingMessage = (payload: LiveChatMessageDTO) => {
   })
 
   nextTick(() => {
-    const el = chatListRef.value
-    if (el) {
-      el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
-    }
+    scrollChatToBottom()
   })
 }
 
@@ -328,10 +345,7 @@ const fetchRecentMessages = async () => {
           }
         })
     nextTick(() => {
-      const el = chatListRef.value
-      if (el) {
-        el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
-      }
+      scrollChatToBottom()
     })
   } catch (error) {
     console.error('[admin chat] recent fetch failed', error)
@@ -1052,9 +1066,7 @@ const saveModeration = async () => {
 
   closeModeration()
   nextTick(() => {
-    const el = chatListRef.value
-    if (!el) return
-    el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
+    scrollChatToBottom()
   })
 }
 
@@ -1354,7 +1366,7 @@ watch(
                 <h4>실시간 채팅 ({{ isChatConnected ? '연결됨' : '연결 중...' }})</h4>
                 <button type="button" class="chat-close" @click="closeChat">×</button>
               </header>
-              <div ref="chatListRef" class="chat-messages">
+              <div ref="chatListRef" class="chat-messages" @scroll="handleChatScroll">
                 <div
                     v-for="msg in chatMessages"
                     :key="msg.id"
@@ -1370,6 +1382,18 @@ watch(
                   <p class="chat-text">{{ msg.text }}</p>
                 </div>
               </div>
+              <button
+                v-if="showScrollToBottom"
+                type="button"
+                class="chat-scroll-button"
+                aria-label="아래로 이동"
+                @click="scrollChatToBottom"
+              >
+                <svg class="chat-scroll-icon" viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M12 5v12" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
+                  <path d="M7 12l5 5 5-5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
+                </svg>
+              </button>
               <div class="chat-input">
                 <input v-model="chatText" type="text" placeholder="메시지를 입력하세요" :disabled="isReadOnly || !isChatConnected" @keydown.enter="sendChat" />
                 <button type="button" class="btn primary" :disabled="isReadOnly || !isChatConnected" @click="sendChat">전송</button>
@@ -1804,6 +1828,10 @@ watch(
   border-radius: 16px;
   padding: 12px;
   gap: 10px;
+  max-height: min(70vh, 720px);
+  overflow: hidden;
+  min-height: 0;
+  position: relative;
 }
 
 .chat-head {
@@ -1838,6 +1866,28 @@ watch(
   flex-direction: column;
   gap: 10px;
   padding-right: 4px;
+}
+
+.chat-scroll-button {
+  position: absolute;
+  right: 16px;
+  bottom: 64px;
+  width: 36px;
+  height: 36px;
+  border-radius: 999px;
+  border: 1px solid var(--border-color);
+  background: var(--surface);
+  color: var(--text-strong);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.12);
+}
+
+.chat-scroll-icon {
+  width: 18px;
+  height: 18px;
 }
 
 .chat-message {

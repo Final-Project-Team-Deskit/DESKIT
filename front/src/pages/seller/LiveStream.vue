@@ -112,6 +112,8 @@ const micAnalyser = ref<AnalyserNode | null>(null)
 const micMeterFrame = ref<number | null>(null)
 const chatText = ref('')
 const chatListRef = ref<HTMLElement | null>(null)
+const CHAT_SCROLL_THRESHOLD_PX = 120
+const showScrollToBottom = ref(false)
 let gridObserver: ResizeObserver | null = null
 const availableMics = ref<Array<{ id: string; label: string }>>([])
 const availableCameras = ref<Array<{ id: string; label: string }>>([])
@@ -1066,7 +1068,19 @@ const scrollChatToBottom = () => {
     const el = chatListRef.value
     if (!el) return
     el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
+    updateChatScrollIndicator()
   })
+}
+
+const updateChatScrollIndicator = () => {
+  const el = chatListRef.value
+  if (!el) return
+  const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight
+  showScrollToBottom.value = distanceFromBottom > CHAT_SCROLL_THRESHOLD_PX
+}
+
+const handleChatScroll = () => {
+  updateChatScrollIndicator()
 }
 
 const hydrateStream = async () => {
@@ -2144,7 +2158,7 @@ const toggleFullscreen = async () => {
           </div>
           <button type="button" class="panel-close" aria-label="채팅 패널 닫기" @click="showChat = false">×</button>
         </div>
-        <div ref="chatListRef" class="panel-chat chat-messages">
+        <div ref="chatListRef" class="panel-chat chat-messages" @scroll="handleChatScroll">
           <div
             v-for="item in chatItems"
             :key="item.id"
@@ -2160,6 +2174,18 @@ const toggleFullscreen = async () => {
             <p class="chat-text">{{ item.message }}</p>
           </div>
         </div>
+        <button
+          v-if="showScrollToBottom"
+          type="button"
+          class="chat-scroll-button"
+          aria-label="아래로 이동"
+          @click="scrollChatToBottom"
+        >
+          <svg class="chat-scroll-icon" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M12 5v12" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
+            <path d="M7 12l5 5 5-5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
+          </svg>
+        </button>
         <div class="chat-input">
           <input
             v-model="chatText"
@@ -2253,7 +2279,7 @@ const toggleFullscreen = async () => {
   grid-template-columns: var(--grid-template-columns, 320px minmax(0, 1fr) 320px);
   gap: 18px;
   align-items: start;
-  --stream-pane-height: clamp(300px, auto, 675px);
+  --stream-pane-height: clamp(300px, 70vh, 675px);
 }
 
 .stream-panel {
@@ -2266,6 +2292,10 @@ const toggleFullscreen = async () => {
   flex-direction: column;
   min-width: 0;
   min-height: 0;
+}
+
+.stream-panel--chat {
+  position: relative;
 }
 
 .stream-panel--readonly {
@@ -2656,6 +2686,28 @@ const toggleFullscreen = async () => {
   padding-right: 4px;
 }
 
+.chat-scroll-button {
+  position: absolute;
+  right: 16px;
+  bottom: 64px;
+  width: 36px;
+  height: 36px;
+  border-radius: 999px;
+  border: 1px solid var(--border-color);
+  background: var(--surface);
+  color: var(--text-strong);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.12);
+}
+
+.chat-scroll-icon {
+  width: 18px;
+  height: 18px;
+}
+
 .chat-message {
   display: flex;
   flex-direction: column;
@@ -2930,6 +2982,9 @@ const toggleFullscreen = async () => {
 
 .stream-grid--stacked .stream-panel--chat {
   order: 1 !important;
+  max-height: min(70vh, 720px);
+  overflow: hidden;
+  min-height: 0;
 }
 
 .stream-grid--stacked .stream-panel--products {
