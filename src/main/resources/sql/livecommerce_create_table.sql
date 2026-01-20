@@ -457,7 +457,6 @@ CREATE TABLE live_chat
     raw_content   VARCHAR(500)                                     NOT NULL,
     send_nick     VARCHAR(50)                                      NOT NULL,
     is_world      BOOLEAN                                          NOT NULL DEFAULT FALSE,
-    is_hidden     BOOLEAN                                          NOT NULL DEFAULT FALSE COMMENT '숨김 처리 여부',
     send_lchat    DATETIME                                         NOT NULL DEFAULT CURRENT_TIMESTAMP,
     vod_play_time INT                                              NOT NULL DEFAULT 0 COMMENT '방송 시작 후 경과 시간(초)',
     PRIMARY KEY (message_id)
