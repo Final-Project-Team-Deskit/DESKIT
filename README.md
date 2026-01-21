@@ -1,0 +1,82 @@
+# DESKIT
+
+데스크 셋업/액세서리 기반 라이브 커머스 플랫폼. 상품 카탈로그, 라이브/VOD 구매, 채팅, 셀러/관리자 도구, AI 기반 상담 및 추천 기능을 포함합니다.
+
+## 주요 기능
+- 상품 및 셋업 탐색, 장바구니, 주문/결제(토스 연동).
+- 라이브 방송 + 채팅(WebSocket + OpenVidu), VOD 재생.
+- 셀러 상품/라이브 관리, 관리자 대시보드.
+- 정책 문서 RAG 기반 챗봇과 선호도 추천.
+- 소셜 로그인(네이버/구글/카카오), 이메일/SMS 알림.
+
+## 기술 스택
+- 백엔드: Spring Boot 3.4, Java 17, JPA/JDBC, Spring Security, WebSocket, Redis.
+- AI: Spring AI + OpenAI 모델, Redis 벡터 스토어.
+- 인프라: MySQL, Redis, OpenVidu, S3 호환 스토리지(NCP).
+- 프론트엔드: Vue 3, Vite, TypeScript.
+
+## 프로젝트 구조
+- `src/main/java`: Spring Boot 애플리케이션 소스.
+- `src/main/resources`: 설정, SQL 시드, RAG 시드 문서.
+- `front`: Vue 클라이언트 앱.
+- `front-example`: 예제 템플릿 및 통합 참고.
+- `docs`: 정책 및 프로젝트 문서.
+- `prompt`: AI 기능용 프롬프트 템플릿.
+
+## 로컬 실행
+사전 준비:
+- JDK 17
+- Node.js 18+
+- MySQL 8
+- Redis
+- (선택) OpenVidu, OpenAI, SendGrid, Solapi, Toss, S3 호환 스토리지
+
+### 1) 백엔드 설정
+로컬 프로파일을 만들고 시크릿 값을 본인 것으로 교체:
+- `src/main/resources/application-local.properties`
+
+교체 권장 항목:
+- `spring.datasource.*`
+- `spring.data.redis.*`
+- `spring.ai.openai.*`
+- `openvidu.*`
+- `cloud.aws.*`
+- `spring.sendgrid.api-key`
+- `solapi.*`
+- `toss.payments.secret-key`
+- `spring.security.oauth2.client.registration.*`
+
+실행 시 프로파일 적용:
+```
+SPRING_PROFILES_ACTIVE=local
+```
+
+### 2) DB 준비
+SQL 스크립트 경로:
+- `src/main/resources/sql`
+
+### 3) 백엔드 실행
+```
+./gradlew bootRun
+```
+Windows PowerShell:
+```
+.\gradlew.bat bootRun
+```
+
+### 4) 프론트엔드 실행
+```
+cd front
+npm install
+npm run dev
+```
+
+빌드/미리보기:
+```
+npm run build
+npm run preview
+```
+
+## 참고
+- 기본 주소: 백엔드 `http://localhost:8080`, 프론트엔드 `http://localhost:5173`.
+- RAG 시드 파일은 `src/main/resources/rag/seed`에 있습니다.
