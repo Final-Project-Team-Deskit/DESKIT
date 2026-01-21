@@ -34,6 +34,7 @@ import jakarta.servlet.http.HttpSession;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -419,7 +420,7 @@ public class SignupService {
         clearAuthCookies(response);
         clearPhoneSession(session);
 
-        return new ResponseEntity<>("invited seller signup completed", HttpStatus.OK);
+        return new ResponseEntity<>("회원가입이 완료되었습니다.", HttpStatus.OK);
     }
 
     private void clearAuthCookies(HttpServletResponse response) {
@@ -440,6 +441,8 @@ public class SignupService {
         session.removeAttribute(SESSION_PHONE_NUMBER);
         session.removeAttribute(SESSION_PHONE_CODE);
         session.removeAttribute(SESSION_PHONE_VERIFIED);
+        session.invalidate();
+        SecurityContextHolder.clearContext();
     }
 
     private byte[] decodePlanFile(String encodedPlanFile) {

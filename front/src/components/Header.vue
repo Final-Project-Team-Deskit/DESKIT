@@ -61,7 +61,9 @@ const refreshAuth = () => {
 
 const sellerMode = computed(() => isLoggedIn.value && isSeller())
 const adminLoggedIn = computed(() => isLoggedIn.value && isAdmin())
-const adminMode = computed(() => adminLoggedIn.value && route.path.startsWith('/admin'))
+const isAdminView = computed(() => adminLoggedIn.value || route.path.startsWith('/admin'))
+const isSellerView = computed(() => !isAdminView.value && (sellerMode.value || route.path.startsWith('/seller')))
+const showBaseNav = computed(() => !isSellerView.value && !isAdminView.value)
 const showCart = computed(
   () => isLoggedIn.value && !!memberCategory.value && memberCategory.value !== 'ROLE_GUEST',
 )
@@ -118,8 +120,6 @@ onBeforeUnmount(() => {
 })
 
 const isLiveActive = computed(() => route.path.startsWith('/live'))
-const isSellerRoute = computed(() => route.path.startsWith('/seller'))
-const isAdminRoute = computed(() => route.path.startsWith('/admin'))
 const activeSellerPath = computed(() => {
   const match = sellerTabs.find((tab) => route.path.startsWith(tab.to))
   return match?.to ?? ''
@@ -137,7 +137,7 @@ const closeMenus = () => {
   showAdminMenu.value = false
 }
 
-const logoTo = computed(() => (isSellerRoute.value ? '/seller' : isAdminRoute.value ? '/admin' : '/'))
+const logoTo = computed(() => (isSellerView.value ? '/seller' : isAdminView.value ? '/admin' : '/'))
 
 const closeMenu = () => {
   isMenuOpen.value = false
@@ -196,7 +196,7 @@ const handleLogout = async () => {
           <img class="brand__logo" src="/DESKIT.png" alt="DESKIT"/>
         </RouterLink>
 
-        <nav v-if="!isSellerRoute && !isAdminRoute" class="nav">
+        <nav v-if="showBaseNav" class="nav">
           <RouterLink
               v-for="item in navLinks"
               :key="item.to"
@@ -215,7 +215,7 @@ const handleLogout = async () => {
           </RouterLink>
         </nav>
         <div v-else class="seller-nav">
-          <nav v-if="isSellerRoute" class="nav seller-tabs" aria-label="판매자 대시보드 탭">
+          <nav v-if="isSellerView" class="nav seller-tabs" aria-label="판매자 대시보드 탭">
             <div
               v-for="tab in sellerTabs"
               :key="tab.to"
@@ -257,7 +257,7 @@ const handleLogout = async () => {
       </div>
 
       <div class="right right-wrap">
-        <form v-if="!adminMode && !isSellerRoute" class="search search--desktop" @submit.prevent="submitSearch">
+        <form v-if="showBaseNav" class="search search--desktop" @submit.prevent="submitSearch">
           <svg class="search__icon" width="16" height="16" viewBox="0 0 24 24" fill="none">
             <path
                 d="M11 4a7 7 0 015.657 11.045l3.149 3.148-1.414 1.414-3.148-3.149A7 7 0 1111 4z"
@@ -342,7 +342,7 @@ const handleLogout = async () => {
           aria-label="모바일 메뉴"
           ref="panelRef"
       >
-        <form v-if="!adminMode && !isSellerRoute" class="search search--mobile" @submit.prevent="submitSearch">
+        <form v-if="showBaseNav" class="search search--mobile" @submit.prevent="submitSearch">
           <svg class="search__icon" width="16" height="16" viewBox="0 0 24 24" fill="none">
             <path
                 d="M11 4a7 7 0 015.657 11.045l3.149 3.148-1.414 1.414-3.148-3.149A7 7 0 1111 4z"
@@ -367,7 +367,7 @@ const handleLogout = async () => {
             </svg>
           </button>
         </div>
-        <nav v-if="!isSellerRoute && !isAdminRoute" class="mobile-menu__nav">
+        <nav v-if="showBaseNav" class="mobile-menu__nav">
           <RouterLink
               v-for="item in navLinks"
               :key="item.to"
@@ -380,7 +380,7 @@ const handleLogout = async () => {
           </RouterLink>
         </nav>
         <nav v-else class="mobile-menu__nav">
-          <template v-if="isSellerRoute">
+          <template v-if="isSellerView">
             <div v-for="tab in sellerTabs" :key="`seller-${tab.to}`" class="mobile-menu__group">
               <RouterLink :to="tab.to" class="mobile-menu__link" @click="closeMenu">
                 {{ tab.label }}

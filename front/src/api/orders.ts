@@ -31,7 +31,7 @@ export const getMyOrderDetail = async (orderId: number): Promise<OrderDetailResp
 }
 
 export const cancelOrder = async (orderId: number, reason: string): Promise<OrderCancelResponse> => {
-  const response = await http.patch<OrderCancelResponse>(
+  const response = await http.post<OrderCancelResponse>(
     endpoints.orderCancel(orderId),
     { reason },
     withCredentials,

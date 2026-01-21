@@ -3,6 +3,7 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import PageContainer from '../components/PageContainer.vue'
 import PageHeader from '../components/PageHeader.vue'
+import { logout } from '../lib/auth'
 
 type PendingSignup = {
   username?: string
@@ -490,14 +491,8 @@ const submitSignup = async () => {
     return
   }
 
-  const successText = await response.text()
-  const completionMessage =
-    successText ||
-    (form.memberType === 'SELLER'
-      ? isInviteSignup.value
-        ? '판매자 가입이 완료되었습니다.'
-        : '판매자 가입이 접수되었습니다. 관리자 승인을 기다려 주세요.'
-      : '회원가입이 완료되었습니다.')
+  await response.text()
+  const completionMessage = '회원가입이 완료되었습니다.'
 
   sessionStorage.setItem(
     'registerComplete',
@@ -508,6 +503,7 @@ const submitSignup = async () => {
   )
   sessionStorage.removeItem('signupToken')
   sessionStorage.removeItem('inviteToken')
+  logout()
   router.push('/signup/complete').catch(() => {})
 }
 
