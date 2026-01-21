@@ -69,7 +69,7 @@ public class LiveChatController {
         messagingTemplate.convertAndSend("/sub/chat/" + message.getBroadcastId(), message);
     }
 
-    @GetMapping("/livechats/{broadcastId}/recent")
+    @GetMapping("/api/livechats/{broadcastId}/recent")
     public List<LiveChatMessageDTO> getRecentTalks(
             @PathVariable Long broadcastId,
             @RequestParam(name = "seconds", required = false) Long seconds
