@@ -1,6 +1,7 @@
 # DESKIT
 
-데스크 셋업/액세서리 기반 라이브 커머스 플랫폼. 상품 카탈로그, 라이브/VOD 구매, 채팅, 셀러/관리자 도구, AI 기반 상담 및 추천 기능을 포함합니다.
+데스크 셋업/액세서리 기반 라이브 커머스 플랫폼. 
+상품 카탈로그, 라이브/VOD 구매, 채팅, 셀러/관리자 도구, AI 기반 상담 및 추천 기능을 포함합니다.
 
 ## 주요 기능
 - 상품 및 셋업 탐색, 장바구니, 주문/결제(토스 연동).
@@ -12,16 +13,14 @@
 ## 기술 스택
 - 백엔드: Spring Boot 3.4, Java 17, JPA/JDBC, Spring Security, WebSocket, Redis.
 - AI: Spring AI + OpenAI 모델, Redis 벡터 스토어.
-- 인프라: MySQL, Redis, OpenVidu, S3 호환 스토리지(NCP).
+- 인프라: MySQL, Redis, OpenVidu, Naver Cloud Platform(NCP).
 - 프론트엔드: Vue 3, Vite, TypeScript.
 
 ## 프로젝트 구조
 - `src/main/java`: Spring Boot 애플리케이션 소스.
 - `src/main/resources`: 설정, SQL 시드, RAG 시드 문서.
 - `front`: Vue 클라이언트 앱.
-- `front-example`: 예제 템플릿 및 통합 참고.
 - `docs`: 정책 및 프로젝트 문서.
-- `prompt`: AI 기능용 프롬프트 템플릿.
 
 ## 로컬 실행
 사전 준비:
@@ -78,5 +77,5 @@ npm run preview
 ```
 
 ## 참고
-- 기본 주소: 백엔드 `http://localhost:8080`, 프론트엔드 `http://localhost:5173`.
-- RAG 시드 파일은 `src/main/resources/rag/seed`에 있습니다.
+- 접속 주소: `https://ssg.deskit.o-r.kr`
+- RAG 시드 파일은 `src/main/resources/rag/seed`에 저장, 파일 추가 시 자동 Ingest됩니다.
