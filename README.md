@@ -1,14 +1,14 @@
 # DESKIT
 
-데스크 셋업/액세서리 기반 라이브 커머스 플랫폼. 
-상품 카탈로그, 라이브/VOD 구매, 채팅, 셀러/관리자 도구, AI 기반 상담 및 추천 기능을 포함합니다.
+데스크테리어 전문 라이브 커머스 플랫폼 DESKIT 입니다. 
+상품 구매, 라이브 방송 송출 및 시청, 실시간 채팅, 챗봇 문의 기능을 포함합니다.
 
 ## 주요 기능
 - 상품 및 셋업 탐색, 장바구니, 주문/결제(토스 연동).
 - 라이브 방송 + 채팅(WebSocket + OpenVidu), VOD 재생.
 - 셀러 상품/라이브 관리, 관리자 대시보드.
 - 정책 문서 RAG 기반 챗봇과 선호도 추천.
-- 소셜 로그인(네이버/구글/카카오), 이메일/SMS 알림.
+- 소셜 로그인(네이버/구글/카카오), 이메일 알림.
 
 ## 기술 스택
 - 백엔드: Spring Boot 3.4, Java 17, JPA/JDBC, Spring Security, WebSocket, Redis.
@@ -77,5 +77,6 @@ npm run preview
 ```
 
 ## 참고
-- 접속 주소: `https://ssg.deskit.o-r.kr`
+- 접속 주소: `https://ssg.deskit.o-r.kr` (NCP 서버 -> 로컬 마이그레이션, 26.01.23)
+- AWS로 서버 이전 예정입니다.
 - RAG 시드 파일은 `src/main/resources/rag/seed`에 저장, 파일 추가 시 자동 Ingest됩니다.
